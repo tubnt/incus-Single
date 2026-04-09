@@ -90,14 +90,19 @@
 version: "3.8"
 services:
   paymenter:
-    image: paymenter/paymenter:v1
+    image: paymenter/paymenter:v1  # ★ 需确认实际镜像名，可能需自行构建
     restart: unless-stopped
     environment:
       - APP_URL=https://panel.example.com
+      - APP_KEY=${APP_KEY}          # ★ 必须：php artisan key:generate
       - DB_HOST=db
       - DB_DATABASE=paymenter
       - DB_USERNAME=paymenter
       - DB_PASSWORD=${DB_PASSWORD}
+      - CACHE_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - SESSION_DRIVER=redis
+      - REDIS_HOST=redis
       - MAIL_MAILER=smtp
       - MAIL_HOST=${SMTP_HOST}
       - MAIL_PORT=587
@@ -105,11 +110,34 @@ services:
       - MAIL_PASSWORD=${SMTP_PASS}
     volumes:
       - ./storage:/var/www/html/storage
-      - ./extensions:/var/www/html/extensions  # Incus Extension
+      - ./extensions:/var/www/html/extensions
+      - ./certs:/var/www/html/certs:ro   # Incus mTLS 证书
     ports:
       - "127.0.0.1:8080:80"
-    depends_on:
-      - db
+    depends_on: [db, redis]
+
+  # ★ 异步任务处理（发邮件/webhook/到期处理），缺此 Paymenter 残废
+  queue-worker:
+    image: paymenter/paymenter:v1
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3"]
+    environment: *paymenter-env  # 复用 paymenter 环境变量
+    volumes_from: [paymenter]
+    depends_on: [db, redis]
+
+  # ★ 定时任务（到期提醒/自动暂停/自动删除），缺此到期处理不工作
+  scheduler:
+    image: paymenter/paymenter:v1
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do php artisan schedule:run --verbose; sleep 60; done"]
+    volumes_from: [paymenter]
+    depends_on: [db, redis]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
 
   db:
     image: mysql:8.0
@@ -131,13 +159,20 @@ services:
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./certbot/conf:/etc/letsencrypt:ro
-    depends_on:
-      - paymenter
+    depends_on: [paymenter]
 
-  # VNC WebSocket 代理（Incus console 需要 mTLS，浏览器无法直连）
-  vnc-proxy:
-    image: golang:1.22-alpine
-    build: ./vnc-proxy
+  # SSL 证书自动续签（Let's Encrypt 90 天过期）
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+  # Console WebSocket 代理（xterm.js 串口终端）
+  console-proxy:
+    build: ./console-proxy
     restart: unless-stopped
     environment:
       - INCUS_CERT=/certs/client.crt
@@ -149,6 +184,7 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
 ```
 
 ---
@@ -196,7 +232,7 @@ class IncusExtension extends ServerExtension
     public function reboot($params)      { /* PUT state action=restart */ }
     public function reinstall($params)   { /* 删除 → 同 IP 重建 */ }
     public function changePassword($params) { /* incus exec chpasswd */ }
-    public function getConsoleUrl($params)  { /* 返回 VNC 代理 URL */ }
+    public function getConsoleUrl($params)  { /* 返回 console 代理 URL */ }
 
     // === 快照 ===
     public function createSnapshot($params)  { /* POST snapshots */ }
@@ -338,41 +374,53 @@ Cron（每小时）:
 
 ---
 
-## 五、VNC WebSocket 代理
+## 五、Web 控制台（xterm.js + 串口 console）
 
-Incus console API 需要 mTLS（客户端证书），浏览器无法直接建立 mTLS WebSocket 连接。需要一个代理：
+> ★ **重要修正**：Incus VM 的 VGA console 输出是 **SPICE 协议**，noVNC（VNC 客户端）**无法对接**。
+> 正确方案是使用 **xterm.js + 串口 console**（Incus 官方 Web UI 也是这么做的）。
 
 ```
-浏览器 (noVNC) → wss://panel.example.com/vnc/{vm}
-                       ↓
-                 VNC 代理服务 (Go)
-                       ↓ mTLS
-                 Incus API /1.0/instances/{vm}/console
+浏览器 (xterm.js) → wss://panel.example.com/console/{vm}?token=xxx
+                         ↓
+                   Console 代理服务 (Go)
+                         ↓ mTLS
+                   Incus API: POST /1.0/instances/{vm}/console {"type":"console"}
+                         ↓
+                   WebSocket 文本流（双向）
 ```
+
+### 两种 console 类型
+
+| 类型 | 协议 | 前端 | 适用 | 阶段 |
+|------|------|------|------|------|
+| `console`（串口）| 文本流 | **xterm.js** | SSH 级终端操作 | **Phase 4C 实现** |
+| `vga`（图形）| SPICE | spice-html5 | Windows/图形桌面 | Phase 6 可选 |
 
 ### 代理服务（Go，~200 行）
 
 ```go
-// vnc-proxy/main.go
-package main
-
-// 核心逻辑：
-// 1. 接收浏览器 WebSocket 连接（带 session token 认证）
-// 2. 验证 token（从 Paymenter session 或 JWT 验证）
-// 3. 验证用户有权访问该 VM
-// 4. 用 mTLS 建立到 Incus 的 WebSocket 连接
-// 5. 双向转发数据
+// console-proxy/main.go
+// 1. 浏览器 WebSocket 连接（带 session token）
+// 2. 验证 token + 用户权限
+// 3. mTLS 连接 Incus API，获取 console WebSocket
+// 4. 双向转发文本流
 ```
 
-### noVNC 前端集成
+### 前端集成（xterm.js）
 
 ```html
-<!-- Paymenter Extension 的 VM 管理页面 -->
-<div id="vnc-container">
-    <iframe src="/vnc-console?vm={{vm_name}}&token={{session_token}}"
-            width="100%" height="600px" frameborder="0"></iframe>
-</div>
+<div id="terminal"></div>
+<script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.min.js"></script>
+<script>
+  const term = new Terminal();
+  term.open(document.getElementById('terminal'));
+  const ws = new WebSocket('wss://panel.example.com/console/{{vm_name}}?token={{token}}');
+  ws.onmessage = (e) => term.write(e.data);
+  term.onData((data) => ws.send(data));
+</script>
 ```
+
+> 这与 Incus 官方 Web UI（incus-ui-canonical）的实现方式一致。
 
 ---
 
@@ -528,8 +576,8 @@ PATCH /1.0/instances/{vm}
 
 ### Phase 4C：用户功能（2 周）
 
-- [ ] VNC WebSocket 代理服务（Go，~200 行）
-- [ ] noVNC 前端集成
+- [ ] Console WebSocket 代理服务（Go，xterm.js + 串口 console）
+- [ ] xterm.js 前端集成（★ 非 noVNC，Incus VGA 是 SPICE 协议）
 - [ ] 用户防火墙 UI（Incus ACL 管理）
 - [ ] 快照管理（创建/恢复/删除）
 - [ ] 升降配（热升配/冷降配）
@@ -552,8 +600,76 @@ PATCH /1.0/instances/{vm}
 |------|------|
 | Paymenter 被入侵 | WireGuard 隔离 + 受限证书 + 操作审计 |
 | Paymenter 数据丢失 | MySQL 每日备份到独立存储 |
-| VNC 代理安全 | Session token 验证 + 用户只能访问自己的 VM |
+| Console 代理安全 | Session token 验证（TTL 5min）+ 用户只能访问自己的 VM + 独立受限证书 |
 | Extension 开发周期 | 分 4 个子阶段，核心功能优先 |
 | Paymenter v1 停止维护 | 关注 v2 进展，预留迁移能力 |
 | ACL 高密度性能 | 测试环境验证 100+ VM 下的 nftables 规则性能 |
 | 到期提醒精细化 | Paymenter 内置可能不够，准备自定义 Cron |
+| Paymenter 故障时到期 VM 不暂停 | Paymenter 可用性监控（P1 告警）+ 恢复后追溯处理到期 VM |
+| WireGuard 隧道断线 | PersistentKeepalive=25 + 健康检查 + 备用公网 IP 白名单降级 |
+| ACL 全局作用域 | ACL 命名前缀强制（`acl-order-{id}`），Extension 代码校验防篡改 |
+
+---
+
+## 十二、R2 审查补充
+
+### VM 创建失败处理（★ P0 遗漏）
+
+```
+Extension createServer() 失败时：
+1. 自动回收已分配的 IP（status → available）
+2. 订单标记为 "创建失败"
+3. 自动退款到账户余额（非原路退款，避免支付手续费）
+4. 发送邮件通知用户
+5. 触发 P1 告警通知运维
+6. 记录审计日志（包含 Incus API 错误信息）
+```
+
+### 计费边界案例
+
+| 场景 | 处理方式 |
+|------|---------|
+| 创建后立即删除 | 按小时计费、月度封顶（参考 Vultr/Linode），最低 1 小时 |
+| 月中升配 | 立即生效，按剩余天数补差价 |
+| 月中降配 | 下个周期生效，当前不退差价 |
+| 快照存储 | 每 VM 赠 3 个免费快照，超出限制数量（如最多 5 个）|
+| 附加磁盘 | 随 VM 周期计费，VM 删除时一并删除 |
+| 流量超额 | **首期：超出后限速到 10Mbps**（Hetzner 模式，实现最简单）|
+
+> 流量统计从 Incus metrics（`incus_network_receive/transmit_bytes_total`）采集，
+> 需在 Extension 中实现月度流量汇总逻辑。列入 Phase 4C。
+
+### MySQL 备份策略
+
+```
+方式: mysqldump --single-transaction（InnoDB 一致性快照）
+频率: 每日全量 03:00 AM + binlog 实时归档
+保留: 本地 7 天 + 异地 30 天（S3/Backblaze B2）
+恢复测试: 每月一次到测试环境
+监控: 备份 Cron 失败 → Alertmanager P1 告警
+目标: RPO < 24h（全量）/ < 1h（binlog），RTO < 1h
+```
+
+### 用户防火墙 ACL 限制
+
+```
+★ Incus ACL 是全局资源（非 project 级别）
+→ ACL 命名必须包含 order_id 前缀：acl-order-{order_id}
+→ Extension 代码必须校验用户只能操作自己的 ACL
+→ 受限证书能否操作 ACL 需在测试环境验证（Phase 4A 技术 Spike）
+→ 如果不能：Extension 持有两套证书（受限 + ACL 专用管理员证书）
+
+★ 用户 ACL 不允许设置 RFC1918 源地址（首期无内网功能）
+→ Extension 逻辑校验：拒绝 source 为 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 的规则
+```
+
+### 开发前技术 Spike（1-2 天，Phase 4A 之前）
+
+```
+必须在真实环境验证：
+1. Paymenter Docker 镜像是否可用（可能需自行构建）
+2. 最简 Server Extension PoC（createServer 打日志）
+3. 受限证书能否创建/管理 ACL
+4. xterm.js + Incus console API (type=console) 最简 PoC
+5. 确认 Paymenter 实际的 Extension API 方法签名
+```

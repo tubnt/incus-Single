@@ -3,7 +3,7 @@
 - **状态**: draft
 - **创建**: 2026-04-05
 - **更新**: 2026-04-09
-- **审查**: R1（3 路技术验证完成，15 项修正）
+- **审查**: R2（R1 修正 15 项 + R2 修正 min_size=2）
 - **关联任务**: CLUSTER-001
 
 ---
@@ -142,6 +142,10 @@ NIC 2 (eno2, 10G):
 - Ceph 端口：仅限集群节点 IP
 - Incus API：`core.https_address` 绑定管理网 IP
 - Ceph 通信：msgr2 TLS 加密
+
+> ★ **双层防火墙注意**：宿主机手写的 `bridge vm_filter` 和 Incus 自动生成的 ACL nftables 链会共存。
+> 必须确保手写链的 `priority` 高于（数值小于）Incus ACL 链，RFC1918 阻断先于 ACL allow 规则执行。
+> Incus 在 VM 迁移/重启时会重生成 nftables 规则，需要用 `nftables.conf` 持久化手写规则并配合 systemd 确保加载顺序。
 
 ### 模块 5：用户自助面板（Paymenter + Incus Extension）
 
@@ -314,7 +318,8 @@ ceph osd unset noout
 - [ ] setup-cluster.sh（3 节点 Incus 集群初始化）
 - [ ] deploy-ceph.sh（cephadm 部署 MON + MGR + OSD）
   - OSD spec 中 `encrypted: true` 启用 dmcrypt
-  - `ceph osd pool set incus-pool size 2 min_size 1`
+  - `ceph osd pool set incus-pool size 2 min_size 2`
+    ★ 生产环境 min_size=2（宁可不可用也不丢数据。min_size=1 仅用于测试）
   - CRUSH rule 故障域设为 `host`（`osd_crush_chooseleaf_type=1`）
 - [ ] 每节点安装 `ceph-common`，确认 `/etc/ceph/ceph.conf` + keyring 就位
 - [ ] Ceph 存储池接入 Incus：
