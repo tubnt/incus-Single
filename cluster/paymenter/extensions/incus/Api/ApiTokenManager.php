@@ -175,28 +175,37 @@ class ApiTokenManager
 
     /**
      * Rate limiting 检查，返回 true 表示允许
+     *
+     * 使用条件更新实现原子限速：仅当计数 < 上限时才递增，
+     * 避免先增后查的竞态窗口。
      */
     public function checkRateLimit(int $userId): bool
     {
         $windowStart = now()->startOfMinute();
 
-        // upsert 防止并发请求竞态条件绕过限速
-        DB::statement(
-            'INSERT INTO incus_api_rate_limits (user_id, request_count, window_start) VALUES (?, 1, ?)
-             ON DUPLICATE KEY UPDATE request_count = request_count + 1',
-            [$userId, $windowStart]
-        );
-
-        $count = DB::table('incus_api_rate_limits')
-            ->where('user_id', $userId)
-            ->where('window_start', $windowStart)
-            ->value('request_count');
-
-        if ($count > self::RATE_LIMIT) {
-            return false;
+        // 先尝试 insert（新窗口首次请求）
+        try {
+            DB::table('incus_api_rate_limits')->insert([
+                'user_id' => $userId,
+                'request_count' => 1,
+                'window_start' => $windowStart,
+            ]);
+            return true;
+        } catch (\Illuminate\Database\QueryException $e) {
+            // 唯一索引冲突 — 该窗口已有记录，走更新路径
+            if ($e->getCode() !== '23000') {
+                throw $e;
+            }
         }
 
-        return true;
+        // 原子条件更新：仅当 request_count < RATE_LIMIT 时递增
+        $affected = DB::table('incus_api_rate_limits')
+            ->where('user_id', $userId)
+            ->where('window_start', $windowStart)
+            ->where('request_count', '<', self::RATE_LIMIT)
+            ->increment('request_count');
+
+        return $affected > 0;
     }
 
     /**

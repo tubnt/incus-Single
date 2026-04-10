@@ -28,16 +28,36 @@ class RescueMode
     }
 
     /**
+     * 验证 VM 属于指定用户
+     *
+     * @throws \RuntimeException 当 VM 不属于该用户时
+     */
+    private function assertVmOwnership(string $vmName, int $userId): void
+    {
+        $exists = DB::table('order_products')
+            ->join('orders', 'order_products.order_id', '=', 'orders.id')
+            ->where('order_products.vm_name', $vmName)
+            ->where('orders.user_id', $userId)
+            ->exists();
+
+        if (!$exists) {
+            throw new \RuntimeException("VM [{$vmName}] 不属于当前用户，拒绝操作");
+        }
+    }
+
+    /**
      * 进入救援模式
      *
      * 流程：停止 VM → 备份原配置 → 以 rescue 镜像启动（挂载原磁盘为 /mnt）→ 生成临时密码
      *
      * @param string $vmName VM 实例名称
+     * @param int    $userId 操作用户 ID（用于所有权验证）
      * @return array{password: string, expires_at: string} 临时密码和过期时间
      * @throws \RuntimeException
      */
-    public function enterRescue(string $vmName): array
+    public function enterRescue(string $vmName, int $userId): array
     {
+        $this->assertVmOwnership($vmName, $userId);
         if ($this->isInRescue($vmName)) {
             throw new \RuntimeException("VM {$vmName} 已在救援模式中");
         }
@@ -138,10 +158,14 @@ class RescueMode
      * 退出救援模式（恢复原配置启动）
      *
      * @param string $vmName VM 实例名称
+     * @param int|null $userId 操作用户 ID（为 null 时跳过所有权验证，仅供定时清理任务使用）
      * @throws \RuntimeException
      */
-    public function exitRescue(string $vmName): void
+    public function exitRescue(string $vmName, ?int $userId = null): void
     {
+        if ($userId !== null) {
+            $this->assertVmOwnership($vmName, $userId);
+        }
         if (!$this->isInRescue($vmName)) {
             throw new \RuntimeException("VM {$vmName} 不在救援模式中");
         }

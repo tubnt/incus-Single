@@ -28,11 +28,32 @@ class Ipv6Manager
     /** IPv6 DNS */
     private array $dnsServers;
 
+    /** 每用户最大 /64 前缀数量 */
+    private const MAX_PREFIXES_PER_USER = 50;
+
     public function __construct()
     {
         $this->prefix48 = config('incus.ipv6.prefix', '');
         $this->gateway = config('incus.ipv6.gateway', 'fe80::1');
         $this->dnsServers = config('incus.ipv6.dns', ['2606:4700:4700::1111', '2001:4860:4860::8888']);
+    }
+
+    /**
+     * 验证 VM 属于指定用户
+     *
+     * @throws \RuntimeException 当 VM 不属于该用户时
+     */
+    private function assertVmOwnership(string $vmName, int $userId): void
+    {
+        $exists = DB::table('order_products')
+            ->join('orders', 'order_products.order_id', '=', 'orders.id')
+            ->where('order_products.vm_name', $vmName)
+            ->where('orders.user_id', $userId)
+            ->exists();
+
+        if (!$exists) {
+            throw new \RuntimeException("VM [{$vmName}] 不属于当前用户，拒绝操作");
+        }
     }
 
     // ────────────────────────────────────────────
@@ -46,12 +67,28 @@ class Ipv6Manager
      * /48 → /64 可用 65536 个子网（第 49-64 位）。
      *
      * @param string $vmName 虚拟机名称
+     * @param int    $userId 操作用户 ID（用于所有权验证和配额限制）
      * @return array ['success' => bool, 'prefix' => string|null, 'message' => string]
      */
-    public function allocatePrefix(string $vmName): array
+    public function allocatePrefix(string $vmName, int $userId): array
     {
+        // 验证 VM 归属
+        $this->assertVmOwnership($vmName, $userId);
+
         if (empty($this->prefix48)) {
             return ['success' => false, 'prefix' => null, 'message' => 'IPv6 前缀未配置'];
+        }
+
+        // 每用户配额检查
+        $userPrefixCount = DB::table('ipv6_prefixes')
+            ->join('order_products', 'ipv6_prefixes.vm_name', '=', 'order_products.vm_name')
+            ->join('orders', 'order_products.order_id', '=', 'orders.id')
+            ->where('orders.user_id', $userId)
+            ->where('ipv6_prefixes.status', 'allocated')
+            ->count();
+
+        if ($userPrefixCount >= self::MAX_PREFIXES_PER_USER) {
+            return ['success' => false, 'prefix' => null, 'message' => '已达每用户 IPv6 前缀配额上限'];
         }
 
         return DB::transaction(function () use ($vmName) {
@@ -105,10 +142,14 @@ class Ipv6Manager
      * 查询 VM 的 IPv6 前缀
      *
      * @param string $vmName 虚拟机名称
+     * @param int|null $userId 操作用户 ID（为 null 时跳过所有权验证，仅供内部调用）
      * @return array ['success' => bool, 'prefix' => string|null, 'prefix_len' => int, 'message' => string]
      */
-    public function getPrefix(string $vmName): array
+    public function getPrefix(string $vmName, ?int $userId = null): array
     {
+        if ($userId !== null) {
+            $this->assertVmOwnership($vmName, $userId);
+        }
         $record = DB::table('ipv6_prefixes')
             ->where('vm_name', $vmName)
             ->where('status', 'allocated')
@@ -135,10 +176,13 @@ class Ipv6Manager
      * 释放 VM 的 IPv6 前缀
      *
      * @param string $vmName 虚拟机名称
+     * @param int    $userId 操作用户 ID（用于所有权验证）
      * @return array ['success' => bool, 'message' => string]
      */
-    public function releasePrefix(string $vmName): array
+    public function releasePrefix(string $vmName, int $userId): array
     {
+        // 验证 VM 归属
+        $this->assertVmOwnership($vmName, $userId);
         $affected = DB::table('ipv6_prefixes')
             ->where('vm_name', $vmName)
             ->where('status', 'allocated')
