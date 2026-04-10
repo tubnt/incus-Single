@@ -15,6 +15,9 @@ import (
 // vmNamePattern 限制 VM 名称格式：小写字母数字短横线，1-63 字符
 var vmNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// safeResourceIDPattern 限制资源 ID 格式：字母数字下划线短横线，1-128 字符
+var safeResourceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
+
 func validateVMName(name string) error {
 	if !vmNamePattern.MatchString(name) {
 		return fmt.Errorf("虚拟机名称格式无效（仅允许小写字母、数字和短横线，1-63 字符）")
@@ -290,6 +293,9 @@ func (e *ToolExecutor) handleFirewall(userID string, input json.RawMessage) (str
 	case "add":
 		return e.callExtension("POST", base, input)
 	case "remove":
+		if p.RuleID == "" || !safeResourceIDPattern.MatchString(p.RuleID) {
+			return "", fmt.Errorf("规则 ID 格式无效（仅允许字母、数字、下划线和短横线，1-128 字符）")
+		}
 		return e.callExtension("DELETE", fmt.Sprintf("/vms/%s/firewall/%s?user_id=%s", url.PathEscape(p.Name), url.PathEscape(p.RuleID), url.QueryEscape(userID)), nil)
 	default:
 		return "", fmt.Errorf("未知防火墙操作: %s", p.Action)

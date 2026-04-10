@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -337,7 +338,11 @@ func validateToken(token string) string {
 	}
 
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" || secret == "change-me-to-random-secret" {
+	if secret == "change-me-to-random-secret" {
+		log.Println("错误: JWT_SECRET 使用了占位符值，请生成随机密钥（openssl rand -base64 32）")
+		return ""
+	}
+	if secret == "" {
 		// 开发模式：直接使用 token 作为 userID，仅允许安全字符
 		if !safeIDPattern.MatchString(token) {
 			return ""
@@ -401,18 +406,27 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// checkOrigin 验证 WebSocket 请求来源
+// checkOrigin 验证 WebSocket 请求来源，防止跨站 WebSocket 劫持
 func checkOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return true // 非浏览器客户端
+		return true // 非浏览器客户端无 Origin
 	}
 	allowed := os.Getenv("ALLOWED_ORIGINS")
 	if allowed == "" {
-		return true // 未配置时允许所有来源（开发模式）
+		// 未配置时仅允许同源请求
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(u.Host, r.Host)
 	}
 	for _, o := range strings.Split(allowed, ",") {
-		if strings.TrimSpace(o) == origin {
+		o = strings.TrimSpace(o)
+		if o == "*" {
+			return true
+		}
+		if strings.EqualFold(o, origin) {
 			return true
 		}
 	}
@@ -428,8 +442,13 @@ func main() {
 	http.Handle("/", http.FileServer(http.Dir("static")))
 
 	addr := envOr("LISTEN_ADDR", ":9090")
+	srv := &http.Server{
+		Addr:              addr,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	log.Printf("AI Gateway 启动于 %s（模型: %s）", addr, gw.model)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
 }

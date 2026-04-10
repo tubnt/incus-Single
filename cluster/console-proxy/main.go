@@ -141,8 +141,8 @@ func handleConsole(w http.ResponseWriter, r *http.Request) {
 	incusConn, err := connectIncusConsole(vmName)
 	if err != nil {
 		log.Printf("连接 Incus 控制台失败: %v", err)
-		msg := fmt.Sprintf("\r\n连接失败: %v\r\n", err)
-		clientConn.WriteMessage(websocket.TextMessage, []byte(msg))
+		// 仅返回通用错误，不泄露内部端点/TLS 等细节
+		clientConn.WriteMessage(websocket.TextMessage, []byte("\r\n连接控制台失败，请稍后重试\r\n"))
 		return
 	}
 	defer incusConn.Close()
