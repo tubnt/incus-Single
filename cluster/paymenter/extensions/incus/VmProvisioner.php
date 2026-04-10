@@ -79,8 +79,7 @@ class VmProvisioner
 
             // 步骤 6：创建默认 ACL（ingress drop + 放行 SSH 22）并绑定到 VM
             $aclName = 'acl-order-' . $order->id;
-            $this->createAndBindAcl($vmName, $aclName);
-            $this->createdAcl = $aclName;
+            $this->createAndBindAcl($vmName, $aclName, $this->createdAcl);
 
             Log::info('VM 创建步骤 6/7：ACL 已创建并绑定', [
                 'vm_name' => $vmName,
@@ -236,7 +235,7 @@ class VmProvisioner
     /**
      * 创建默认 ACL 并绑定到 VM
      */
-    private function createAndBindAcl(string $vmName, string $aclName): void
+    private function createAndBindAcl(string $vmName, string $aclName, ?string &$trackAcl): void
     {
         // 创建 ACL
         $this->client->post('/1.0/network-acls', [
@@ -244,6 +243,9 @@ class VmProvisioner
             'ingress' => $this->config['default_acl']['ingress'],
             'egress' => $this->config['default_acl']['egress'],
         ]);
+
+        // ACL 已创建，立即标记以确保绑定失败时回滚能清理
+        $trackAcl = $aclName;
 
         // 绑定 ACL 到 VM 的 eth0 设备
         $this->client->patch('/1.0/instances/' . $vmName, [
@@ -272,6 +274,15 @@ class VmProvisioner
     ): string {
         $sshKey = $options['ssh_key'] ?? $options->ssh_key ?? null;
 
+        // 校验 SSH 公钥格式（ssh-rsa/ssh-ed25519/ecdsa-sha2-*）
+        if ($sshKey && !preg_match('/^(ssh-(rsa|ed25519)|ecdsa-sha2-\S+)\s+[A-Za-z0-9+\/=]+/', $sshKey)) {
+            throw new \InvalidArgumentException('SSH 公钥格式无效');
+        }
+
+        // 使用 SHA-512 哈希密码，避免 runcmd 明文注入 + 消除无密码窗口
+        $salt = bin2hex(random_bytes(8));
+        $hashedPassword = crypt($password, '$6$' . $salt . '$');
+
         $config = [
             'hostname' => $vmName,
             'manage_etc_hosts' => true,
@@ -282,11 +293,8 @@ class VmProvisioner
                 [
                     'name' => 'root',
                     'lock_passwd' => false,
-                    'hashed_passwd' => '',
+                    'hashed_passwd' => $hashedPassword,
                 ],
-            ],
-            'runcmd' => [
-                "echo 'root:{$password}' | chpasswd",
             ],
             'write_files' => [
                 [

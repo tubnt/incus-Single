@@ -113,22 +113,25 @@ class IncusExtension extends ServerExtension
         try {
             $amount = $order->total ?? $product->price ?? 0;
             if ($amount > 0) {
-                DB::table('users')
-                    ->where('id', $user->id ?? $order->user_id)
-                    ->increment('balance', $amount);
+                $userId = $user->id ?? $order->user_id;
+                DB::transaction(function () use ($userId, $orderId, $amount) {
+                    DB::table('users')
+                        ->where('id', $userId)
+                        ->increment('balance', $amount);
 
-                DB::table('credit_logs')->insert([
-                    'user_id' => $user->id ?? $order->user_id,
-                    'order_id' => $orderId,
-                    'amount' => $amount,
-                    'type' => 'refund',
-                    'description' => "VM 创建失败自动退款 (订单 #{$orderId})",
-                    'created_at' => now(),
-                ]);
+                    DB::table('credit_logs')->insert([
+                        'user_id' => $userId,
+                        'order_id' => $orderId,
+                        'amount' => $amount,
+                        'type' => 'refund',
+                        'description' => "VM 创建失败自动退款 (订单 #{$orderId})",
+                        'created_at' => now(),
+                    ]);
+                });
 
                 Log::info('创建失败处理：已退款到余额', [
                     'order_id' => $orderId,
-                    'user_id' => $user->id ?? $order->user_id,
+                    'user_id' => $userId,
                     'amount' => $amount,
                 ]);
             }
@@ -331,6 +334,11 @@ class IncusExtension extends ServerExtension
     {
         $vmName = 'vm-' . $params['order_id'];
         $password = $params['password'];
+
+        // 防止换行注入多条 user:password 对
+        if (preg_match('/[\r\n:]/', $password)) {
+            throw new \InvalidArgumentException('密码包含非法字符');
+        }
 
         $this->client->post('/1.0/instances/' . $vmName . '/exec', [
             'command' => ['chpasswd'],
@@ -560,6 +568,11 @@ class IncusExtension extends ServerExtension
     {
         $vmName = 'vm-' . $params['order_id'];
         $sshKey = $params['ssh_key'];
+
+        // 校验 SSH 公钥格式
+        if (!preg_match('/^(ssh-(rsa|ed25519)|ecdsa-sha2-\S+)\s+[A-Za-z0-9+\/=]+/', $sshKey)) {
+            throw new \InvalidArgumentException('SSH 公钥格式无效');
+        }
 
         $this->client->post('/1.0/instances/' . $vmName . '/exec', [
             'command' => ['bash', '-c', 'mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys'],

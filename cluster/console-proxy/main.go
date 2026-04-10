@@ -25,22 +25,25 @@ const (
 	idleTimeout    = 30 * time.Minute // 空闲超时
 	maxConnTimeout = 1 * time.Hour    // 最大连接时长
 	tokenTTL       = 5 * time.Minute  // Token 有效期
+	maxGlobalConns = 100              // 全局最大并发连接数
 )
 
 // 环境变量配置
 var (
-	listenAddr    = envOrDefault("LISTEN_ADDR", ":6080")
-	incusEndpoint = envOrDefault("INCUS_ENDPOINT", "https://localhost:8443")
-	jwtSecret     = os.Getenv("JWT_SECRET")
-	tlsCertFile   = envOrDefault("INCUS_TLS_CERT", "/etc/console-proxy/client.crt")
-	tlsKeyFile    = envOrDefault("INCUS_TLS_KEY", "/etc/console-proxy/client.key")
-	tlsCAFile     = envOrDefault("INCUS_TLS_CA", "/etc/console-proxy/ca.crt")
+	listenAddr     = envOrDefault("LISTEN_ADDR", ":6080")
+	incusEndpoint  = envOrDefault("INCUS_ENDPOINT", "https://localhost:8443")
+	jwtSecret      = os.Getenv("JWT_SECRET")
+	tlsCertFile    = envOrDefault("INCUS_TLS_CERT", "/etc/console-proxy/client.crt")
+	tlsKeyFile     = envOrDefault("INCUS_TLS_KEY", "/etc/console-proxy/client.key")
+	tlsCAFile      = envOrDefault("INCUS_TLS_CA", "/etc/console-proxy/ca.crt")
+	allowedOrigins = envOrDefault("ALLOWED_ORIGINS", "") // 逗号分隔的允许 Origin 列表
 )
 
-// 并发连接追踪：每用户每 VM 最多 1 个连接
+// 并发连接追踪
 var (
 	activeConns   = make(map[string]bool)
 	activeConnsMu sync.Mutex
+	globalConns   int // 全局连接计数
 )
 
 // ConsoleClaims JWT 声明
@@ -65,10 +68,7 @@ type incusOperation struct {
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		// PoC 阶段允许所有来源；生产环境应校验 Origin
-		return true
-	},
+	CheckOrigin:     checkOrigin,
 }
 
 func main() {
@@ -87,10 +87,11 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:         listenAddr,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              listenAddr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		// 注意：不设 ReadTimeout/WriteTimeout，因为 WebSocket 升级后它们会截断长连接
 	}
 
 	log.Printf("Console 代理服务启动，监听 %s", listenAddr)
@@ -230,7 +231,10 @@ func connectIncusConsole(vmName string) (*websocket.Conn, error) {
 	wsURL = "wss" + strings.TrimPrefix(wsURL, "https")
 
 	dialer := websocket.Dialer{TLSClientConfig: tlsConfig}
-	wsConn, _, err := dialer.Dial(wsURL, nil)
+	wsConn, wsResp, err := dialer.Dial(wsURL, nil)
+	if wsResp != nil && wsResp.Body != nil {
+		wsResp.Body.Close()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("WebSocket 连接失败: %w", err)
 	}
@@ -241,8 +245,7 @@ func connectIncusConsole(vmName string) (*websocket.Conn, error) {
 // bridgeWebSockets 双向转发两个 WebSocket 连接
 func bridgeWebSockets(ctx context.Context, client, incus *websocket.Conn) {
 	done := make(chan struct{}, 2)
-	idleTimer := time.NewTimer(idleTimeout)
-	defer idleTimer.Stop()
+	activity := make(chan struct{}, 1) // 活动信号（非阻塞发送避免积压）
 
 	// 客户端 → Incus
 	go func() {
@@ -252,7 +255,10 @@ func bridgeWebSockets(ctx context.Context, client, incus *websocket.Conn) {
 			if err != nil {
 				return
 			}
-			idleTimer.Reset(idleTimeout)
+			select {
+			case activity <- struct{}{}:
+			default:
+			}
 			if err := incus.WriteMessage(msgType, msg); err != nil {
 				return
 			}
@@ -267,19 +273,39 @@ func bridgeWebSockets(ctx context.Context, client, incus *websocket.Conn) {
 			if err != nil {
 				return
 			}
-			idleTimer.Reset(idleTimeout)
+			select {
+			case activity <- struct{}{}:
+			default:
+			}
 			if err := client.WriteMessage(msgType, msg); err != nil {
 				return
 			}
 		}
 	}()
 
-	select {
-	case <-done:
-	case <-idleTimer.C:
-		log.Println("空闲超时，关闭连接")
-	case <-ctx.Done():
-		log.Println("最大连接时长到达，关闭连接")
+	// 空闲超时由主 goroutine 独占管理，避免 Timer 并发竞态
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-activity:
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(idleTimeout)
+		case <-idleTimer.C:
+			log.Println("空闲超时，关闭连接")
+			return
+		case <-ctx.Done():
+			log.Println("最大连接时长到达，关闭连接")
+			return
+		}
 	}
 }
 
@@ -298,12 +324,13 @@ func buildTLSConfig() (*tls.Config, error) {
 	if tlsCAFile != "" {
 		caCert, err := os.ReadFile(tlsCAFile)
 		if err != nil {
-			log.Printf("警告: 无法读取 CA 证书 %s: %v", tlsCAFile, err)
-		} else {
-			pool := x509.NewCertPool()
-			pool.AppendCertsFromPEM(caCert)
-			cfg.RootCAs = pool
+			return nil, fmt.Errorf("读取 CA 证书 %s 失败: %w", tlsCAFile, err)
 		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("CA 证书 %s 中无有效 PEM 数据", tlsCAFile)
+		}
+		cfg.RootCAs = pool
 	}
 
 	return cfg, nil
@@ -315,14 +342,47 @@ func acquireConn(key string) bool {
 	if activeConns[key] {
 		return false
 	}
+	if globalConns >= maxGlobalConns {
+		return false
+	}
 	activeConns[key] = true
+	globalConns++
 	return true
 }
 
 func releaseConn(key string) {
 	activeConnsMu.Lock()
 	defer activeConnsMu.Unlock()
-	delete(activeConns, key)
+	if activeConns[key] {
+		delete(activeConns, key)
+		globalConns--
+	}
+}
+
+// checkOrigin 校验 WebSocket 请求的 Origin，防止跨站 WebSocket 劫持
+func checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // 非浏览器客户端无 Origin
+	}
+	if allowedOrigins == "" {
+		// 未配置时，仅允许同源请求
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		return strings.EqualFold(u.Host, r.Host)
+	}
+	for _, allowed := range strings.Split(allowedOrigins, ",") {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "*" {
+			return true
+		}
+		if strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 func envOrDefault(key, defaultVal string) string {

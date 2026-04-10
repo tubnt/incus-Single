@@ -57,6 +57,16 @@ groups:
           summary: "节点系统盘空间不足"
           description: "节点 {{ $labels.instance }} 系统盘使用率 {{ $value | printf \"%.1f\" }}%，可清理 journald + apt 缓存。"
 
+      - alert: NodeDiskCritical
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "节点系统盘空间严重不足"
+          description: "节点 {{ $labels.instance }} 系统盘使用率 {{ $value | printf \"%.1f\" }}%，已超过 95%，需要立即清理或扩容。"
+
   - name: node_availability
     rules:
       # ── 节点离线 ────────────────────────────────────────

@@ -23,9 +23,14 @@ services:
     restart: unless-stopped
     ports:
       - "9093:9093"
+    env_file:
+      - .env
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml.tpl:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+      - ./alertmanager/docker-entrypoint.sh:/docker-entrypoint.sh:ro
       - alertmanager_data:/alertmanager
+    entrypoint: ["/bin/sh", "/docker-entrypoint.sh"]
     networks:
       - monitoring
 
@@ -36,7 +41,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?请在 .env 中设置 GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
