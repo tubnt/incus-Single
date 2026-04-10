@@ -28,11 +28,13 @@
 | 1.1.4 | VM → 10.0.0.0/8 | 从 VM 内扫描 `nmap -sn 10.0.0.0/8` | 无任何响应 |
 | 1.1.5 | VM → 172.16.0.0/12 | 从 VM 内 `ping 172.16.0.1` | 超时/不可达 |
 | 1.1.6 | VM → 192.168.0.0/16 | 从 VM 内 `ping 192.168.0.1` | 超时/不可达 |
+| 1.1.7 | VM → 100.64.0.0/10 (CGNAT) | 从 VM 内 `ping 100.64.0.1` | 超时/不可达 |
+| 1.1.8 | VM → 169.254.0.0/16 (link-local) | 从 VM 内 `ping 169.254.1.1` | 超时/不可达 |
 
 **验证方法**：
 ```bash
 # 在测试 VM 内执行
-for net in 10.0.10.1 10.0.20.1 10.0.30.1 172.16.0.1 192.168.1.1; do
+for net in 10.0.10.1 10.0.20.1 10.0.30.1 172.16.0.1 192.168.1.1 100.64.0.1 169.254.1.1; do
   timeout 3 ping -c1 $net && echo "FAIL: $net reachable" || echo "PASS: $net blocked"
 done
 ```
@@ -44,6 +46,31 @@ done
 | 1.2.1 | VM 间直接通信 | VM-A `ping` VM-B 的公网 IP | 正常（公网可互通） |
 | 1.2.2 | VM 间 ARP 欺骗 | 从 VM-A 发送伪造 ARP 指向 VM-B | 被 MAC 过滤阻断 |
 | 1.2.3 | port_isolation 生效 | 从 VM-A 通过二层直接访问 VM-B | 被端口隔离阻断 |
+
+---
+
+### 1.3 IPv6 隔离验证
+
+**目标**：验证 VM 无法通过 IPv6 绕过隔离访问集群内部服务
+
+| 编号 | 测试项 | 测试方法 | 预期结果 |
+|------|--------|----------|----------|
+| 1.3.1 | VM → 宿主机 IPv6 link-local | 从 VM 内 `ping6 fe80::1%eth0` | 超时/不可达 |
+| 1.3.2 | VM → 管理端口(IPv6) | 从 VM 内 `nc -6 -zv <host-ipv6> 8443` | 不可达 |
+| 1.3.3 | VM IPv6 源地址伪造 | VM 配置非分配的 IPv6 地址 | 网络中断 |
+| 1.3.4 | VM → 其他 VM (IPv6 二层) | VM-A 通过 IPv6 link-local 访问 VM-B | 被端口隔离阻断 |
+
+**验证方法**：
+```bash
+# 在测试 VM 内执行
+# 测试 IPv6 link-local 到宿主机
+timeout 3 ping6 -c1 fe80::1%eth0 && echo "FAIL" || echo "PASS"
+
+# 测试 IPv6 访问管理端口
+for port in 8443 9090 9100 22; do
+  timeout 3 nc -6 -zv fe80::1%eth0 $port 2>&1 && echo "FAIL: port $port open" || echo "PASS: port $port closed"
+done
+```
 
 ---
 

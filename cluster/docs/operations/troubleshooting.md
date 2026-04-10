@@ -117,8 +117,15 @@ ceph -w  # 观察 recovery 进度
 # 1. 确保 OSD 已标记为 out
 ceph osd out osd.<id>
 
-# 2. 等待数据重新分布完成（所有 PG 回到 active+clean）
-while ! ceph health | grep -q HEALTH_OK; do sleep 10; done
+# 2. 等待数据重新分布完成（所有 PG 回到 active+clean，超时 4 小时）
+TIMEOUT=14400; ELAPSED=0
+while ! ceph health | grep -q HEALTH_OK; do
+  sleep 10; ELAPSED=$((ELAPSED+10))
+  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+    echo "ERROR: 等待 HEALTH_OK 超时（${TIMEOUT}s），请人工介入"
+    break
+  fi
+done
 
 # 3. 停止并删除 OSD
 systemctl stop ceph-osd@<id>

@@ -165,10 +165,10 @@ incus config device set <vm-name> eth0 \
 
 ```bash
 # 实时迁移（默认，接近零停机）
-bash scripts/migrate-vm.sh <vm-name> <目标节点>
+bash scripts/migrate-vm.sh <vm-name> --target <目标节点>
 
 # 冷迁移（需要停机）
-bash scripts/migrate-vm.sh <vm-name> <目标节点> --cold
+bash scripts/migrate-vm.sh <vm-name> --target <目标节点> --cold
 
 # 批量迁移（节点维护前）
 bash scripts/batch-migrate.sh <源节点> <目标节点>
@@ -280,6 +280,8 @@ bash scripts/backup-dmcrypt-keys.sh
 
 ```bash
 # 备份（在 Paymenter 所在机器上）
+# 先加载环境变量（MYSQL_ROOT_PASSWORD 在 Paymenter 的 .env 中定义）
+source paymenter/.env
 docker exec paymenter-db mysqldump -u root -p"${MYSQL_ROOT_PASSWORD}" \
   paymenter > /backup/paymenter-$(date +%Y%m%d).sql
 
@@ -355,8 +357,8 @@ incus config trust add <new-cert.crt> --restricted \
 ### 6.3 WireGuard 密钥轮换
 
 ```bash
-# 1. 在 Paymenter 端生成新密钥对
-wg genkey | tee /etc/wireguard/new-private.key | wg pubkey > /etc/wireguard/new-public.key
+# 1. 在 Paymenter 端生成新密钥对（注意设置私钥文件权限）
+(umask 077 && wg genkey | tee /etc/wireguard/new-private.key | wg pubkey > /etc/wireguard/new-public.key)
 
 # 2. 更新集群端 peer 配置
 # 修改 wg0.conf 中 Paymenter 的 PublicKey
