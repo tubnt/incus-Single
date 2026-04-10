@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/cluster-env.sh"
+source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
 # ── 颜色 ──
 RED='\033[0;31m'
@@ -38,7 +38,7 @@ deploy_node_exporter() {
 
     info "部署 node_exporter 到 ${name} (${ip})..."
 
-    ssh -o StrictHostKeyChecking=no "root@${ip}" bash -s <<'REMOTE_SCRIPT'
+    ssh -o StrictHostKeyChecking=accept-new "root@${ip}" bash -s <<'REMOTE_SCRIPT'
 # 如果已在运行则跳过
 if systemctl is-active --quiet node_exporter 2>/dev/null; then
     echo "node_exporter 已在运行，跳过"

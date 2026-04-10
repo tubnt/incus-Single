@@ -2,7 +2,7 @@
 # 批量迁移工具 — 疏散指定节点上的所有 VM
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
 usage() {

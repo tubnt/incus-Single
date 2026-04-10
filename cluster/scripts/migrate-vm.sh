@@ -2,7 +2,7 @@
 # VM 迁移工具 — 支持热迁移（live）和冷迁移（cold）
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
 usage() {
@@ -59,6 +59,12 @@ fi
 if [[ -z "$TARGET_NODE" ]]; then
     log_error "缺少 --target 参数"
     usage
+fi
+
+# 节点名格式校验
+if ! [[ "$TARGET_NODE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    log_error "无效节点名: ${TARGET_NODE}（只允许字母/数字/_-）"
+    exit 1
 fi
 
 # ── 前置检查 ──────────────────────────────────────────────

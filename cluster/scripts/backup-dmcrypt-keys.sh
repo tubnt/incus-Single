@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
 # Ceph dmcrypt 密钥备份脚本
 # 用途: 导出 MON 数据库中的 dm-crypt 加密密钥
@@ -37,7 +37,7 @@ run_on() {
   local node="$1"; shift
   local ip
   ip=$(get_node_field "$node" 3)
-  ssh -o StrictHostKeyChecking=no "${SSH_USER}@${ip}" "$@"
+  ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${ip}" "$@"
 }
 
 # ==================== 主逻辑 ====================

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
 # Ceph 集群部署脚本（cephadm 方式）
 # 用途: 在 5 节点集群上部署 Ceph（MON/MGR/OSD）+ 存储池 + 接入 Incus
@@ -21,7 +21,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../configs/cluster-env.sh
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
+
+# 校验关键配置变量格式，防止远程命令注入
+[[ "${CEPH_POOL_NAME}" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "[ERR] CEPH_POOL_NAME 格式非法: ${CEPH_POOL_NAME}" >&2; exit 1; }
+[[ "${CEPH_BOOTSTRAP_NODE}" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "[ERR] CEPH_BOOTSTRAP_NODE 格式非法" >&2; exit 1; }
 
 # ==================== 日志 ====================
 RED='\033[0;31m'
@@ -40,7 +45,7 @@ run_on() {
   local node="$1"; shift
   local ip
   ip=$(get_node_field "$node" 3)
-  ssh -o StrictHostKeyChecking=no "${SSH_USER}@${ip}" "$@"
+  ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${ip}" "$@"
 }
 
 # 复制文件到远程节点
@@ -48,7 +53,7 @@ copy_to() {
   local node="$1" src="$2" dst="$3"
   local ip
   ip=$(get_node_field "$node" 3)
-  scp -o StrictHostKeyChecking=no "$src" "${SSH_USER}@${ip}:${dst}"
+  scp -o StrictHostKeyChecking=accept-new "$src" "${SSH_USER}@${ip}:${dst}"
 }
 
 # ==================== 前置检查 ====================
@@ -156,8 +161,9 @@ do_add_hosts() {
       labels="_admin osd"
     fi
 
+    # 单引号保护 node/IP 在远端 shell 中不被二次解析
     run_on "${CEPH_BOOTSTRAP_NODE}" "
-      ceph orch host add ${node} ${ceph_pub_ip} --labels ${labels}
+      ceph orch host add '${node}' '${ceph_pub_ip}' --labels ${labels}
     "
     log "  ${node} 已添加（标签: ${labels}）"
   done
@@ -241,25 +247,25 @@ do_deploy_osds() {
 do_create_pool() {
   step "创建存储池 ${CEPH_POOL_NAME}"
 
-  # 检查是否已存在
-  if run_on "${CEPH_BOOTSTRAP_NODE}" "ceph osd pool ls | grep -q '^${CEPH_POOL_NAME}$'" 2>/dev/null; then
+  # 检查是否已存在（pool 名已在脚本顶部通过正则校验）
+  if run_on "${CEPH_BOOTSTRAP_NODE}" "ceph osd pool ls | grep -qxF '${CEPH_POOL_NAME}'" 2>/dev/null; then
     warn "存储池 ${CEPH_POOL_NAME} 已存在，跳过创建"
   else
     log "创建 pool: ${CEPH_POOL_NAME}（PG 数: ${CEPH_POOL_PG_NUM}）"
     run_on "${CEPH_BOOTSTRAP_NODE}" "
-      ceph osd pool create ${CEPH_POOL_NAME} ${CEPH_POOL_PG_NUM}
+      ceph osd pool create '${CEPH_POOL_NAME}' '${CEPH_POOL_PG_NUM}'
     "
   fi
 
   log "设置副本数: size=${CEPH_POOL_SIZE}, min_size=${CEPH_POOL_MIN_SIZE}"
   run_on "${CEPH_BOOTSTRAP_NODE}" "
-    ceph osd pool set ${CEPH_POOL_NAME} size ${CEPH_POOL_SIZE}
-    ceph osd pool set ${CEPH_POOL_NAME} min_size ${CEPH_POOL_MIN_SIZE}
+    ceph osd pool set '${CEPH_POOL_NAME}' size '${CEPH_POOL_SIZE}'
+    ceph osd pool set '${CEPH_POOL_NAME}' min_size '${CEPH_POOL_MIN_SIZE}'
   "
 
   log "设置 CRUSH 故障域为 host（chooseleaf_type=${CEPH_CRUSH_LEAF_TYPE}）"
   run_on "${CEPH_BOOTSTRAP_NODE}" "
-    ceph osd pool set ${CEPH_POOL_NAME} crush_rule replicated_rule
+    ceph osd pool set '${CEPH_POOL_NAME}' crush_rule replicated_rule
     ceph osd crush rule dump replicated_rule | python3 -c '
 import sys, json
 rule = json.load(sys.stdin)
@@ -270,18 +276,18 @@ for step in rule[\"steps\"]:
 ' | grep -q NEED_FIX && {
       # 创建自定义 CRUSH rule 确保故障域为 host
       ceph osd crush rule create-replicated host-rule default host
-      ceph osd pool set ${CEPH_POOL_NAME} crush_rule host-rule
+      ceph osd pool set '${CEPH_POOL_NAME}' crush_rule host-rule
     }
   " || true
 
   # 初始化 pool 为 RBD 类型
   run_on "${CEPH_BOOTSTRAP_NODE}" "
-    ceph osd pool application enable ${CEPH_POOL_NAME} rbd || true
-    rbd pool init ${CEPH_POOL_NAME} || true
+    ceph osd pool application enable '${CEPH_POOL_NAME}' rbd || true
+    rbd pool init '${CEPH_POOL_NAME}' || true
   "
 
   log "存储池配置完成"
-  run_on "${CEPH_BOOTSTRAP_NODE}" "ceph osd pool ls detail | grep ${CEPH_POOL_NAME}"
+  run_on "${CEPH_BOOTSTRAP_NODE}" "ceph osd pool ls detail | grep -F '${CEPH_POOL_NAME}'"
 }
 
 # ==================== 性能调优 ====================

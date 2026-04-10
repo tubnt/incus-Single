@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
 # 自愈 Webhook 服务
 # 用途：接收 Alertmanager webhook，根据告警类型执行自愈动作
@@ -12,14 +12,17 @@ LISTEN_ADDR="${WEBHOOK_BIND:-127.0.0.1}"  # 绑定地址，默认仅本地
 AUDIT_LOG="/var/log/self-healing/audit.log"
 ALLOWED_IPS="${ALLOWED_IPS:-127.0.0.1}"  # 逗号分隔，Alertmanager IP 白名单
 MAX_BODY_SIZE=1048576  # 最大请求体 1MB
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ==================== 工具函数 ====================
 log() {
     local level="$1"; shift
     local ts
     ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-    echo "${ts} [${level}] $*" | tee -a "${AUDIT_LOG}"
+    # 净化日志内容：移除控制字符和 ANSI 转义序列，防止日志注入
+    local sanitized
+    sanitized=$(printf '%s' "$*" | tr -d '\000-\010\013\014\016-\037' | sed 's/\x1b\[[0-9;]*m//g')
+    echo "${ts} [${level}] ${sanitized}" | tee -a "${AUDIT_LOG}"
 }
 
 audit() {
@@ -219,11 +222,21 @@ serve_one() {
 
 main() {
     mkdir -p "$(dirname "${AUDIT_LOG}")"
+
+    # 校验 cleanup-disk.sh 存在且可执行
+    [[ -x "${SCRIPT_DIR}/cleanup-disk.sh" ]] || {
+        log "ERROR" "cleanup-disk.sh 不存在或不可执行: ${SCRIPT_DIR}/cleanup-disk.sh"
+        exit 1
+    }
+
     log "INFO" "自愈 webhook 服务启动，监听端口 ${LISTEN_PORT}"
     log "INFO" "允许的 IP: ${ALLOWED_IPS}"
 
-    exec socat "TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_ADDR},reuseaddr,fork" \
-        SYSTEM:"bash \"$0\" --serve-one"
+    # 使用绝对路径避免 socat SYSTEM 中的路径注入
+    local self_path
+    self_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    exec socat "TCP-LISTEN:${LISTEN_PORT},bind=${LISTEN_ADDR},reuseaddr,fork,accept-timeout=30" \
+        EXEC:"bash ${self_path} --serve-one"
 }
 
 if [[ "${1:-}" == "--serve-one" ]]; then

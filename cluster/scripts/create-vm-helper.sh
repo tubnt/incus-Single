@@ -3,7 +3,7 @@
 # 封装完整的 VM 创建流程：创建 → cloud-init → IP绑定 → 安全过滤 → 启动
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── 常量 ──────────────────────────────────────────────
 IP_PREFIX="202.151.179"

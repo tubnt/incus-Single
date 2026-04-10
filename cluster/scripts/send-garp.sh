@@ -2,7 +2,7 @@
 # 发送 Gratuitous ARP — 迁移后刷新交换机 MAC 表
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
 usage() {

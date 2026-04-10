@@ -9,7 +9,7 @@ set -euo pipefail
 WG_IFACE="${WG_IFACE:-wg0}"
 WG_PORT="${WG_PORT:-51820}"
 WG_CONFIG_DIR="${WG_CONFIG_DIR:-/etc/wireguard}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="${SCRIPT_DIR}/../configs/wireguard"
 
 # 颜色输出

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # setup-incus-project.sh — 初始化 Incus customers project（受限模式 + 资源配额）
 # 安全隔离第 2 层：Project 级别隔离，配合受限证书限制租户操作范围
 set -euo pipefail

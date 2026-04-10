@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # setup-restricted-cert.sh — 签发 Incus 受限证书（绑定 customers project）
 # 安全隔离第 2 层：证书级别权限控制，持有者只能操作指定 Project
 set -euo pipefail
@@ -52,6 +52,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── 输入校验 ──
+[[ "${CERT_CN}" =~ ^[a-zA-Z0-9._-]+$ ]] || err "证书 CN 包含非法字符（只允许字母/数字/._-）"
+[[ "${CERT_DAYS}" =~ ^[1-9][0-9]*$ ]]   || err "--days 必须为正整数"
+[[ "${PROJECT_NAME}" =~ ^[a-zA-Z0-9_-]+$ ]] || err "Project 名称只允许字母、数字、下划线、连字符"
+
 # ── 前置检查 ──
 [[ "$(id -u)" -ne 0 ]] && err "请使用 root 执行此脚本"
 command -v openssl >/dev/null || err "openssl 未安装"
@@ -88,7 +93,7 @@ incus config trust add-certificate "${CRT_FILE}" \
     --projects "${PROJECT_NAME}" --restricted
 
 log "验证信任证书列表:"
-incus config trust list --format csv | grep "${CERT_CN}" || warn "未在信任列表中找到 ${CERT_CN}"
+incus config trust list --format csv | grep -F "${CERT_CN}" || warn "未在信任列表中找到 ${CERT_CN}"
 
 log "受限证书签发完成"
 log "  CN: ${CERT_CN}"

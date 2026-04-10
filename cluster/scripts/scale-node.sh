@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
 # Incus 集群节点扩缩容管理工具
 # 用途：自动化添加/移除集群节点，含安全检查
@@ -12,8 +12,9 @@ PROMETHEUS_CONFIG="/etc/prometheus/prometheus.yml"
 PROMETHEUS_TARGETS_DIR="/etc/prometheus/targets.d"
 FIREWALL_WHITELIST="/etc/nftables.d/cluster-whitelist.nft"
 NOTIFY_WEBHOOK=""            # 通知 Webhook URL（可选）
-JOIN_SCRIPT_PATH="$(dirname "$0")/join-node.sh"
-UPDATE_TARGETS_SCRIPT="$(dirname "$0")/update-monitoring-targets.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JOIN_SCRIPT_PATH="${SCRIPT_DIR}/join-node.sh"
+UPDATE_TARGETS_SCRIPT="${SCRIPT_DIR}/update-monitoring-targets.sh"
 # ==================== 配置区结束 ==================
 
 RED='\033[0;31m'

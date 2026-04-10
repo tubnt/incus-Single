@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ============================================================
 # 审计日志配置脚本
 # 用途：配置 Incus lifecycle 事件 + SSH 操作审计日志收集链路
@@ -6,7 +6,7 @@
 # ============================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SYSTEMD_DIR="/etc/systemd/system"
 PROMTAIL_CONFIG_DIR="/etc/promtail"
 
@@ -44,16 +44,28 @@ setup_ssh_audit() {
 
     # 确保 sshd 日志级别足够记录操作
     local sshd_config="/etc/ssh/sshd_config"
+    local sshd_modified=false
     if grep -q "^LogLevel" "${sshd_config}" 2>/dev/null; then
         if ! grep -q "^LogLevel VERBOSE" "${sshd_config}"; then
-            log "更新 sshd LogLevel 为 VERBOSE"
+            log "备份 sshd_config 后更新 LogLevel 为 VERBOSE"
+            cp "${sshd_config}" "${sshd_config}.bak.$(date +%Y%m%d%H%M%S)"
             sed -i 's/^LogLevel.*/LogLevel VERBOSE/' "${sshd_config}"
-            systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+            sshd_modified=true
         fi
     else
-        log "添加 sshd LogLevel VERBOSE"
+        log "备份 sshd_config 后添加 LogLevel VERBOSE"
+        cp "${sshd_config}" "${sshd_config}.bak.$(date +%Y%m%d%H%M%S)"
         echo "LogLevel VERBOSE" >> "${sshd_config}"
-        systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+        sshd_modified=true
+    fi
+
+    # 修改后先校验语法再 reload，防止配置损坏导致 SSH 不可用
+    if [[ "$sshd_modified" == true ]]; then
+        if sshd -t 2>/dev/null; then
+            systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || true
+        else
+            err "sshd_config 语法校验失败，已中止 reload（请检查 ${sshd_config}，备份在 ${sshd_config}.bak.*）"
+        fi
     fi
 
     # 确保 pam_exec 或 auditd 记录 SSH 会话命令（如已安装 auditd）

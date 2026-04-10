@@ -110,15 +110,15 @@ if [[ "$VM_STATUS" != "RUNNING" ]]; then
     exit 1
 fi
 
-# 辅助函数：在 VM 内执行命令
+# 辅助函数：在 VM 内执行命令（使用参数数组传递，避免字符串拼接注入）
 vm_exec() {
-    incus exec "$VM_NAME" -- bash -c "$1" 2>/dev/null
+    incus exec "$VM_NAME" -- "$@" 2>/dev/null
 }
 
 # ── 测试 1：RFC1918 地址阻断 ──────────────────────────
 log "测试 1: RFC1918 地址阻断"
 for addr in "${RFC1918_ADDRS[@]}"; do
-    if vm_exec "ping -c 1 -W 2 ${addr}" &>/dev/null; then
+    if vm_exec ping -c 1 -W 2 "$addr" &>/dev/null; then
         fail "可以 ping 通 RFC1918 地址 ${addr}（应被阻断）"
     else
         pass "RFC1918 地址 ${addr} 已阻断"
@@ -128,7 +128,7 @@ done
 # ── 测试 2：管理端口隔离 ──────────────────────────────
 log "测试 2: 宿主机管理端口隔离"
 for port in "${MGMT_PORTS[@]}"; do
-    if vm_exec "timeout 2 bash -c '</dev/tcp/${GATEWAY_IP}/${port}'" &>/dev/null; then
+    if vm_exec timeout 2 bash -c "</dev/tcp/${GATEWAY_IP}/${port}" &>/dev/null; then
         fail "可以访问宿主机管理端口 ${GATEWAY_IP}:${port}（应被阻断）"
     else
         pass "管理端口 ${GATEWAY_IP}:${port} 已隔离"
@@ -138,7 +138,7 @@ done
 # ── 测试 3：公网连通性 ──────────────────────────────
 log "测试 3: 公网连通性"
 for addr in "${PUBLIC_ADDRS[@]}"; do
-    if vm_exec "ping -c 2 -W 3 ${addr}" &>/dev/null; then
+    if vm_exec ping -c 2 -W 3 "$addr" &>/dev/null; then
         pass "公网 ${addr} 可达"
     else
         fail "公网 ${addr} 不可达（应可正常访问）"
@@ -146,7 +146,7 @@ for addr in "${PUBLIC_ADDRS[@]}"; do
 done
 
 # DNS 解析测试
-if vm_exec "host -W 3 example.com" &>/dev/null; then
+if vm_exec host -W 3 example.com &>/dev/null; then
     pass "DNS 解析正常"
 else
     warn "DNS 解析失败，可能影响正常使用"
@@ -162,8 +162,8 @@ if [[ -z "$VM_IP" ]]; then
 else
     # 尝试用伪造源 IP 发送数据包（需要 VM 内有 nmap 或 hping3）
     FAKE_IP="202.151.179.231"  # 范围外的 IP
-    if vm_exec "command -v nmap" &>/dev/null; then
-        if vm_exec "nmap -e enp5s0 -S ${FAKE_IP} -Pn --max-retries 0 -p 80 1.1.1.1" &>/dev/null; then
+    if vm_exec command -v nmap &>/dev/null; then
+        if vm_exec nmap -e enp5s0 -S "$FAKE_IP" -Pn --max-retries 0 -p 80 1.1.1.1 &>/dev/null; then
             # 检查是否收到回复（如果过滤生效，伪造包应被丢弃）
             warn "IP 伪造测试结果需人工确认（nmap 已执行但无法自动判定丢弃）"
         else
@@ -171,7 +171,7 @@ else
         fi
     else
         # 使用 ping 的 -I 选项尝试绑定不同源地址
-        if vm_exec "ping -c 1 -W 2 -I ${FAKE_IP} 1.1.1.1" &>/dev/null; then
+        if vm_exec ping -c 1 -W 2 -I "$FAKE_IP" 1.1.1.1 &>/dev/null; then
             fail "可以使用伪造 IP ${FAKE_IP} 发送数据包（IP 过滤未生效）"
         else
             pass "伪造源 IP ${FAKE_IP} 被阻止"

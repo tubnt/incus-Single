@@ -338,20 +338,26 @@ do_join_incus() {
 
   local bind_addr="${MGMT_IP}:${INCUS_CLUSTER_PORT}"
 
+  # 对 YAML 值进行转义：用单引号包裹，内部单引号用 '' 转义
+  local escaped_token
+  escaped_token=$(printf '%s' "${INCUS_TOKEN}" | sed "s/'/''/g")
+  local escaped_name
+  escaped_name=$(printf '%s' "${NODE_NAME}" | sed "s/'/''/g")
+
   local preseed
   preseed=$(cat <<YAML
 config:
-  core.https_address: "${bind_addr}"
-  cluster.https_address: "${bind_addr}"
+  core.https_address: '${bind_addr}'
+  cluster.https_address: '${bind_addr}'
 cluster:
-  server_name: "${NODE_NAME}"
+  server_name: '${escaped_name}'
   enabled: true
-  cluster_token: "${INCUS_TOKEN}"
+  cluster_token: '${escaped_token}'
 YAML
   )
 
   log_info "使用 preseed 加入集群（绑定: ${bind_addr}）..."
-  echo "$preseed" | incus admin init --preseed
+  printf '%s\n' "$preseed" | incus admin init --preseed
 
   log_info "等待集群同步..."
   sleep 5
@@ -379,7 +385,7 @@ do_join_ceph() {
   # 确定标签
   local labels="osd"
   ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
-    "ceph orch host add ${NODE_NAME} ${CEPH_PUB_IP} --labels ${labels}" || {
+    "ceph orch host add '${NODE_NAME}' '${CEPH_PUB_IP}' --labels ${labels}" || {
       log_warn "ceph orch host add 失败或主机已存在，继续..."
     }
 
@@ -388,9 +394,10 @@ do_join_ceph() {
   local retries=0
   while [[ $retries -lt 30 ]]; do
     local host_status
+    # 通过环境变量传递 NODE_NAME 给 Python，避免代码注入
     host_status=$(ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
       "ceph orch host ls --format json 2>/dev/null" | \
-      python3 -c "import sys,json; hosts=json.load(sys.stdin); [print(h.get('status','')) for h in hosts if h['hostname']=='${NODE_NAME}']" 2>/dev/null || echo "unknown")
+      _NODE_NAME="${NODE_NAME}" python3 -c "import sys,json,os; hosts=json.load(sys.stdin); [print(h.get('status','')) for h in hosts if h['hostname']==os.environ['_NODE_NAME']]" 2>/dev/null || echo "unknown")
     if [[ "$host_status" != "unknown" ]]; then
       break
     fi
@@ -408,12 +415,14 @@ do_join_ceph() {
   retries=0
   while [[ $retries -lt 30 ]]; do
     local osd_count
+    # 通过环境变量传递 NODE_NAME 给 Python，避免代码注入
     osd_count=$(ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
       "ceph osd tree --format json 2>/dev/null" | \
-      python3 -c "
-import sys, json
+      _NODE_NAME="${NODE_NAME}" python3 -c "
+import sys, json, os
 data = json.load(sys.stdin)
-count = sum(1 for n in data.get('nodes',[]) if n.get('type')=='osd' and n.get('host','')=='${NODE_NAME}' and n.get('status')=='up')
+target = os.environ['_NODE_NAME']
+count = sum(1 for n in data.get('nodes',[]) if n.get('type')=='osd' and n.get('host','')==target and n.get('status')=='up')
 print(count)
 " 2>/dev/null || echo "0")
     if [[ "$osd_count" -gt 0 ]]; then

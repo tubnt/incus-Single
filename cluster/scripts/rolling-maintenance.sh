@@ -4,7 +4,7 @@
 # 通过热迁移疏散 VM，确保用户无感
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
 # ── 常量 ──────────────────────────────────────────────────
@@ -75,6 +75,12 @@ if [[ -z "$NODE" ]]; then
     usage
 fi
 
+# 节点名格式校验，防止 grep 正则注入
+if ! [[ "$NODE" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    log_error "节点名格式无效: ${NODE}（只允许字母/数字/._-）"
+    exit 1
+fi
+
 if ! $DO_EVACUATE && ! $DO_UPDATE && ! $DO_RESTORE; then
     log_error "请指定操作: --evacuate / --update / --restore / --all"
     usage
@@ -86,7 +92,7 @@ require_cmd ceph  || exit 1
 
 # 检查节点是否属于集群
 check_node_in_cluster() {
-    if ! incus cluster list --format csv | grep -q "^${NODE},"; then
+    if ! incus cluster list --format csv | grep -qF "${NODE},"; then
         log_error "节点 ${NODE} 不在集群中"
         exit 1
     fi
