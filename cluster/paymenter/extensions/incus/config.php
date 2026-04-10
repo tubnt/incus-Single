@@ -5,8 +5,11 @@ return [
     'endpoint' => env('INCUS_API_ENDPOINT', 'https://10.0.10.1:8443'),
 
     // mTLS 证书路径（受限证书，仅 customers project 权限）
-    'cert_file' => env('INCUS_CERT_FILE', '/var/www/html/certs/client.crt'),
-    'key_file' => env('INCUS_KEY_FILE', '/var/www/html/certs/client.key'),
+    'cert_file' => env('INCUS_CERT_FILE', '/etc/incus-client/client.crt'),
+    'key_file' => env('INCUS_KEY_FILE', '/etc/incus-client/client.key'),
+
+    // Incus 服务端 CA 证书（用于验证自签名 TLS）
+    'ca_file' => env('INCUS_CA_FILE', '/etc/incus-client/ca.crt'),
 
     // Incus Project 名称
     'project' => env('INCUS_PROJECT', 'customers'),

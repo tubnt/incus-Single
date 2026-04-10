@@ -76,26 +76,33 @@ class IpPoolManager
      */
     public function release(string $ip, int $cooldownHours = 24): void
     {
-        $affected = DB::table('ip_addresses')
-            ->where('ip', $ip)
-            ->where('status', 'allocated')
-            ->update([
-                'status' => 'cooldown',
-                'vm_name' => null,
-                'order_id' => null,
-                'released_at' => now(),
-                'cooldown_until' => now()->addHours($cooldownHours),
+        DB::transaction(function () use ($ip, $cooldownHours) {
+            $record = DB::table('ip_addresses')
+                ->where('ip', $ip)
+                ->where('status', 'allocated')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$record) {
+                Log::warning('IP 释放失败：未找到已分配记录', ['ip' => $ip]);
+                return;
+            }
+
+            DB::table('ip_addresses')
+                ->where('id', $record->id)
+                ->update([
+                    'status' => 'cooldown',
+                    'vm_name' => null,
+                    'order_id' => null,
+                    'released_at' => now(),
+                    'cooldown_until' => now()->addHours($cooldownHours),
+                ]);
+
+            Log::info('IP 已释放，进入冷却期', [
+                'ip' => $ip,
+                'cooldown_hours' => $cooldownHours,
             ]);
-
-        if ($affected === 0) {
-            Log::warning('IP 释放失败：未找到已分配记录', ['ip' => $ip]);
-            return;
-        }
-
-        Log::info('IP 已释放，进入冷却期', [
-            'ip' => $ip,
-            'cooldown_hours' => $cooldownHours,
-        ]);
+        });
     }
 
     /**

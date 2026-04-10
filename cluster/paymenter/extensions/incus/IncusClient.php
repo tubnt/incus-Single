@@ -15,6 +15,7 @@ class IncusClient
     private string $endpoint;
     private string $certFile;
     private string $keyFile;
+    private string $caFile;
     private string $project;
     private int $timeout;
     private int $maxRetries;
@@ -24,6 +25,7 @@ class IncusClient
         $this->endpoint = rtrim($config['endpoint'], '/');
         $this->certFile = $config['cert_file'];
         $this->keyFile = $config['key_file'];
+        $this->caFile = $config['ca_file'] ?? '';
         $this->project = $config['project'] ?? 'customers';
         $this->timeout = $config['timeout'] ?? 30;
         $this->maxRetries = $config['max_retries'] ?? 3;
@@ -79,10 +81,14 @@ class IncusClient
         $query['project'] = $this->project;
         $url = $this->endpoint . $path . '?' . http_build_query($query);
 
+        // 仅对幂等方法（GET/PUT/DELETE）重试，POST/PATCH 不重试防止重复操作
+        $isIdempotent = in_array($method, ['GET', 'PUT', 'DELETE']);
+        $maxAttempts = $isIdempotent ? $this->maxRetries : 1;
+
         $attempt = 0;
         $lastException = null;
 
-        while ($attempt < $this->maxRetries) {
+        while ($attempt < $maxAttempts) {
             $attempt++;
             try {
                 $response = $this->doRequest($method, $url, $data);
@@ -102,15 +108,19 @@ class IncusClient
                     'error' => $e->getMessage(),
                 ]);
 
-                if ($attempt < $this->maxRetries) {
+                if ($attempt < $maxAttempts) {
                     // 指数退避：1s, 2s, 4s...
                     usleep(pow(2, $attempt - 1) * 1000000);
                 }
             }
         }
 
+        $retryMsg = $maxAttempts > 1
+            ? "Incus API 请求失败，已重试 {$maxAttempts} 次: "
+            : "Incus API 请求失败: ";
+
         throw new \RuntimeException(
-            "Incus API 请求失败，已重试 {$this->maxRetries} 次: " . $lastException->getMessage(),
+            $retryMsg . $lastException->getMessage(),
             0,
             $lastException
         );
@@ -130,9 +140,10 @@ class IncusClient
 
         $response = $this->doRequest('GET', $url);
 
-        if (isset($response['metadata']['status']) && $response['metadata']['status'] === 'Failure') {
-            $errMsg = $response['metadata']['err'] ?? '未知错误';
-            throw new \RuntimeException("Incus 异步操作失败: {$errMsg}");
+        $status = $response['metadata']['status'] ?? 'Unknown';
+        if ($status !== 'Success') {
+            $errMsg = $response['metadata']['err'] ?? "操作状态: {$status}";
+            throw new \RuntimeException("Incus 异步操作未成功: {$errMsg}");
         }
 
         return $response;
@@ -156,6 +167,8 @@ class IncusClient
             CURLOPT_SSLKEY => $this->keyFile,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            // 自签名 CA 验证
+            CURLOPT_CAINFO => $this->caFile,
 
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => [
@@ -187,7 +200,7 @@ class IncusClient
             $errMsg = $decoded['error'] ?? "HTTP {$httpCode}";
             Log::error('Incus API 错误', [
                 'method' => $method,
-                'url' => $url,
+                'path' => parse_url($url, PHP_URL_PATH),
                 'http_code' => $httpCode,
                 'error' => $errMsg,
             ]);

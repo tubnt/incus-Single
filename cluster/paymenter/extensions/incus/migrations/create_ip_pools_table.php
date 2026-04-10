@@ -18,6 +18,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index('server_id');
+            $table->unique(['server_id', 'name']);
+            $table->unique('subnet');
         });
     }
 
