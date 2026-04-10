@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "aissh": {
+      "type": "http",
+      "url": "https://aissh.5ok.co/mcp",
+      "headers": {
+        "Authorization": "Bearer aissh_9cf69291_87280de1f1d3028448803b4666db5f9b2f101a5fe82bc1755606ba6a7111fa0b"
+      }
+    },
+    "chrome": {
+      "type": "http",
+      "url": "https://aissh.5ok.co/cloud-mcp/mcp",
+      "headers": {
+        "Authorization": "Bearer cgw_9cf69291_3738253282feaff3b15b4c2b04600c9f706ac3ca502bfbb020338d10db736e57"
+      }
+    }
+  }
+}
