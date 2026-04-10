@@ -97,6 +97,17 @@ if [[ "$MODE" == "live" ]]; then
     log_info "模式: 热迁移（live migration）"
     if ! incus move "$VM_NAME" --target "$TARGET_NODE"; then
         log_error "热迁移失败: ${VM_NAME}"
+        # 回滚：确认 VM 仍在原节点且运行中
+        AFTER_NODE=$(incus list "$VM_NAME" --format csv -c L 2>/dev/null | head -1)
+        AFTER_STATUS=$(incus list "$VM_NAME" --format csv -c s 2>/dev/null | head -1)
+        if [[ "$AFTER_NODE" == "$CURRENT_NODE" && "$AFTER_STATUS" == "RUNNING" ]]; then
+            log_warn "VM 仍在原节点 ${CURRENT_NODE} 运行中，无需回滚"
+        elif [[ -n "$AFTER_NODE" ]]; then
+            log_warn "VM 当前在 ${AFTER_NODE}（状态: ${AFTER_STATUS}），尝试恢复..."
+            incus start "$VM_NAME" 2>/dev/null || true
+        else
+            log_error "VM ${VM_NAME} 状态不可达，需人工介入"
+        fi
         exit 1
     fi
 else
@@ -116,9 +127,17 @@ else
     log_info "迁移 VM: ${VM_NAME} → ${TARGET_NODE}"
     if ! incus move "$VM_NAME" --target "$TARGET_NODE"; then
         log_error "冷迁移失败: ${VM_NAME}"
-        # 尝试在原节点重新启动
-        log_warn "尝试在原节点重新启动 VM..."
-        incus start "$VM_NAME" 2>/dev/null || true
+        # 回滚：确认 VM 位置后再尝试启动
+        AFTER_NODE=$(incus list "$VM_NAME" --format csv -c L 2>/dev/null | head -1)
+        if [[ "$AFTER_NODE" == "$CURRENT_NODE" ]]; then
+            log_warn "VM 仍在原节点 ${CURRENT_NODE}，尝试重新启动..."
+            incus start "$VM_NAME" 2>/dev/null || log_error "回滚启动失败，需人工介入"
+        elif [[ -n "$AFTER_NODE" ]]; then
+            log_warn "VM 已到 ${AFTER_NODE}（非预期），尝试在该节点启动..."
+            incus start "$VM_NAME" 2>/dev/null || log_error "回滚启动失败，需人工介入"
+        else
+            log_error "VM ${VM_NAME} 状态不可达，需人工介入"
+        fi
         exit 1
     fi
 

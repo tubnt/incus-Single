@@ -58,6 +58,12 @@ INCUS_CLUSTER_PORT=8443
 CLUSTER_OFFLINE_THRESHOLD=20    # 节点离线判定（秒）
 CLUSTER_HEALING_THRESHOLD=300   # 自动恢复触发（秒，5 分钟）
 
+# ==================== GARP 配置 ====================
+BRIDGE_IFACE="${BRIDGE_NAME}"   # GARP 发送接口（与公网网桥一致）
+GARP_COUNT=3                    # 每轮 GARP 发送次数
+GARP_RETRY=2                   # GARP 重试轮数
+GARP_RETRY_DELAY=1             # 重试间隔（秒）
+
 # ==================== 通用 ====================
 DNS_SERVERS="1.1.1.1,8.8.8.8"
 SSH_USER="root"

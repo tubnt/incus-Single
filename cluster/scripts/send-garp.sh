@@ -59,6 +59,34 @@ if ! ip link show "$IFACE" &>/dev/null; then
 fi
 
 # ── 发送 GARP ─────────────────────────────────────────────
-log_info "发送 GARP: IP=${VM_IP} 接口=${IFACE} 次数=${COUNT}"
-arping -U -c "$COUNT" -I "$IFACE" "$VM_IP" || true
-log_ok "GARP 发送完成: ${VM_IP}"
+RETRY="${GARP_RETRY:-2}"
+DELAY="${GARP_RETRY_DELAY:-1}"
+garp_ok=false
+
+for attempt in $(seq 1 "$RETRY"); do
+    log_info "GARP 第 ${attempt}/${RETRY} 轮: IP=${VM_IP} 接口=${IFACE} 次数=${COUNT}"
+    failed=false
+    # -U: unsolicited ARP reply（刷新大多数交换机 MAC 表）
+    if ! arping -U -c "$COUNT" -I "$IFACE" "$VM_IP" 2>/dev/null; then
+        log_warn "arping -U 失败（轮次 ${attempt}）"
+        failed=true
+    fi
+    # -A: ARP request 模式（部分交换机仅响应 request）
+    if ! arping -A -c "$COUNT" -I "$IFACE" "$VM_IP" 2>/dev/null; then
+        log_warn "arping -A 失败（轮次 ${attempt}）"
+        failed=true
+    fi
+    if [[ "$failed" == false ]]; then
+        garp_ok=true
+        break
+    fi
+    if [[ "$attempt" -lt "$RETRY" ]]; then
+        sleep "$DELAY"
+    fi
+done
+
+if [[ "$garp_ok" == true ]]; then
+    log_ok "GARP 发送完成: ${VM_IP}"
+else
+    log_warn "GARP 发送可能不完整: ${VM_IP}（部分 arping 调用失败，交换机 MAC 表可能未及时刷新）"
+fi
