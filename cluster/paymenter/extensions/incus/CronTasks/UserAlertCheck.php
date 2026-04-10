@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Extensions\Incus\CronTasks;
+namespace Extensions\Incus\CronTasks;
 
-use App\Extensions\Incus\UserAlertManager;
-use App\Extensions\Incus\IncusClient;
+use Extensions\Incus\UserAlertManager;
+use Extensions\Incus\IncusClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 

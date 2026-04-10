@@ -186,10 +186,11 @@ table ip6 filter-v6 {
         # 允许环回
         iifname "lo" accept
 
-        # ICMPv6（邻居发现、路由通告等必需协议）
+        # ICMPv6 echo: 限速防放大攻击
+        icmpv6 type { echo-request, echo-reply } limit rate 20/second accept
+
+        # ICMPv6 邻居发现、路由通告等必需协议（不限速）
         icmpv6 type {
-            echo-request,
-            echo-reply,
             nd-neighbor-solicit,
             nd-neighbor-advert,
             nd-router-solicit,

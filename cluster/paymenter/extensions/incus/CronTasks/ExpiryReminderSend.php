@@ -5,6 +5,7 @@ namespace Extensions\Incus\CronTasks;
 use Extensions\Incus\Notifications\DeletionWarning;
 use Extensions\Incus\Notifications\ExpiryReminder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -37,6 +38,12 @@ class ExpiryReminderSend
                     continue;
                 }
 
+                // 发送去重：同一订单同一天同一类型只发一次
+                $cacheKey = "expiry_reminder:{$order->id}:d-{$days}:{$today->toDateString()}";
+                if (Cache::has($cacheKey)) {
+                    continue;
+                }
+
                 $user = (object) $user;
                 if (method_exists($user, 'notify')) {
                     $user->notify(new ExpiryReminder(
@@ -47,6 +54,7 @@ class ExpiryReminderSend
                     ));
                 }
 
+                Cache::put($cacheKey, true, now()->endOfDay());
                 Log::info("ExpiryReminderSend: 已向用户 {$order->user_id} 发送 D-{$days} 到期提醒（VM: {$order->vm_name}）");
             }
         }
@@ -63,6 +71,12 @@ class ExpiryReminderSend
                 continue;
             }
 
+            // 发送去重：同一订单同一天只发一次删除警告
+            $cacheKey = "deletion_warning:{$order->id}:{$today->toDateString()}";
+            if (Cache::has($cacheKey)) {
+                continue;
+            }
+
             $deletionDate = Carbon::parse($order->suspended_at)->addDays(7)->format('Y-m-d');
             $user = (object) $user;
             if (method_exists($user, 'notify')) {
@@ -73,6 +87,7 @@ class ExpiryReminderSend
                 ));
             }
 
+            Cache::put($cacheKey, true, now()->endOfDay());
             Log::info("ExpiryReminderSend: 已向用户 {$order->user_id} 发送 D+5 删除警告（VM: {$order->vm_name}）");
         }
     }

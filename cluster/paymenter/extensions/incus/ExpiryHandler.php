@@ -45,9 +45,16 @@ class ExpiryHandler
             try {
                 $state = $this->client->getInstanceState($vmName);
 
-                // 幂等：已停止的 VM 不重复操作
+                // 幂等：已停止的 VM 不重复 stop，但需确保订单状态同步
                 if (($state['status'] ?? '') === 'Stopped') {
-                    Log::info("ExpiryHandler: VM {$vmName} 已是停止状态，跳过暂停操作");
+                    Log::info("ExpiryHandler: VM {$vmName} 已是停止状态，同步订单状态为 suspended");
+
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->where('status', 'active')
+                        ->update(['status' => 'suspended', 'suspended_at' => Carbon::now()]);
+
+                    $suspended[] = $vmName;
                     continue;
                 }
 

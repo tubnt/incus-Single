@@ -459,6 +459,9 @@ class RdnsManager
 
     private function route53ChangeBatchXml(string $action, string $name, string $value, int $ttl): string
     {
+        $name = htmlspecialchars($name, ENT_XML1, 'UTF-8');
+        $value = htmlspecialchars($value, ENT_XML1, 'UTF-8');
+
         return <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
@@ -494,7 +497,7 @@ XML;
             CURLOPT_CUSTOMREQUEST => 'POST',
             CURLOPT_POSTFIELDS => $xmlBody,
             CURLOPT_HTTPHEADER => array_merge(
-                $this->route53Headers('POST', $url),
+                $this->route53Headers('POST', $url, $xmlBody),
                 ['Content-Type: text/xml']
             ),
             CURLOPT_TIMEOUT => 30,
@@ -521,8 +524,10 @@ XML;
     /**
      * Route53 AWS Signature V4 请求头
      * 简化实现 — 生产环境建议使用 AWS SDK
+     *
+     * @param string $body 请求体（POST 时传入 XML，GET 时为空）
      */
-    private function route53Headers(string $method, string $url): array
+    private function route53Headers(string $method, string $url, string $body = ''): array
     {
         $date = gmdate('Ymd\THis\Z');
         $shortDate = gmdate('Ymd');
@@ -545,7 +550,7 @@ XML;
         $canonicalRequest = implode("\n", [
             $method, $path, $canonicalQueryString,
             "host:{$host}", "x-amz-date:{$date}", '',
-            'host;x-amz-date', 'UNSIGNED-PAYLOAD',
+            'host;x-amz-date', hash('sha256', $body),
         ]);
 
         $credentialScope = "{$shortDate}/{$region}/{$service}/aws4_request";
