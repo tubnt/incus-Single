@@ -97,6 +97,12 @@ if ! validate_ip "$PUB_IP"; then
   exit 1
 fi
 
+# 校验节点名（防止拼入 SSH 远程命令时的注入攻击）
+if ! [[ "$NODE_NAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])?$ ]]; then
+  log_error "节点名格式非法（仅允许字母、数字、连字符，不以连字符开头或结尾）: ${NODE_NAME}"
+  exit 1
+fi
+
 # 校验 IP 在集群子网范围内（202.151.179.224/27 → .225-.254）
 pub_last_octet=$(echo "$PUB_IP" | cut -d. -f4)
 if [[ "$PUB_IP" != 202.151.179.* ]] || [[ "$pub_last_octet" -lt 225 ]] || [[ "$pub_last_octet" -gt 254 ]]; then
@@ -239,6 +245,7 @@ do_network() {
 
   local netplan_file
   netplan_file=$(mktemp "/tmp/netplan-${NODE_NAME}-XXXXXX.yaml")
+  trap 'rm -f "$netplan_file"' EXIT
 
   log_info "生成 netplan 配置..."
   cat > "$netplan_file" <<YAML

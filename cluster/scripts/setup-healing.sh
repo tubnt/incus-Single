@@ -147,13 +147,13 @@ pools = json.load(sys.stdin)
 print(json.dumps({p['name']: p['driver'] for p in pools}))
 " 2>/dev/null || echo "{}")
 
-  # 解析每个 VM 的存储和设备
+  # 解析每个 VM 的存储和设备（pool_drivers 通过环境变量传递，避免 shell 注入）
   local issues_json
-  issues_json=$(echo "$vm_list" | python3 -c "
-import sys, json
+  issues_json=$(echo "$vm_list" | POOL_DRIVERS_JSON="${pool_drivers}" python3 -c "
+import sys, json, os
 
 vms = json.load(sys.stdin)
-pool_drivers = json.loads('''${pool_drivers}''')
+pool_drivers = json.loads(os.environ.get('POOL_DRIVERS_JSON', '{}'))
 results = []
 
 for vm in vms:
@@ -197,7 +197,40 @@ for vm in vms:
 json.dump(results, sys.stdout)
 " 2>/dev/null || echo "[]")
 
-  # 显示结果
+  # 显示结果并获取 unhealable 数量
+  local unhealable_count
+  unhealable_count=$(echo "$issues_json" | python3 -c "
+import sys, json
+
+results = json.load(sys.stdin)
+healable = 0
+unhealable = 0
+
+for r in results:
+    name = r['name']
+    loc = r['location']
+    if r['healable']:
+        print(f'  \033[32m[OK]\033[0m {name} (节点: {loc}) — 可被 heal', file=sys.stderr)
+        healable += 1
+    else:
+        print(f'  \033[31m[FAIL]\033[0m {name} (节点: {loc}) — 不可 heal:', file=sys.stderr)
+        for issue in r['issues']:
+            print(f'         - {issue}', file=sys.stderr)
+        unhealable += 1
+
+print(file=sys.stderr)
+print(f'可 heal: {healable}  不可 heal: {unhealable}  总计: {healable + unhealable}', file=sys.stderr)
+print(unhealable)
+" 2>&1 1>/dev/null || echo "0")
+  # python3 输出: stderr→终端显示, stdout→unhealable 数量
+  # 但上面的重定向不对，改用更简单的方式
+  unhealable_count=$(echo "$issues_json" | python3 -c "
+import sys, json
+results = json.load(sys.stdin)
+print(sum(1 for r in results if not r['healable']))
+" 2>/dev/null || echo "0")
+
+  # 显示详情（仅输出到终端）
   echo "$issues_json" | python3 -c "
 import sys, json
 
@@ -221,7 +254,7 @@ print()
 print(f'可 heal: {healable}  不可 heal: {unhealable}  总计: {healable + unhealable}')
 " 2>/dev/null
 
-  # 额外检查: VM 的存储池是否为 Ceph
+  # 额外信息: 存储池类型汇总
   log_info "检查存储池类型..."
   local storage_pools
   storage_pools=$(incus storage list --format json 2>/dev/null || echo "[]")
@@ -233,13 +266,16 @@ pools = json.load(sys.stdin)
 for pool in pools:
     name = pool['name']
     driver = pool['driver']
-    status = pool.get('status', 'unknown')
-    if driver == 'ceph':
+    if driver in ('ceph', 'ceph-rbd'):
         print(f'  \033[32m[OK]\033[0m 存储池 {name}: {driver} (共享存储)')
     else:
         print(f'  \033[33m[WARN]\033[0m 存储池 {name}: {driver} (本地存储，不支持 healing)')
 " 2>/dev/null
 
+  if [[ "$unhealable_count" -gt 0 ]]; then
+    log_error "存在 ${unhealable_count} 个不可 heal 的 VM"
+    return 1
+  fi
   return 0
 }
 
