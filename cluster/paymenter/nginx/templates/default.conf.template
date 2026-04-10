@@ -36,7 +36,7 @@ server {
     # --- WAF 安全头部 ---
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-XSS-Protection "0" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://${DOMAIN};" always;
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
@@ -83,9 +83,14 @@ server {
     }
 
     # --- 静态资源缓存 ---
+    # 注意: location 内 add_header 会覆盖 server 级别的 add_header，必须重复安全头部
     location ~* \.(css|js|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$ {
         expires 30d;
         add_header Cache-Control "public, immutable";
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
         access_log off;
     }
 }

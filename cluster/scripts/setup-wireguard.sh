@@ -92,6 +92,24 @@ add_peer() {
     local peer_allowed_ips="$4"
     local config_file="${WG_CONFIG_DIR}/${WG_IFACE}.conf"
 
+    # 输入验证: 防止配置注入
+    if [[ ! "$peer_name" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        log_error "Peer 名称包含非法字符: ${peer_name}（仅允许字母数字._-）"
+        exit 1
+    fi
+    if [[ ! "$peer_pubkey" =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$ ]]; then
+        log_error "公钥格式无效: ${peer_pubkey}（应为 44 字符 Base64）"
+        exit 1
+    fi
+    if [[ ! "$peer_endpoint" =~ ^[a-zA-Z0-9._:-]+$ ]]; then
+        log_error "Endpoint 格式无效: ${peer_endpoint}"
+        exit 1
+    fi
+    if [[ ! "$peer_allowed_ips" =~ ^[0-9a-fA-F.:,/ ]+$ ]]; then
+        log_error "AllowedIPs 格式无效: ${peer_allowed_ips}"
+        exit 1
+    fi
+
     if [[ ! -f "$config_file" ]]; then
         log_error "配置文件不存在: ${config_file}，请先运行 setup-client 或 setup-server"
         exit 1
