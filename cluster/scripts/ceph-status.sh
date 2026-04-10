@@ -60,10 +60,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --warn)
+            [[ "${2:-}" =~ ^[0-9]+$ ]] || { echo "错误: --warn 需要整数参数"; exit 1; }
             WARN_THRESHOLD="$2"
             shift 2
             ;;
         --crit)
+            [[ "${2:-}" =~ ^[0-9]+$ ]] || { echo "错误: --crit 需要整数参数"; exit 1; }
             CRIT_THRESHOLD="$2"
             shift 2
             ;;
@@ -179,32 +181,40 @@ result = {s['state_name']: s['count'] for s in states}
 print(json.dumps(result))
 " 2>/dev/null || echo '{}')
 
-    cat << EOJSON
-{
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "health": {
-    "status": "${health_status}",
-    "capacity_level": "${capacity_level}"
-  },
-  "capacity": {
-    "total_bytes": ${total_bytes},
-    "used_bytes": ${used_bytes},
-    "avail_bytes": ${avail_bytes},
-    "used_percent": ${used_pct},
-    "warn_threshold": ${WARN_THRESHOLD},
-    "crit_threshold": ${CRIT_THRESHOLD}
-  },
-  "osd": {
-    "total": ${osd_total},
-    "up": ${osd_up},
-    "in": ${osd_in}
-  },
-  "pg": {
-    "total": ${pg_total},
-    "by_state": ${pg_states}
-  }
+    _TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    _HS="$health_status" _CL="$capacity_level" \
+    _TB="$total_bytes" _UB="$used_bytes" _AB="$avail_bytes" _UP="$used_pct" \
+    _WT="$WARN_THRESHOLD" _CT="$CRIT_THRESHOLD" \
+    _OT="$osd_total" _OU="$osd_up" _OI="$osd_in" \
+    _PT="$pg_total" _PS="$pg_states" \
+    python3 -c "
+import json, os
+result = {
+    'timestamp': os.environ['_TS'],
+    'health': {
+        'status': os.environ['_HS'],
+        'capacity_level': os.environ['_CL'],
+    },
+    'capacity': {
+        'total_bytes': int(os.environ['_TB']),
+        'used_bytes': int(os.environ['_UB']),
+        'avail_bytes': int(os.environ['_AB']),
+        'used_percent': int(os.environ['_UP']),
+        'warn_threshold': int(os.environ['_WT']),
+        'crit_threshold': int(os.environ['_CT']),
+    },
+    'osd': {
+        'total': int(os.environ['_OT']),
+        'up': int(os.environ['_OU']),
+        'in': int(os.environ['_OI']),
+    },
+    'pg': {
+        'total': int(os.environ['_PT']),
+        'by_state': json.loads(os.environ['_PS']),
+    },
 }
-EOJSON
+print(json.dumps(result, indent=2, ensure_ascii=False))
+"
 }
 
 # ==================== 人类可读输出 ====================

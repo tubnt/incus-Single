@@ -141,11 +141,11 @@ check_ceph_osd() {
 
     # 获取本节点的 OSD 列表
     local osd_ids
-    osd_ids=$(ceph osd tree --format=json 2>/dev/null | python3 -c "
-import json, sys
+    osd_ids=$(ceph osd tree --format=json 2>/dev/null | _NODE_HOSTNAME="$hostname" python3 -c "
+import json, sys, os
 data = json.loads(sys.stdin.read())
 nodes = {n['id']: n for n in data.get('nodes', [])}
-hostname = '${hostname}'
+hostname = os.environ.get('_NODE_HOSTNAME', '')
 
 # 找到本 host 节点
 host_id = None
@@ -288,36 +288,47 @@ run_all_checks() {
 output_json() {
     run_all_checks
 
-    local checks_json="["
-    local first=true
+    # 通过环境变量传递数据，用 python3 json.dumps 安全生成 JSON
+    local checks_str=""
     for check in "${CHECKS[@]}"; do
-        IFS='|' read -r category name status detail <<< "$check"
-        $first || checks_json+=","
-        first=false
-        checks_json+=$(printf '{"category":"%s","name":"%s","status":"%s","detail":"%s"}' \
-            "$category" "$name" "$status" "$detail")
+        checks_str+="${check}"$'\n'
     done
-    checks_json+="]"
 
-    local issues_json="["
-    local first=true
+    local issues_str=""
     for issue in "${ISSUES[@]+"${ISSUES[@]}"}"; do
-        $first || issues_json+=","
-        first=false
-        issues_json+="\"${issue}\""
+        issues_str+="${issue}"$'\n'
     done
-    issues_json+="]"
 
-    cat << EOJSON
-{
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "hostname": "$(hostname)",
-  "score": ${SCORE},
-  "status": "$(score_to_status $SCORE)",
-  "checks": ${checks_json},
-  "issues": ${issues_json}
+    _CHECKS="$checks_str" _ISSUES="$issues_str" _SCORE="$SCORE" \
+    _HOSTNAME="$(hostname)" _STATUS="$(score_to_status $SCORE)" \
+    python3 -c "
+import json, os
+from datetime import datetime, timezone
+
+checks = []
+for line in os.environ.get('_CHECKS', '').strip().splitlines():
+    if not line: continue
+    parts = line.split('|', 3)
+    if len(parts) == 4:
+        checks.append({
+            'category': parts[0],
+            'name': parts[1],
+            'status': parts[2],
+            'detail': parts[3],
+        })
+
+issues = [l for l in os.environ.get('_ISSUES', '').strip().splitlines() if l]
+
+result = {
+    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+    'hostname': os.environ.get('_HOSTNAME', ''),
+    'score': int(os.environ.get('_SCORE', '0')),
+    'status': os.environ.get('_STATUS', ''),
+    'checks': checks,
+    'issues': issues,
 }
-EOJSON
+print(json.dumps(result, indent=2, ensure_ascii=False))
+"
 }
 
 # ==================== 评分转状态 ====================

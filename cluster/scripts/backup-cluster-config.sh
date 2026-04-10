@@ -66,6 +66,7 @@ HOSTNAME=$(hostname -s)
 BACKUP_DIR="${BACKUP_BASE}/${TIMESTAMP}_${HOSTNAME}"
 
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 log "备份目录: ${BACKUP_DIR}"
 
 # 记录备份元信息
@@ -361,6 +362,7 @@ if $COMPRESS; then
     ARCHIVE="${BACKUP_DIR}.tar.gz"
     log "打包压缩: ${ARCHIVE}"
     tar -czf "$ARCHIVE" -C "$(dirname "$BACKUP_DIR")" "$(basename "$BACKUP_DIR")"
+    chmod 600 "$ARCHIVE"
     archive_size=$(du -sh "$ARCHIVE" 2>/dev/null | cut -f1)
     log "压缩包大小: ${archive_size}"
 
