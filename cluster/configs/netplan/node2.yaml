@@ -7,6 +7,8 @@ network:
 
   ethernets:
     eno1:
+      # MTU 9000: 必须显式设置，确保 VLAN eno1.20 (Ceph) jumbo frames 正常
+      # br-pub MTU 1500 不应覆盖此值，应用后需验证: ip link show eno1
       mtu: 9000
       dhcp4: false
       dhcp6: false
