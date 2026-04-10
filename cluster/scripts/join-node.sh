@@ -76,6 +76,34 @@ if [[ -z "$NODE_NAME" || -z "$PUB_IP" || -z "$INCUS_TOKEN" ]]; then
   usage
 fi
 
+# 校验 IP 格式和子网范围
+validate_ip() {
+  local ip="$1"
+  if ! [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+    return 1
+  fi
+  local i
+  for i in 1 2 3 4; do
+    local octet="${BASH_REMATCH[$i]}"
+    if [[ "$octet" -gt 255 ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+if ! validate_ip "$PUB_IP"; then
+  log_error "公网 IP 格式非法: ${PUB_IP}"
+  exit 1
+fi
+
+# 校验 IP 在集群子网范围内（202.151.179.224/27 → .225-.254）
+pub_last_octet=$(echo "$PUB_IP" | cut -d. -f4)
+if [[ "$PUB_IP" != 202.151.179.* ]] || [[ "$pub_last_octet" -lt 225 ]] || [[ "$pub_last_octet" -gt 254 ]]; then
+  log_error "公网 IP 不在集群子网 ${PUBLIC_NETWORK} 范围内: ${PUB_IP}"
+  exit 1
+fi
+
 if [[ $EUID -ne 0 ]]; then
   log_error "请以 root 权限运行"
   exit 1
@@ -209,7 +237,8 @@ ZABBLY
 do_network() {
   log_step "步骤 3/7: 网络配置"
 
-  local netplan_file="/tmp/${NODE_NAME}-netplan.yaml"
+  local netplan_file
+  netplan_file=$(mktemp "/tmp/netplan-${NODE_NAME}-XXXXXX.yaml")
 
   log_info "生成 netplan 配置..."
   cat > "$netplan_file" <<YAML
@@ -274,10 +303,10 @@ YAML
     log_info "调用 apply-network.sh 安全应用网络配置..."
     bash "$apply_script" "$netplan_file"
   else
-    log_warn "apply-network.sh 不存在，直接应用（无安全网）"
-    cp "$netplan_file" /etc/netplan/01-network.yaml
-    chmod 600 /etc/netplan/01-network.yaml
-    netplan apply
+    log_error "apply-network.sh 不存在，禁止无安全网直接应用网络配置"
+    log_error "此集群无带外管理，网络中断不可恢复。请先部署 apply-network.sh"
+    rm -f "$netplan_file"
+    exit 1
   fi
 
   # 等待网络稳定
@@ -342,7 +371,7 @@ do_join_ceph() {
 
   # 确定标签
   local labels="osd"
-  ssh -o StrictHostKeyChecking=no "${SSH_USER}@${bootstrap_mgmt_ip}" \
+  ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
     "ceph orch host add ${NODE_NAME} ${CEPH_PUB_IP} --labels ${labels}" || {
       log_warn "ceph orch host add 失败或主机已存在，继续..."
     }
@@ -352,7 +381,7 @@ do_join_ceph() {
   local retries=0
   while [[ $retries -lt 30 ]]; do
     local host_status
-    host_status=$(ssh -o StrictHostKeyChecking=no "${SSH_USER}@${bootstrap_mgmt_ip}" \
+    host_status=$(ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
       "ceph orch host ls --format json 2>/dev/null" | \
       python3 -c "import sys,json; hosts=json.load(sys.stdin); [print(h.get('status','')) for h in hosts if h['hostname']=='${NODE_NAME}']" 2>/dev/null || echo "unknown")
     if [[ "$host_status" != "unknown" ]]; then
@@ -372,7 +401,7 @@ do_join_ceph() {
   retries=0
   while [[ $retries -lt 30 ]]; do
     local osd_count
-    osd_count=$(ssh -o StrictHostKeyChecking=no "${SSH_USER}@${bootstrap_mgmt_ip}" \
+    osd_count=$(ssh -o StrictHostKeyChecking=accept-new "${SSH_USER}@${bootstrap_mgmt_ip}" \
       "ceph osd tree --format json 2>/dev/null" | \
       python3 -c "
 import sys, json

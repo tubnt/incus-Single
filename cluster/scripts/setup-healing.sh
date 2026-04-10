@@ -36,10 +36,11 @@ log_step()  { echo -e "\n${BLUE}====== $* ======${NC}"; }
 
 # ==================== 参数 ====================
 MODE=""
+FORCE=false
 
 usage() {
   cat <<EOF
-用法: $(basename "$0") <模式>
+用法: $(basename "$0") <模式> [选项]
 
 Incus 集群 auto-healing 配置和验证。
 
@@ -47,6 +48,9 @@ Incus 集群 auto-healing 配置和验证。
   --apply     应用 healing 阈值参数
   --dry-run   仅检查 VM 是否满足 healing 前提条件（不修改配置）
   --help      显示帮助
+
+选项:
+  --force     前提检查失败时仍强制应用（需明确确认风险）
 
 参数说明:
   cluster.offline_threshold = ${CLUSTER_OFFLINE_THRESHOLD}s  节点离线判定
@@ -62,6 +66,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply)   MODE="apply";   shift ;;
     --dry-run) MODE="dry-run"; shift ;;
+    --force)   FORCE=true;     shift ;;
     --help|-h) usage ;;
     *)         log_error "未知参数: $1"; usage ;;
   esac
@@ -81,19 +86,32 @@ fi
 check_voters() {
   log_step "检查 voter 节点数量"
 
-  local voter_count
-  voter_count=$(incus cluster list --format json 2>/dev/null | \
+  local voter_count standby_count
+  read -r voter_count standby_count < <(incus cluster list --format json 2>/dev/null | \
     python3 -c "
 import sys, json
 members = json.load(sys.stdin)
-voters = [m for m in members if m.get('database', False) and m.get('status') == 'Online']
-print(len(voters))
-" 2>/dev/null || echo "0")
+voters = 0
+standbys = 0
+for m in members:
+    if m.get('status') != 'Online':
+        continue
+    # Incus 6.x: 'roles' 列表包含 'database', 'database-leader', 'database-standby'
+    roles = m.get('roles', [])
+    if 'database' in roles or 'database-leader' in roles:
+        voters += 1
+    elif 'database-standby' in roles:
+        standbys += 1
+    elif m.get('database', False):
+        # 兼容旧版本：无 roles 字段时 fallback
+        voters += 1
+print(f'{voters} {standbys}')
+" 2>/dev/null || echo "0 0")
 
-  log_info "在线 voter 节点数: ${voter_count}"
+  log_info "在线 voter 节点数: ${voter_count}（stand-by: ${standby_count}）"
 
   if [[ "$voter_count" -lt 3 ]]; then
-    log_error "voter 节点不足 3 个（当前 ${voter_count}），auto-healing 无法正常工作"
+    log_error "voter 节点不足 3 个（当前 ${voter_count}，stand-by ${standby_count} 不参与仲裁）"
     log_error "至少需要 3 个 voter 节点以保证 Raft 仲裁"
     return 1
   fi
@@ -120,12 +138,22 @@ check_vms() {
 
   log_info "共 ${total} 个 VM，逐一检查..."
 
+  # 获取存储池驱动类型映射（用于交叉验证 VM 根磁盘）
+  local pool_drivers
+  pool_drivers=$(incus storage list --format json 2>/dev/null | \
+    python3 -c "
+import sys, json
+pools = json.load(sys.stdin)
+print(json.dumps({p['name']: p['driver'] for p in pools}))
+" 2>/dev/null || echo "{}")
+
   # 解析每个 VM 的存储和设备
   local issues_json
   issues_json=$(echo "$vm_list" | python3 -c "
 import sys, json
 
 vms = json.load(sys.stdin)
+pool_drivers = json.loads('''${pool_drivers}''')
 results = []
 
 for vm in vms:
@@ -140,13 +168,20 @@ for vm in vms:
     for dev_name, dev_conf in expanded.items():
         dev_type = dev_conf.get('type', '')
 
-        # 根磁盘
+        # 磁盘设备
         if dev_type == 'disk':
             pool = dev_conf.get('pool', '')
             source = dev_conf.get('source', '')
             # 本地路径挂载不可 heal
             if source and source.startswith('/'):
                 issues.append(f'设备 {dev_name}: 使用本地路径 {source}')
+            # 交叉验证存储池类型 — 非 Ceph 池上的磁盘不可 heal
+            elif pool and pool in pool_drivers:
+                driver = pool_drivers[pool]
+                if driver not in ('ceph', 'ceph-rbd'):
+                    issues.append(f'设备 {dev_name}: 存储池 {pool} 为本地类型 ({driver})，不支持 healing')
+            elif pool and pool not in pool_drivers:
+                issues.append(f'设备 {dev_name}: 存储池 {pool} 未找到')
 
         # GPU/USB 等物理设备绑定
         if dev_type in ('gpu', 'usb', 'unix-char', 'unix-block', 'unix-hotplug'):
@@ -208,6 +243,40 @@ for pool in pools:
   return 0
 }
 
+# ==================== 检查 3: Ceph 集群健康状态 ====================
+check_ceph_health() {
+  log_step "检查 Ceph 集群健康状态"
+
+  local ceph_status
+  ceph_status=$(ceph health --format json 2>/dev/null || echo '{"status":"UNKNOWN"}')
+
+  local health
+  health=$(echo "$ceph_status" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(data.get('status', 'UNKNOWN'))
+" 2>/dev/null || echo "UNKNOWN")
+
+  log_info "Ceph 状态: ${health}"
+
+  case "$health" in
+    HEALTH_OK)
+      log_info "[OK] Ceph 集群健康"
+      return 0
+      ;;
+    HEALTH_WARN)
+      log_warn "[WARN] Ceph 集群有告警，healing 后 VM 可能启动缓慢"
+      # WARN 不阻塞，但记录详情
+      ceph health detail 2>/dev/null | head -20 || true
+      return 0
+      ;;
+    *)
+      log_error "[FAIL] Ceph 集群状态异常（${health}），healing 后 VM 可能无法启动"
+      return 1
+      ;;
+  esac
+}
+
 # ==================== 应用配置 ====================
 apply_healing() {
   log_step "应用 auto-healing 配置"
@@ -239,13 +308,19 @@ main() {
   log_step "Incus Auto-Healing 配置（模式: ${MODE}）"
 
   # 前提检查
-  check_voters  || check_errors=$((check_errors + 1))
-  check_vms     || check_errors=$((check_errors + 1))
+  check_voters      || check_errors=$((check_errors + 1))
+  check_vms         || check_errors=$((check_errors + 1))
+  check_ceph_health || check_errors=$((check_errors + 1))
 
   if [[ "$MODE" == "apply" ]]; then
     if [[ $check_errors -gt 0 ]]; then
-      log_warn "存在 ${check_errors} 项前提检查未通过，仍继续应用配置"
-      log_warn "请在修复问题后重新运行 --dry-run 确认"
+      if [[ "$FORCE" != true ]]; then
+        log_error "存在 ${check_errors} 项前提检查未通过，拒绝应用"
+        log_error "修复问题后重试，或使用 --force 强制应用（可能导致数据丢失）"
+        exit 1
+      fi
+      log_warn "存在 ${check_errors} 项前提检查未通过，--force 强制应用"
+      log_warn "警告: 本地存储上的 VM 在 healing 时会丢失数据！"
     fi
     apply_healing
     echo ""
