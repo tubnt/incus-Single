@@ -1,0 +1,32 @@
+# ============================================================
+# IPv6 双栈 netplan 模板
+# 用途：VM 的 cloud-init network-config 模板（IPv4 + IPv6）
+#
+# 变量说明：
+#   ${IPV4_ADDR}    - VM 的 IPv4 地址（如 203.0.113.11）
+#   ${IPV4_MASK}    - IPv4 子网掩码 CIDR（如 /26）
+#   ${IPV4_GW}      - IPv4 网关（如 203.0.113.1）
+#   ${IPV6_ADDR}    - VM 的 IPv6 地址（如 2001:db8:abcd:1::1）
+#   ${IPV6_PREFIX}  - IPv6 前缀长度（通常 /64）
+#   ${IPV6_GW}      - IPv6 网关（如 fe80::1 或上游网关）
+#   ${DNS_V4}       - IPv4 DNS（如 8.8.8.8,1.1.1.1）
+#   ${DNS_V6}       - IPv6 DNS（如 2606:4700:4700::1111）
+# ============================================================
+network:
+  version: 2
+  ethernets:
+    all-en:
+      match:
+        name: "en*"
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - ${IPV4_ADDR}${IPV4_MASK}
+        - ${IPV6_ADDR}${IPV6_PREFIX}
+      routes:
+        - to: default
+          via: ${IPV4_GW}
+        - to: "::/0"
+          via: "${IPV6_GW}"
+      nameservers:
+        addresses: [${DNS_V4}, ${DNS_V6}]
