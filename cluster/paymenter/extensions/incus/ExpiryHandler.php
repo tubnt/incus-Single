@@ -7,6 +7,7 @@ use Extensions\Incus\Notifications\DeletionNotice;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * 到期处理器
@@ -43,42 +44,40 @@ class ExpiryHandler
             }
 
             try {
-                $state = $this->client->getInstanceState($vmName);
+                // 事务 + 行锁：防止与续费操作竞争
+                $didSuspend = DB::transaction(function () use ($order, $vmName) {
+                    // 行锁二次检查：用户可能刚续费
+                    $fresh = DB::table('orders')->where('id', $order->id)->lockForUpdate()->first();
+                    if (!$fresh || $fresh->status !== 'active' || Carbon::parse($fresh->expires_at)->isFuture()) {
+                        return false;
+                    }
 
-                // 幂等：已停止的 VM 不重复 stop，但需确保订单状态同步
-                if (($state['status'] ?? '') === 'Stopped') {
-                    Log::info("ExpiryHandler: VM {$vmName} 已是停止状态，同步订单状态为 suspended");
+                    $state = $this->client->getInstanceState($vmName);
+
+                    // 幂等：已停止的 VM 不重复 stop，但需确保订单状态同步
+                    if (($state['status'] ?? '') !== 'Stopped') {
+                        $this->client->stopInstance($vmName);
+                    }
 
                     DB::table('orders')
                         ->where('id', $order->id)
                         ->where('status', 'active')
                         ->update(['status' => 'suspended', 'suspended_at' => Carbon::now()]);
 
-                    $suspended[] = $vmName;
-                    continue;
-                }
+                    return true;
+                });
 
-                $this->client->stopInstance($vmName);
-
-                DB::table('orders')
-                    ->where('id', $order->id)
-                    ->update(['status' => 'suspended', 'suspended_at' => Carbon::now()]);
-
-                $deletionDate = Carbon::now()->addDays(7)->format('Y-m-d');
-                $user = DB::table('users')->find($order->user_id);
-                if ($user) {
-                    $user = (object) $user;
-                    if (method_exists($user, 'notify')) {
-                        $user->notify(new SuspensionNotice(
-                            $vmName,
-                            $order->ip ?? '',
-                            $deletionDate,
-                        ));
+                if ($didSuspend) {
+                    $deletionDate = Carbon::now()->addDays(7)->format('Y-m-d');
+                    $user = DB::table('users')->find($order->user_id);
+                    if ($user && ($user->email ?? null)) {
+                        Notification::route('mail', $user->email)
+                            ->notify(new SuspensionNotice($vmName, $order->ip ?? '', $deletionDate));
                     }
-                }
 
-                $suspended[] = $vmName;
-                Log::info("ExpiryHandler: VM {$vmName} 已暂停（到期）");
+                    $suspended[] = $vmName;
+                    Log::info("ExpiryHandler: VM {$vmName} 已暂停（到期）");
+                }
             } catch (\Throwable $e) {
                 Log::error("ExpiryHandler: 暂停 VM {$vmName} 失败: {$e->getMessage()}");
             }
@@ -108,44 +107,54 @@ class ExpiryHandler
             }
 
             try {
-                // 幂等：检查 VM 是否仍存在
-                $exists = $this->client->instanceExists($vmName);
-                if ($exists) {
-                    // 确保 VM 已停止后再删除
-                    $state = $this->client->getInstanceState($vmName);
-                    if (($state['status'] ?? '') !== 'Stopped') {
-                        $this->client->stopInstance($vmName, force: true);
+                // 事务 + 行锁：防止删除已被续费恢复的 VM（不可逆操作）
+                $didDelete = DB::transaction(function () use ($order, $vmName) {
+                    $fresh = DB::table('orders')->where('id', $order->id)->lockForUpdate()->first();
+                    if (!$fresh || $fresh->status !== 'suspended') {
+                        return false;
                     }
-                    $this->client->deleteInstance($vmName);
-                }
 
-                // 回收 IP — 设置冷却期
-                if ($order->ip ?? null) {
-                    DB::table('ip_addresses')
-                        ->where('ip', $order->ip)
-                        ->update([
-                            'status' => 'cooldown',
-                            'vm_name' => null,
-                            'order_id' => null,
-                            'released_at' => Carbon::now(),
-                            'cooldown_until' => Carbon::now()->addHours(24),
-                        ]);
-                }
-
-                DB::table('orders')
-                    ->where('id', $order->id)
-                    ->update(['status' => 'terminated', 'terminated_at' => Carbon::now()]);
-
-                $user = DB::table('users')->find($order->user_id);
-                if ($user) {
-                    $user = (object) $user;
-                    if (method_exists($user, 'notify')) {
-                        $user->notify(new DeletionNotice($vmName, $order->ip ?? ''));
+                    // 幂等：检查 VM 是否仍存在
+                    $exists = $this->client->instanceExists($vmName);
+                    if ($exists) {
+                        $state = $this->client->getInstanceState($vmName);
+                        if (($state['status'] ?? '') !== 'Stopped') {
+                            $this->client->stopInstance($vmName, force: true);
+                        }
+                        $this->client->deleteInstance($vmName);
                     }
-                }
 
-                $deleted[] = $vmName;
-                Log::info("ExpiryHandler: VM {$vmName} 已删除，IP {$order->ip} 已回收");
+                    // 回收 IP — 设置冷却期
+                    if ($order->ip ?? null) {
+                        DB::table('ip_addresses')
+                            ->where('ip', $order->ip)
+                            ->update([
+                                'status' => 'cooldown',
+                                'vm_name' => null,
+                                'order_id' => null,
+                                'released_at' => Carbon::now(),
+                                'cooldown_until' => Carbon::now()->addHours(24),
+                            ]);
+                    }
+
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->where('status', 'suspended')
+                        ->update(['status' => 'terminated', 'terminated_at' => Carbon::now()]);
+
+                    return true;
+                });
+
+                if ($didDelete) {
+                    $user = DB::table('users')->find($order->user_id);
+                    if ($user && ($user->email ?? null)) {
+                        Notification::route('mail', $user->email)
+                            ->notify(new DeletionNotice($vmName, $order->ip ?? ''));
+                    }
+
+                    $deleted[] = $vmName;
+                    Log::info("ExpiryHandler: VM {$vmName} 已删除，IP {$order->ip} 已回收");
+                }
             } catch (\Throwable $e) {
                 Log::error("ExpiryHandler: 删除 VM {$vmName} 失败: {$e->getMessage()}");
             }

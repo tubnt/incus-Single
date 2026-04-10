@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 
 /**
  * 到期提醒发送（每日 09:00）
@@ -44,14 +45,14 @@ class ExpiryReminderSend
                     continue;
                 }
 
-                $user = (object) $user;
-                if (method_exists($user, 'notify')) {
-                    $user->notify(new ExpiryReminder(
-                        $order->vm_name,
-                        $order->ip ?? '',
-                        $days,
-                        Carbon::parse($order->expires_at)->format('Y-m-d'),
-                    ));
+                if ($user->email ?? null) {
+                    Notification::route('mail', $user->email)
+                        ->notify(new ExpiryReminder(
+                            $order->vm_name,
+                            $order->ip ?? '',
+                            $days,
+                            Carbon::parse($order->expires_at)->format('Y-m-d'),
+                        ));
                 }
 
                 Cache::put($cacheKey, true, now()->endOfDay());
@@ -78,13 +79,13 @@ class ExpiryReminderSend
             }
 
             $deletionDate = Carbon::parse($order->suspended_at)->addDays(7)->format('Y-m-d');
-            $user = (object) $user;
-            if (method_exists($user, 'notify')) {
-                $user->notify(new DeletionWarning(
-                    $order->vm_name,
-                    $order->ip ?? '',
-                    $deletionDate,
-                ));
+            if ($user->email ?? null) {
+                Notification::route('mail', $user->email)
+                    ->notify(new DeletionWarning(
+                        $order->vm_name,
+                        $order->ip ?? '',
+                        $deletionDate,
+                    ));
             }
 
             Cache::put($cacheKey, true, now()->endOfDay());

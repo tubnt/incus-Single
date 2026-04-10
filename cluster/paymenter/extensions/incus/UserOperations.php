@@ -130,6 +130,11 @@ class UserOperations
      */
     public function changePassword(string $vmName, int $orderId, string $newPassword): array
     {
+        // 防止换行注入多条 user:password 对、冒号截断用户名
+        if (preg_match('/[\r\n:]/', $newPassword)) {
+            throw new \InvalidArgumentException('密码包含非法字符');
+        }
+
         return VmOperationLock::withLock($vmName, 'change_password', function () use ($vmName, $orderId, $newPassword) {
             try {
                 $result = $this->client->post("/1.0/instances/{$vmName}/exec", [
@@ -210,16 +215,21 @@ class UserOperations
         // 计算 CIDR 前缀
         $cidr = $this->netmaskToCidr($netmask);
 
-        // 预先 hash 密码，避免明文存储在 cloud-init 配置中
-        $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
+        // 使用 SHA-512 哈希密码（与 VmProvisioner 一致，兼容所有 Linux 发行版）
+        $salt = bin2hex(random_bytes(8));
+        $hashedPassword = crypt($password, '$6$' . $salt . '$');
 
         $cloudInit = [
             'hostname'          => $hostname,
             'manage_etc_hosts'  => true,
             'chpasswd'          => [
                 'expire' => false,
-                'users'  => [
-                    ['name' => 'root', 'password' => $hashedPassword, 'type' => 'hash'],
+            ],
+            'users' => [
+                [
+                    'name'          => 'root',
+                    'lock_passwd'   => false,
+                    'hashed_passwd' => $hashedPassword,
                 ],
             ],
             'ssh_pwauth'        => true,

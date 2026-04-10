@@ -29,6 +29,16 @@ class IncusClient
         $this->project = $config['project'] ?? 'customers';
         $this->timeout = $config['timeout'] ?? 30;
         $this->maxRetries = $config['max_retries'] ?? 3;
+
+        // 快速失败：启动时校验 mTLS 证书文件存在性，避免运行时才报 cURL 错误
+        foreach (['cert_file' => $this->certFile, 'key_file' => $this->keyFile] as $name => $path) {
+            if (!is_file($path)) {
+                throw new \RuntimeException("Incus mTLS 证书文件不存在: {$name} = {$path}");
+            }
+        }
+        if ($this->caFile !== '' && !is_file($this->caFile)) {
+            throw new \RuntimeException("Incus CA 证书文件不存在: ca_file = {$this->caFile}");
+        }
     }
 
     /**
@@ -156,7 +166,7 @@ class IncusClient
     {
         $ch = curl_init();
 
-        curl_setopt_array($ch, [
+        $curlOpts = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
@@ -167,15 +177,20 @@ class IncusClient
             CURLOPT_SSLKEY => $this->keyFile,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
-            // 自签名 CA 验证
-            CURLOPT_CAINFO => $this->caFile,
 
             CURLOPT_CUSTOMREQUEST => $method,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'Accept: application/json',
             ],
-        ]);
+        ];
+
+        // 仅在指定 CA 文件时设置，避免空字符串导致验证行为不确定
+        if ($this->caFile !== '') {
+            $curlOpts[CURLOPT_CAINFO] = $this->caFile;
+        }
+
+        curl_setopt_array($ch, $curlOpts);
 
         if (!empty($data) && in_array($method, ['POST', 'PUT', 'PATCH'])) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));

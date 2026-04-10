@@ -32,6 +32,7 @@ services:
       MAIL_FROM_NAME: "${APP_NAME:-Paymenter}"
     volumes:
       - app_storage:/var/www/html/storage
+      - app_public:/var/www/html/public
       - ./extensions:/var/www/html/extensions
       - ./certs:/var/www/html/certs:ro
     depends_on:
@@ -130,6 +131,7 @@ services:
       DOMAIN: "${DOMAIN}"
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
+      - app_public:/var/www/html/public:ro
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
     depends_on:
@@ -161,6 +163,7 @@ volumes:
   mysql_data:
   redis_data:
   app_storage:
+  app_public:
 
 networks:
   internal:

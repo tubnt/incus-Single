@@ -397,9 +397,9 @@ class PaymentHandler
      */
     private function attemptRenewal(object $order): string
     {
-        $lockKey = "renewal_lock:{$order->id}";
+        // 按用户维度加锁，防止同一用户多个订单并发扣余额导致余额变负
+        $lockKey = "renewal_lock:user:{$order->user_id}";
 
-        // 防止并发处理
         if (!Cache::add($lockKey, true, 300)) {
             return 'skipped';
         }
@@ -433,8 +433,15 @@ class PaymentHandler
      */
     private function executeRenewal(object $order, object $user, float $amount): string
     {
-        // 扣除余额
-        DB::table('users')->where('id', $user->id)->decrement('balance', $amount);
+        // 原子扣除余额：仅当余额充足时扣减，防止并发导致余额变负
+        $affected = DB::table('users')
+            ->where('id', $user->id)
+            ->where('balance', '>=', $amount)
+            ->decrement('balance', $amount);
+
+        if ($affected === 0) {
+            return 'failed'; // 余额已不足（被其他续费消耗）
+        }
 
         // 记录余额变动
         DB::table('balance_transactions')->insert([

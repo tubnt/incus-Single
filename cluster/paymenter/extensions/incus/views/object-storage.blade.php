@@ -64,7 +64,8 @@
             </div>
             <div>
                 <span class="text-gray-500">Secret Key:</span>
-                <button onclick="toggleSecret(this)" data-secret="{{ $credentials['secret_key'] ?? '' }}"
+                <span id="secret-key-display" class="ml-2 bg-gray-100 px-2 py-1 rounded font-mono text-sm">••••••••</span>
+                <button id="secret-key-toggle"
                         class="ml-2 text-blue-600 hover:underline text-sm">
                     点击显示
                 </button>
@@ -130,17 +131,18 @@
 
 @push('scripts')
 <script>
-    // 切换显示/隐藏 Secret Key
-    function toggleSecret(btn) {
-        const secret = btn.dataset.secret;
-        if (btn.textContent === '点击显示') {
-            btn.textContent = secret;
-            btn.classList.add('bg-gray-100', 'px-2', 'py-1', 'rounded', 'font-mono');
-        } else {
-            btn.textContent = '点击显示';
-            btn.classList.remove('bg-gray-100', 'px-2', 'py-1', 'rounded', 'font-mono');
-        }
-    }
+    // Secret Key 不在 DOM 属性中存储，避免 XSS 时被 querySelectorAll 批量提取
+    (function() {
+        var _sk = @json($credentials['secret_key'] ?? '');
+        var visible = false;
+        var display = document.getElementById('secret-key-display');
+        var btn = document.getElementById('secret-key-toggle');
+        btn.addEventListener('click', function() {
+            visible = !visible;
+            display.textContent = visible ? _sk : '••••••••';
+            btn.textContent = visible ? '点击隐藏' : '点击显示';
+        });
+    })();
 </script>
 @endpush
 @endsection

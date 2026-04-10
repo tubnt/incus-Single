@@ -40,7 +40,7 @@
                 </div>
                 <div class="flex gap-2">
                     @if (in_array($team->pivot->role ?? $team->role, ['owner', 'admin']))
-                    <button onclick="openInviteModal({{ $team->id }}, '{{ $team->name }}')"
+                    <button onclick="openInviteModal({{ $team->id }}, @json($team->name))"
                             class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
                         <i class="fas fa-user-plus mr-1"></i> 邀请成员
                     </button>
