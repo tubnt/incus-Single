@@ -1,0 +1,22 @@
+#cloud-config
+# VM 用户数据模板
+# 变量: ${HOSTNAME}, ${PASSWORD_HASH}, ${SSH_PUBKEY}
+
+hostname: ${HOSTNAME}
+manage_etc_hosts: true
+
+users:
+  - name: root
+    lock_passwd: false
+    hashed_passwd: ${PASSWORD_HASH}
+    ssh_authorized_keys:
+      - ${SSH_PUBKEY}
+
+ssh_pwauth: false
+
+package_update: true
+packages:
+  - qemu-guest-agent
+
+runcmd:
+  - systemctl enable --now qemu-guest-agent
