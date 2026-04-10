@@ -2,499 +2,257 @@
 
 namespace App\Extensions\Incus;
 
-use Illuminate\Support\Facades\DB;
+use Exception;
 use Illuminate\Support\Facades\Log;
 
 /**
- * 对象存储管理器（Ceph RGW S3 兼容）
+ * ObjectStorageManager — Ceph RGW S3 对象存储管理器
  *
- * 功能：S3 用户管理、桶管理、凭据管理、用量查询、配额设置
- * 通过 radosgw-admin CLI 与 RGW Admin API 交互
+ * 通过 radosgw-admin 命令行管理用户、Bucket、配额和用量查询。
  */
 class ObjectStorageManager
 {
-    /** 默认用户配额（字节） — 50GB */
-    private const DEFAULT_USER_QUOTA_BYTES = 53687091200;
+    /** @var string radosgw-admin 可执行路径 */
+    protected string $radosgwAdmin;
 
-    /** 默认桶配额（字节） — 10GB */
-    private const DEFAULT_BUCKET_QUOTA_BYTES = 10737418240;
-
-    /** 默认最大桶数 */
-    private const DEFAULT_MAX_BUCKETS = 10;
-
-    private string $adminEndpoint;
-    private string $adminAccessKey;
-    private string $adminSecretKey;
-    private bool $sslVerify;
+    /** @var string S3 endpoint URL */
+    protected string $s3Endpoint;
 
     public function __construct()
     {
-        $this->adminEndpoint = config('incus.rgw.endpoint', 'https://s3.incus.local:7443');
-        $this->adminAccessKey = config('incus.rgw.admin_access_key', '');
-        $this->adminSecretKey = config('incus.rgw.admin_secret_key', '');
-        $this->sslVerify = config('incus.rgw.ssl_verify', false);
+        $this->radosgwAdmin = config('incus.radosgw_admin_path', '/usr/bin/radosgw-admin');
+        $this->s3Endpoint   = config('incus.s3_endpoint', 'https://localhost:7443');
     }
 
-    // ==================== 用户管理 ====================
+    // ----------------------------------------------------------------
+    // 用户管理
+    // ----------------------------------------------------------------
 
     /**
-     * 创建 S3 用户
+     * 创建对象存储用户
      *
-     * @param int    $userId      平台用户 ID
-     * @param string $displayName 显示名称
-     * @param int    $quotaBytes  用户配额（字节），0 表示无限制
-     * @return array{success: bool, message: string, credentials?: array}
+     * @param  string $userId 用户唯一标识
+     * @return array  包含 access_key / secret_key 的用户信息
+     * @throws Exception
      */
-    public function createUser(int $userId, string $displayName, int $quotaBytes = 0): array
+    public function createUser(string $userId): array
     {
-        $uid = $this->generateUid($userId);
+        $displayName = "user-{$userId}";
 
-        // 检查是否已存在
-        $existing = DB::table('incus_object_storage_users')
-            ->where('user_id', $userId)
-            ->first();
-
-        if ($existing) {
-            return [
-                'success' => false,
-                'message' => '该用户已拥有对象存储账户',
-            ];
-        }
-
-        // 通过 radosgw-admin API 创建用户
-        $result = $this->adminApiRequest('PUT', '/admin/user', [
-            'uid'          => $uid,
-            'display-name' => $displayName,
-            'max-buckets'  => self::DEFAULT_MAX_BUCKETS,
-        ]);
-
-        if (!$result['success']) {
-            Log::error('RGW 用户创建失败', [
-                'user_id' => $userId,
-                'uid'     => $uid,
-                'error'   => $result['message'],
-            ]);
-            return $result;
-        }
-
-        $keys = $result['data']['keys'][0] ?? null;
-        if (!$keys) {
-            return ['success' => false, 'message' => '创建用户成功但未获取到凭据'];
-        }
-
-        // 设置配额
-        $effectiveQuota = $quotaBytes > 0 ? $quotaBytes : self::DEFAULT_USER_QUOTA_BYTES;
-        $this->setUserQuota($uid, $effectiveQuota);
-
-        // 保存到数据库
-        DB::table('incus_object_storage_users')->insert([
-            'user_id'    => $userId,
-            'rgw_uid'    => $uid,
-            'access_key' => $keys['access_key'],
-            'secret_key' => encrypt($keys['secret_key']),
-            'quota_bytes' => $effectiveQuota,
-            'max_buckets' => self::DEFAULT_MAX_BUCKETS,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        Log::info('对象存储用户创建成功', ['user_id' => $userId, 'uid' => $uid]);
-
-        return [
-            'success'     => true,
-            'message'     => '对象存储用户创建成功',
-            'credentials' => [
-                'access_key' => $keys['access_key'],
-                'secret_key' => $keys['secret_key'],
-                'endpoint'   => $this->adminEndpoint,
-            ],
-        ];
-    }
-
-    /**
-     * 获取用户凭据
-     *
-     * @return array{success: bool, message: string, credentials?: array}
-     */
-    public function getCredentials(int $userId): array
-    {
-        $record = DB::table('incus_object_storage_users')
-            ->where('user_id', $userId)
-            ->first();
-
-        if (!$record) {
-            return ['success' => false, 'message' => '未找到对象存储账户'];
-        }
-
-        return [
-            'success'     => true,
-            'message'     => '获取凭据成功',
-            'credentials' => [
-                'access_key' => $record->access_key,
-                'secret_key' => decrypt($record->secret_key),
-                'endpoint'   => $this->adminEndpoint,
-                'rgw_uid'    => $record->rgw_uid,
-            ],
-        ];
-    }
-
-    // ==================== 桶管理 ====================
-
-    /**
-     * 创建存储桶
-     *
-     * @return array{success: bool, message: string}
-     */
-    public function createBucket(int $userId, string $bucketName): array
-    {
-        // 验证桶名称
-        if (!$this->validateBucketName($bucketName)) {
-            return ['success' => false, 'message' => '桶名称不合法（3-63 位小写字母、数字、连字符）'];
-        }
-
-        $creds = $this->getCredentials($userId);
-        if (!$creds['success']) {
-            return $creds;
-        }
-
-        // 检查桶数量限制
-        $record = DB::table('incus_object_storage_users')
-            ->where('user_id', $userId)
-            ->first();
-
-        $currentBuckets = $this->listBuckets($userId);
-        if ($currentBuckets['success'] && count($currentBuckets['buckets'] ?? []) >= $record->max_buckets) {
-            return [
-                'success' => false,
-                'message' => "桶数量已达上限（{$record->max_buckets} 个）",
-            ];
-        }
-
-        // 通过 S3 API 创建桶
-        $result = $this->s3Request(
-            'PUT',
-            "/{$bucketName}",
-            $creds['credentials']['access_key'],
-            decrypt($record->secret_key)
+        $output = $this->exec(
+            'user create',
+            [
+                '--uid'          => $userId,
+                '--display-name' => $displayName,
+            ]
         );
 
-        if (!$result['success']) {
-            Log::error('创建存储桶失败', [
-                'user_id' => $userId,
-                'bucket'  => $bucketName,
-                'error'   => $result['message'],
-            ]);
-            return $result;
+        $data = json_decode($output, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("创建用户失败：无法解析 radosgw-admin 输出");
         }
 
-        Log::info('存储桶创建成功', ['user_id' => $userId, 'bucket' => $bucketName]);
+        Log::info("对象存储用户已创建", ['uid' => $userId]);
 
-        return ['success' => true, 'message' => "存储桶 {$bucketName} 创建成功"];
+        return $data;
     }
 
     /**
-     * 删除存储桶
+     * 获取用户 Access Key / Secret Key
      *
-     * @param bool $force 是否强制删除（包括桶内对象）
-     * @return array{success: bool, message: string}
+     * @param  string $userId
+     * @return array{access_key: string, secret_key: string}
+     * @throws Exception
      */
-    public function deleteBucket(int $userId, string $bucketName, bool $force = false): array
+    public function getCredentials(string $userId): array
     {
-        $creds = $this->getCredentials($userId);
-        if (!$creds['success']) {
-            return $creds;
+        $output = $this->exec('user info', ['--uid' => $userId]);
+        $data   = json_decode($output, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE || empty($data['keys'])) {
+            throw new Exception("获取凭据失败：用户 {$userId} 不存在或无密钥");
         }
 
-        // 验证桶归属
-        $bucketInfo = $this->adminApiRequest('GET', '/admin/bucket', [
-            'bucket' => $bucketName,
-        ]);
+        return [
+            'access_key' => $data['keys'][0]['access_key'],
+            'secret_key' => $data['keys'][0]['secret_key'],
+        ];
+    }
 
-        if ($bucketInfo['success'] && ($bucketInfo['data']['owner'] ?? '') !== $creds['credentials']['rgw_uid']) {
-            return ['success' => false, 'message' => '无权操作此存储桶'];
-        }
+    // ----------------------------------------------------------------
+    // Bucket 管理
+    // ----------------------------------------------------------------
 
-        if ($force) {
-            // 强制删除（通过 admin API）
-            $result = $this->adminApiRequest('DELETE', '/admin/bucket', [
-                'bucket'       => $bucketName,
-                'purge-objects' => 'true',
-            ]);
-        } else {
-            // 普通删除（桶必须为空）
-            $record = DB::table('incus_object_storage_users')
-                ->where('user_id', $userId)
-                ->first();
-            $result = $this->s3Request(
-                'DELETE',
-                "/{$bucketName}",
-                $creds['credentials']['access_key'],
-                decrypt($record->secret_key)
-            );
-        }
+    /**
+     * 创建 Bucket
+     *
+     * @param  string $userId Bucket 归属用户
+     * @param  string $name   Bucket 名称
+     * @return array
+     * @throws Exception
+     */
+    public function createBucket(string $userId, string $name): array
+    {
+        // 通过 S3 API 创建 bucket（使用用户凭据）
+        $credentials = $this->getCredentials($userId);
 
-        if (!$result['success']) {
-            Log::error('删除存储桶失败', [
-                'user_id' => $userId,
-                'bucket'  => $bucketName,
-                'error'   => $result['message'],
-            ]);
-            return $result;
-        }
+        $command = sprintf(
+            'AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s aws s3 mb s3://%s --endpoint-url=%s --no-verify-ssl 2>&1',
+            escapeshellarg($credentials['access_key']),
+            escapeshellarg($credentials['secret_key']),
+            escapeshellarg($name),
+            escapeshellarg($this->s3Endpoint)
+        );
 
-        Log::info('存储桶删除成功', ['user_id' => $userId, 'bucket' => $bucketName]);
+        $output = shell_exec($command);
 
-        return ['success' => true, 'message' => "存储桶 {$bucketName} 已删除"];
+        Log::info("Bucket 已创建", ['uid' => $userId, 'bucket' => $name]);
+
+        return [
+            'bucket'   => $name,
+            'owner'    => $userId,
+            'endpoint' => $this->s3Endpoint,
+        ];
     }
 
     /**
-     * 列出用户的所有存储桶
+     * 删除 Bucket
      *
-     * @return array{success: bool, message: string, buckets?: array}
+     * @param  string $userId
+     * @param  string $name   Bucket 名称
+     * @return bool
+     * @throws Exception
      */
-    public function listBuckets(int $userId): array
+    public function deleteBucket(string $userId, string $name): bool
     {
-        $record = DB::table('incus_object_storage_users')
-            ->where('user_id', $userId)
-            ->first();
-
-        if (!$record) {
-            return ['success' => false, 'message' => '未找到对象存储账户'];
-        }
-
-        $result = $this->adminApiRequest('GET', '/admin/bucket', [
-            'uid' => $record->rgw_uid,
-            'stats' => 'true',
+        $this->exec('bucket rm', [
+            '--bucket'        => $name,
+            '--purge-objects' => null,
         ]);
 
-        if (!$result['success']) {
-            return $result;
+        Log::info("Bucket 已删除", ['uid' => $userId, 'bucket' => $name]);
+
+        return true;
+    }
+
+    /**
+     * 列出用户的所有 Bucket
+     *
+     * @param  string $userId
+     * @return array
+     * @throws Exception
+     */
+    public function listBuckets(string $userId): array
+    {
+        $output = $this->exec('bucket list', ['--uid' => $userId]);
+        $data   = json_decode($output, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("列出 Bucket 失败：无法解析输出");
         }
 
-        $buckets = [];
-        foreach ($result['data'] as $bucket) {
-            if (is_string($bucket)) {
-                // 简单列表模式
-                $buckets[] = ['name' => $bucket];
+        return $data ?? [];
+    }
+
+    // ----------------------------------------------------------------
+    // 用量与配额
+    // ----------------------------------------------------------------
+
+    /**
+     * 获取用户存储用量
+     *
+     * @param  string $userId
+     * @return array{size_kb: int, num_objects: int, size_gb: float}
+     * @throws Exception
+     */
+    public function getUsage(string $userId): array
+    {
+        $output = $this->exec('user stats', ['--uid' => $userId, '--sync-stats' => null]);
+        $data   = json_decode($output, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("获取用量失败：无法解析输出");
+        }
+
+        $stats = $data['stats'] ?? [];
+
+        return [
+            'size_kb'     => $stats['size_kb'] ?? 0,
+            'num_objects' => $stats['num_objects'] ?? 0,
+            'size_gb'     => round(($stats['size_kb'] ?? 0) / 1024 / 1024, 3),
+        ];
+    }
+
+    /**
+     * 设置用户存储配额
+     *
+     * @param  string $userId
+     * @param  int    $maxSizeGb 最大存储容量 (GB)
+     * @return bool
+     * @throws Exception
+     */
+    public function setQuota(string $userId, int $maxSizeGb): bool
+    {
+        // 启用配额
+        $this->exec('quota enable', [
+            '--quota-scope' => 'user',
+            '--uid'         => $userId,
+        ]);
+
+        // 设置容量上限
+        $maxSizeBytes = $maxSizeGb * 1024 * 1024 * 1024;
+        $this->exec('quota set', [
+            '--quota-scope' => 'user',
+            '--uid'         => $userId,
+            '--max-size'    => (string) $maxSizeBytes,
+        ]);
+
+        Log::info("用户配额已设置", ['uid' => $userId, 'max_size_gb' => $maxSizeGb]);
+
+        return true;
+    }
+
+    // ----------------------------------------------------------------
+    // 内部方法
+    // ----------------------------------------------------------------
+
+    /**
+     * 执行 radosgw-admin 命令
+     *
+     * @param  string $subCommand 子命令（如 "user create"）
+     * @param  array  $args       参数 key-value
+     * @return string 命令输出
+     * @throws Exception
+     */
+    protected function exec(string $subCommand, array $args = []): string
+    {
+        $cmd = escapeshellcmd($this->radosgwAdmin) . ' ' . $subCommand;
+
+        foreach ($args as $key => $value) {
+            if ($value === null) {
+                // 无值开关参数
+                $cmd .= ' ' . $key;
             } else {
-                // 带统计信息
-                $usage = $bucket['usage']['rgw.main'] ?? [];
-                $buckets[] = [
-                    'name'         => $bucket['bucket'] ?? $bucket['name'] ?? '',
-                    'size_bytes'   => $usage['size_actual'] ?? 0,
-                    'num_objects'  => $usage['num_objects'] ?? 0,
-                    'created_at'   => $bucket['creation_time'] ?? null,
-                ];
+                $cmd .= ' ' . $key . '=' . escapeshellarg($value);
             }
         }
 
-        return [
-            'success' => true,
-            'message' => '获取桶列表成功',
-            'buckets' => $buckets,
-        ];
-    }
+        $cmd .= ' 2>&1';
 
-    // ==================== 用量与配额 ====================
+        $outputLines = [];
+        $returnCode  = 0;
+        exec($cmd, $outputLines, $returnCode);
+        $output = implode("\n", $outputLines);
 
-    /**
-     * 获取用户用量
-     *
-     * @return array{success: bool, message: string, usage?: array}
-     */
-    public function getUsage(int $userId): array
-    {
-        $record = DB::table('incus_object_storage_users')
-            ->where('user_id', $userId)
-            ->first();
-
-        if (!$record) {
-            return ['success' => false, 'message' => '未找到对象存储账户'];
+        if ($returnCode !== 0) {
+            Log::error("radosgw-admin 命令执行失败", [
+                'command'     => $subCommand,
+                'return_code' => $returnCode,
+                'output'      => $output,
+            ]);
+            throw new Exception("radosgw-admin 命令失败 ({$subCommand}): {$output}");
         }
 
-        // 获取用户统计
-        $result = $this->adminApiRequest('GET', '/admin/user', [
-            'uid'   => $record->rgw_uid,
-            'stats' => 'true',
-        ]);
-
-        if (!$result['success']) {
-            return $result;
-        }
-
-        $stats = $result['data']['stats'] ?? [];
-
-        return [
-            'success' => true,
-            'message' => '获取用量成功',
-            'usage'   => [
-                'size_bytes'      => $stats['size_actual'] ?? 0,
-                'num_objects'     => $stats['num_objects'] ?? 0,
-                'quota_bytes'     => $record->quota_bytes,
-                'quota_percent'   => $record->quota_bytes > 0
-                    ? round(($stats['size_actual'] ?? 0) / $record->quota_bytes * 100, 2)
-                    : 0,
-                'max_buckets'     => $record->max_buckets,
-                'buckets_used'    => count($this->listBuckets($userId)['buckets'] ?? []),
-            ],
-        ];
-    }
-
-    /**
-     * 设置用户配额
-     */
-    private function setUserQuota(string $uid, int $quotaBytes): bool
-    {
-        $result = $this->adminApiRequest('PUT', '/admin/user', [
-            'uid'            => $uid,
-            'quota-type'     => 'user',
-            'quota'          => '',
-            'max-size'       => $quotaBytes,
-            'enabled'        => 'true',
-        ], '/quota');
-
-        return $result['success'];
-    }
-
-    // ==================== 内部方法 ====================
-
-    /**
-     * 生成 RGW 用户 UID
-     */
-    private function generateUid(int $userId): string
-    {
-        return 'incus-user-' . $userId;
-    }
-
-    /**
-     * 验证桶名称（S3 规范）
-     */
-    private function validateBucketName(string $name): bool
-    {
-        // 3-63 字符，小写字母/数字/连字符，不以连字符开头或结尾
-        return (bool) preg_match('/^[a-z0-9][a-z0-9\-]{1,61}[a-z0-9]$/', $name);
-    }
-
-    /**
-     * RGW Admin API 请求
-     *
-     * @return array{success: bool, message: string, data?: array}
-     */
-    private function adminApiRequest(string $method, string $path, array $params = [], string $subResource = ''): array
-    {
-        $url = rtrim($this->adminEndpoint, '/') . $path . $subResource;
-
-        if ($method === 'GET' || $method === 'DELETE') {
-            $url .= '?' . http_build_query($params);
-        }
-
-        // 生成 AWS SigV4 签名
-        $date = gmdate('D, d M Y H:i:s T');
-        $stringToSign = "{$method}\n\n\n{$date}\n{$path}{$subResource}";
-        $signature = base64_encode(hash_hmac('sha1', $stringToSign, $this->adminSecretKey, true));
-
-        $headers = [
-            "Date: {$date}",
-            "Authorization: AWS {$this->adminAccessKey}:{$signature}",
-            'Content-Type: application/json',
-        ];
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
-            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
-        ]);
-
-        if ($method === 'PUT' || $method === 'POST') {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
-        }
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlError) {
-            return ['success' => false, 'message' => "RGW API 连接失败: {$curlError}"];
-        }
-
-        if ($httpCode >= 400) {
-            $errorMsg = $response ?: "HTTP {$httpCode}";
-            return ['success' => false, 'message' => "RGW API 错误: {$errorMsg}"];
-        }
-
-        $data = json_decode($response, true);
-
-        return [
-            'success' => true,
-            'message' => '操作成功',
-            'data'    => $data ?? [],
-        ];
-    }
-
-    /**
-     * S3 API 请求（用于桶操作）
-     *
-     * @return array{success: bool, message: string}
-     */
-    private function s3Request(string $method, string $path, string $accessKey, string $secretKey): array
-    {
-        $url = rtrim($this->adminEndpoint, '/') . $path;
-        $date = gmdate('D, d M Y H:i:s T');
-        $stringToSign = "{$method}\n\n\n{$date}\n{$path}";
-        $signature = base64_encode(hash_hmac('sha1', $stringToSign, $secretKey, true));
-
-        $headers = [
-            "Date: {$date}",
-            "Authorization: AWS {$accessKey}:{$signature}",
-        ];
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
-            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlError) {
-            return ['success' => false, 'message' => "S3 请求失败: {$curlError}"];
-        }
-
-        if ($httpCode >= 400) {
-            return ['success' => false, 'message' => "S3 错误 (HTTP {$httpCode}): {$response}"];
-        }
-
-        return ['success' => true, 'message' => '操作成功'];
-    }
-
-    /**
-     * 格式化字节数为可读字符串
-     */
-    public static function formatBytes(int $bytes, int $precision = 2): string
-    {
-        $units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        $index = 0;
-        $size = (float) $bytes;
-
-        while ($size >= 1024 && $index < count($units) - 1) {
-            $size /= 1024;
-            $index++;
-        }
-
-        return round($size, $precision) . ' ' . $units[$index];
+        return $output;
     }
 }

@@ -1,253 +1,249 @@
 # 异地灾备运维手册
 
-## 1. 架构概述
+## 1. 架构说明
 
-本集群使用 **Ceph RBD Mirroring** 实现异地灾备，采用主备（Active-Standby）模式。
+### 1.1 总体架构
+
+本灾备方案基于 **Ceph RBD Mirroring** 实现跨站点数据复制，采用 **Journal-based 异步镜像**模式。
 
 ```
-┌─────────────────┐         RBD Mirroring         ┌─────────────────┐
-│   主集群 (Primary)  │ ──── journal 异步复制 ────→ │  备集群 (Secondary) │
-│   node1-5        │                              │   remote site    │
-│   读写服务        │                              │   只读镜像        │
-└─────────────────┘                              └─────────────────┘
+┌─────────────────────┐          ┌─────────────────────┐
+│   主站点 (Primary)   │  journal  │  从站点 (Secondary)  │
+│                     │ ───────> │                     │
+│  Ceph Cluster A     │  async   │  Ceph Cluster B     │
+│  ┌───────────────┐  │          │  ┌───────────────┐  │
+│  │ incus-pool    │  │          │  │ incus-pool    │  │
+│  │ (RBD images)  │──┼──────────┼─>│ (RBD mirror)  │  │
+│  └───────────────┘  │          │  └───────────────┘  │
+│                     │          │                     │
+│  rbd-mirror daemon  │          │  rbd-mirror daemon  │
+└─────────────────────┘          └─────────────────────┘
 ```
 
-### 关键组件
+### 1.2 关键组件
 
 | 组件 | 说明 |
 |------|------|
-| RBD Mirroring | Ceph 原生块设备镜像，基于 journal 异步复制 |
-| rbd-mirror 守护进程 | 运行在备集群，负责拉取主集群的 journal 并回放 |
-| radosgw-admin | RGW 管理工具（对象存储相关） |
-
-### 镜像模式
-
-- **pool 模式**（推荐）：池内所有 image 自动镜像
-- **image 模式**：需手动为每个 image 启用镜像
-
-## 2. 初始配置
-
-### 前置条件
-
-1. 主备两个 Ceph 集群已独立部署完成
-2. 两集群之间网络互通（建议专线或 VPN）
-3. 备集群有与主集群同名的存储池
-
-### 配置步骤
-
-```bash
-# 设置备集群地址
-export DR_SECONDARY_HOST="10.0.10.100"
-export DR_SECONDARY_USER="root"
-
-# 执行一键配置
-./cluster/scripts/setup-disaster-recovery.sh all
-```
-
-或分步执行：
-
-```bash
-# 1. 前置检查
-./cluster/scripts/setup-disaster-recovery.sh preflight
-
-# 2. 启用镜像功能
-./cluster/scripts/setup-disaster-recovery.sh enable-mirror
-
-# 3. 生成 bootstrap token
-./cluster/scripts/setup-disaster-recovery.sh bootstrap
-
-# 4. 建立 peer 关系
-./cluster/scripts/setup-disaster-recovery.sh add-peer
-
-# 5. 配置池镜像策略
-./cluster/scripts/setup-disaster-recovery.sh enable-pool
-
-# 6. 为已有 image 启用 journaling
-./cluster/scripts/setup-disaster-recovery.sh enable-images
-
-# 7. 部署 rbd-mirror 守护进程
-./cluster/scripts/setup-disaster-recovery.sh deploy-daemon
-
-# 8. 验证
-./cluster/scripts/setup-disaster-recovery.sh verify
-```
-
-## 3. 日常监控
-
-### 状态检查
-
-```bash
-# 简要状态
-./cluster/scripts/disaster-recovery-status.sh --summary
-
-# 详细状态（含每个 image 同步情况）
-./cluster/scripts/disaster-recovery-status.sh --detail
-
-# JSON 格式（适合脚本/监控系统）
-./cluster/scripts/disaster-recovery-status.sh --json
-
-# 持续监控（每 30 秒刷新）
-./cluster/scripts/disaster-recovery-status.sh --watch 30
-
-# 健康检查（用于监控告警）
-./cluster/scripts/disaster-recovery-status.sh --check
-echo $?  # 0=正常, 1=降级, 2=故障
-```
-
-### 告警集成
-
-在监控系统中添加定时检查：
-
-```bash
-# crontab 示例：每 5 分钟检查灾备状态
-*/5 * * * * /path/to/disaster-recovery-status.sh --check || \
-  curl -X POST "https://alerting-webhook/dr-alert" -d "status=$?"
-```
-
-### 关键指标
-
-| 指标 | 正常值 | 告警阈值 |
-|------|--------|----------|
-| 镜像健康 | OK | WARNING / ERROR |
-| rbd-mirror 进程 | 运行中 | 进程不存在 |
-| 同步延迟 | < 30s | > 60s |
-| image 状态 | replaying | stopped / error |
-
-## 4. 故障切换
-
-### 场景：主集群不可用
-
-```bash
-# 执行故障切换
-./cluster/scripts/disaster-recovery-failover.sh failover
-```
-
-脚本执行流程：
-1. 尝试降级主集群（如果可达则优雅降级）
-2. 在备集群强制提升所有 image 为 primary
-3. 备集群变为可读写
-
-**切换后需要手动操作：**
-- 更新 DNS 记录指向备集群
-- 更新负载均衡配置
-- 通知业务方切换完成
-
-### 单独提升/降级
-
-```bash
-# 仅提升备集群
-./cluster/scripts/disaster-recovery-failover.sh promote
-
-# 仅降级主集群
-./cluster/scripts/disaster-recovery-failover.sh demote
-```
-
-## 5. 故障回切
-
-### 场景：主集群恢复后切回
-
-```bash
-# 确认主集群已恢复
-ssh root@node1 "ceph health"
-
-# 执行回切
-./cluster/scripts/disaster-recovery-failover.sh failback
-```
-
-回切流程：
-1. 检查主集群是否恢复
-2. 降级备集群所有 image
-3. 提升主集群所有 image
-4. 触发重新同步
-
-**回切后需要手动操作：**
-- 更新 DNS 记录指回主集群
-- 更新负载均衡配置
-- 监控同步状态直到完全追赶
-
-### 单独重新同步
-
-```bash
-./cluster/scripts/disaster-recovery-failover.sh resync
-```
-
-## 6. 故障排除
-
-### rbd-mirror 进程不运行
-
-```bash
-# 检查守护进程
-ceph orch ps --daemon-type rbd-mirror
-
-# 重启
-ceph orch restart rbd-mirror
-
-# 查看日志
-ceph log last 50 --channel cluster | grep mirror
-```
-
-### Image 同步停止
-
-```bash
-# 检查 image 状态
-rbd mirror image status <pool>/<image>
-
-# 强制重新同步
-rbd mirror image resync <pool>/<image>
-
-# 检查 journal 状态
-rbd journal status <pool>/<image>
-```
-
-### Peer 连接失败
-
-```bash
-# 检查 peer 信息
-rbd mirror pool info <pool>
-
-# 删除并重新建立 peer
-rbd mirror pool peer remove <pool> <peer-uuid>
-./cluster/scripts/setup-disaster-recovery.sh bootstrap
-./cluster/scripts/setup-disaster-recovery.sh add-peer
-```
-
-### 脑裂（Split-Brain）
-
-当两端都变成 primary 时（脑裂），需要手动处理：
-
-```bash
-# 1. 确定权威数据源（通常是最新写入的一端）
-# 2. 降级非权威端
-rbd mirror image demote <pool>/<image>  # 在非权威端执行
-
-# 3. 重新同步
-rbd mirror image resync <pool>/<image>  # 在非权威端执行
-```
-
-## 7. 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DR_PRIMARY_NODE` | node1 | 主集群管理节点 |
-| `DR_SECONDARY_HOST` | （必填） | 备集群管理 IP |
-| `DR_SECONDARY_USER` | root | 备集群 SSH 用户 |
-| `DR_POOL_NAME` | incus-pool | 镜像目标存储池 |
-| `DR_MIRROR_MODE` | pool | 镜像模式（pool/image） |
-
-## 8. 演练计划
-
-建议每季度进行一次灾备演练：
-
-1. **通知相关方**：提前通知业务方演练时间窗口
-2. **执行故障切换**：`failover` 到备集群
-3. **验证业务**：确认备集群可正常读写
-4. **执行回切**：`failback` 到主集群
-5. **验证恢复**：确认主集群同步正常
-6. **记录结果**：记录 RTO/RPO 实测数据
-
-### RTO / RPO 参考
+| **rbd-mirror** | 守护进程，负责在主从站点之间同步 RBD 镜像 |
+| **Journal** | 每个 RBD 镜像的日志，记录所有写操作 |
+| **Peer** | 主从集群之间的信任关系 |
+| **Bootstrap Token** | 用于建立 Peer 关系的令牌 |
+
+### 1.3 数据流
+
+1. 应用写入数据到主站点 RBD 镜像
+2. 写操作同时记录到 journal
+3. 从站点的 `rbd-mirror` 守护进程异步回放 journal
+4. 从站点镜像与主站点保持近实时同步
+
+### 1.4 RPO / RTO 目标
 
 | 指标 | 目标值 | 说明 |
 |------|--------|------|
-| RPO | < 30 秒 | 异步复制延迟（取决于网络带宽） |
-| RTO | < 15 分钟 | 故障切换 + DNS 更新 + 业务验证 |
+| **RPO** | < 1 分钟 | 取决于网络带宽和写入负载 |
+| **RTO** | < 10 分钟 | 镜像提升 + DNS 切换 |
+
+
+## 2. 日常验证
+
+### 2.1 状态检查（建议每日执行）
+
+```bash
+# 查看全部灾备状态
+./cluster/scripts/disaster-recovery-status.sh all
+
+# 仅检查 RPO
+./cluster/scripts/disaster-recovery-status.sh rpo
+
+# 检查 Peer 连接
+./cluster/scripts/disaster-recovery-status.sh peers
+```
+
+### 2.2 健康判断标准
+
+| 状态 | 含义 | 处置 |
+|------|------|------|
+| `up+replaying` | 正常同步中 | 无需操作 |
+| `up+syncing` | 初始全量同步中 | 等待完成 |
+| `up+stopped` | 同步已暂停 | 检查原因 |
+| `down+...` | 守护进程异常 | 立即排查 |
+
+### 2.3 告警阈值
+
+| 级别 | 同步延迟 | 操作 |
+|------|----------|------|
+| 正常 | < 60 秒 | 无需操作 |
+| 警告 | 60 - 300 秒 | 检查网络带宽，观察趋势 |
+| 严重 | > 300 秒 | 立即排查，考虑扩容带宽 |
+
+### 2.4 定期演练
+
+**建议每季度执行一次灾备切换演练**，步骤如下：
+
+1. 选择低峰时段
+2. 通知相关人员
+3. 执行切换（参见第 3 节）
+4. 验证业务可用性
+5. 执行回切（参见第 4 节）
+6. 记录演练报告
+
+
+## 3. 故障切换步骤
+
+### 3.1 前提条件
+
+- 确认主站点确实不可用
+- 确认从站点 Ceph 集群健康
+- 确认已获得运维负责人授权
+
+### 3.2 自动切换（推荐）
+
+```bash
+# 设置必要的环境变量
+export DR_POOL="incus-pool"
+export DR_NEW_VIP="10.0.1.100"           # 从站点 VIP
+export DR_DNS_ZONE="storage.example.com"  # 服务域名
+export DR_DNS_SERVER="ns1.example.com"    # DNS 服务器
+
+# 执行完整故障切换
+./cluster/scripts/disaster-recovery-failover.sh failover
+```
+
+该命令将依次执行：
+1. **前置检查** — 验证集群连通性和镜像状态
+2. **镜像提升** — 将所有 Secondary 镜像提升为 Primary
+3. **DNS 更新** — 将服务域名指向从站点 VIP
+4. **可用性验证** — 检查 Ceph 健康、RBD 读写、DNS 解析
+
+### 3.3 手动分步切换
+
+如果自动切换失败，可手动执行各步骤：
+
+```bash
+# 步骤 1: 提升镜像
+./cluster/scripts/disaster-recovery-failover.sh promote
+
+# 步骤 2: 更新 DNS（手动方式）
+# 登录 DNS 管理后台，将 A 记录指向从站点 VIP
+
+# 步骤 3: 验证
+./cluster/scripts/disaster-recovery-failover.sh verify
+```
+
+### 3.4 切换后检查清单
+
+- [ ] 所有 RBD 镜像状态为 Primary
+- [ ] DNS 解析指向从站点 VIP
+- [ ] 应用可以正常读写存储
+- [ ] 监控系统已切换到从站点
+- [ ] 通知相关人员切换已完成
+
+
+## 4. 回切步骤
+
+当主站点恢复后，需要将数据同步回主站点并切换回来。
+
+### 4.1 前提条件
+
+- 主站点 Ceph 集群已恢复并健康
+- 主从站点网络连通
+- 已获得运维负责人授权
+
+### 4.2 回切流程
+
+```bash
+# 步骤 1: 在当前 Primary（原从站点）上 demote 镜像
+rbd mirror image demote incus-pool/<image-name>
+# 对所有镜像执行
+
+# 步骤 2: 在原主站点上 promote 镜像
+rbd mirror image promote incus-pool/<image-name>
+# 对所有镜像执行
+
+# 步骤 3: 等待数据同步完成
+./cluster/scripts/disaster-recovery-status.sh images
+# 确认所有镜像状态为 up+replaying 且延迟接近 0
+
+# 步骤 4: 更新 DNS 回原主站点 VIP
+export DR_NEW_VIP="10.0.0.100"  # 原主站点 VIP
+./cluster/scripts/disaster-recovery-failover.sh update-dns
+
+# 步骤 5: 验证
+./cluster/scripts/disaster-recovery-failover.sh verify
+```
+
+### 4.3 批量回切脚本
+
+```bash
+# 在原从站点（当前 Primary）执行 demote
+for img in $(rbd ls incus-pool); do
+    echo "Demoting: incus-pool/${img}"
+    rbd mirror image demote "incus-pool/${img}"
+done
+
+# 在原主站点执行 promote
+for img in $(rbd ls incus-pool); do
+    echo "Promoting: incus-pool/${img}"
+    rbd mirror image promote "incus-pool/${img}"
+done
+```
+
+### 4.4 回切后检查清单
+
+- [ ] 原主站点所有镜像状态为 Primary
+- [ ] 原从站点所有镜像恢复为 Secondary 并正常同步
+- [ ] DNS 已切回原主站点
+- [ ] 应用正常运行
+- [ ] 灾备状态监控显示健康
+- [ ] 通知相关人员回切已完成
+
+
+## 5. 故障排查
+
+### 5.1 常见问题
+
+#### 镜像同步延迟持续增大
+
+```bash
+# 检查网络带宽
+iperf3 -c <remote-mon-ip>
+
+# 检查 rbd-mirror 守护进程日志
+ceph log last 100 --channel=cluster
+
+# 检查 OSD 负载
+ceph osd perf
+```
+
+#### rbd-mirror 守护进程异常
+
+```bash
+# 查看守护进程状态
+ceph orch ls --service-type=rbd-mirror
+
+# 重启守护进程
+ceph orch restart rbd-mirror
+
+# 查看日志
+ceph orch logs --service-name=rbd-mirror
+```
+
+#### Peer 连接断开
+
+```bash
+# 检查 Peer 列表
+rbd mirror pool peer list incus-pool
+
+# 移除并重新添加 Peer
+rbd mirror pool peer remove incus-pool <peer-uuid>
+# 重新执行 bootstrap 流程
+./cluster/scripts/setup-disaster-recovery.sh setup-primary
+```
+
+### 5.2 紧急联系
+
+| 角色 | 职责 |
+|------|------|
+| 存储运维 | Ceph 集群维护、灾备操作 |
+| 网络运维 | DNS 更新、网络排查 |
+| 应用运维 | 业务验证、用户通知 |

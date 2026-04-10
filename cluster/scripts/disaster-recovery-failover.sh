@@ -1,277 +1,222 @@
-#!/bin/bash
-# ============================================================
-# 灾备故障切换 / 回切脚本
-# 用途: 主集群故障时切换到备集群，或故障恢复后回切到主集群
-#
-# 用法:
-#   disaster-recovery-failover.sh <操作>
-#
-# 操作:
-#   failover        - 故障切换（主→备）
-#   failback        - 故障回切（备→主）
-#   promote         - 将备集群提升为主
-#   demote          - 将主集群降级为备
-#   resync          - 重新同步（回切后）
-#   status          - 查看当前灾备状态
-# ============================================================
+#!/usr/bin/env bash
 set -euo pipefail
+
+# ============================================================
+# disaster-recovery-failover.sh — 灾备故障切换脚本
+# 功能：将远端（Secondary）镜像提升为 Primary，更新 DNS，验证可用性
+# ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
-# ==================== 日志 ====================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# ---------- 默认参数 ----------
+DR_POOL="${DR_POOL:-incus-pool}"
+DR_DNS_ZONE="${DR_DNS_ZONE:-}"
+DR_DNS_SERVER="${DR_DNS_SERVER:-}"
+DR_DNS_KEY="${DR_DNS_KEY:-}"
+DR_NEW_VIP="${DR_NEW_VIP:-}"
+DR_VERIFY_TIMEOUT="${DR_VERIFY_TIMEOUT:-120}"
 
-log()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERR]${NC} $*" >&2; exit 1; }
-step() { echo -e "\n${BLUE}========== $* ==========${NC}"; }
+# ---------- 日志工具 ----------
+log_info()  { echo "[INFO]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+log_warn()  { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
+log_error() { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
-# ==================== 灾备配置 ====================
-DR_PRIMARY_NODE="${DR_PRIMARY_NODE:-node1}"
-DR_SECONDARY_HOST="${DR_SECONDARY_HOST:-}"
-DR_SECONDARY_USER="${DR_SECONDARY_USER:-root}"
-DR_POOL_NAME="${DR_POOL_NAME:-${CEPH_POOL_NAME}}"
+# ---------- 前置检查 ----------
+preflight_check() {
+    log_info "故障切换前置检查..."
 
-run_on() {
-  local node="$1"; shift
-  local ip
-  ip=$(get_node_field "$node" 3)
-  ssh -o StrictHostKeyChecking=no "${SSH_USER}@${ip}" "$@"
-}
-
-run_on_secondary() {
-  [[ -z "$DR_SECONDARY_HOST" ]] && err "未配置备集群地址 (DR_SECONDARY_HOST)"
-  ssh -o StrictHostKeyChecking=no "${DR_SECONDARY_USER}@${DR_SECONDARY_HOST}" "$@"
-}
-
-# 获取池中所有 image
-get_pool_images() {
-  local where="$1"  # primary 或 secondary
-  if [[ "$where" == "primary" ]]; then
-    run_on "${DR_PRIMARY_NODE}" "rbd ls ${DR_POOL_NAME} 2>/dev/null" || true
-  else
-    run_on_secondary "rbd ls ${DR_POOL_NAME} 2>/dev/null" || true
-  fi
-}
-
-# ==================== 故障切换 (主→备) ====================
-do_failover() {
-  step "故障切换 (Failover)"
-  warn "即将将备集群提升为主集群，请确认主集群已不可用！"
-  warn "此操作将："
-  warn "  1. 在备集群将所有 image 提升为 primary"
-  warn "  2. 备集群可读写"
-  echo ""
-
-  # 安全确认
-  read -rp "输入 'FAILOVER' 确认执行故障切换: " confirm
-  if [[ "$confirm" != "FAILOVER" ]]; then
-    log "操作已取消"
-    return
-  fi
-
-  # 1. 尝试降级主集群（如果可达）
-  log "尝试降级主集群..."
-  if run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    log "主集群可达，执行优雅降级..."
-    do_demote
-  else
-    warn "主集群不可达，执行强制切换"
-  fi
-
-  # 2. 在备集群提升所有 image
-  do_promote
-
-  log "=========================================="
-  log "故障切换完成！备集群已提升为主"
-  log "请更新 DNS / 负载均衡 指向备集群"
-  log "=========================================="
-}
-
-# ==================== 故障回切 (备→主) ====================
-do_failback() {
-  step "故障回切 (Failback)"
-  warn "即将将流量从备集群切回主集群"
-  warn "此操作将："
-  warn "  1. 在备集群降级所有 image"
-  warn "  2. 在主集群提升为 primary"
-  warn "  3. 重新建立镜像同步"
-  echo ""
-
-  read -rp "输入 'FAILBACK' 确认执行回切: " confirm
-  if [[ "$confirm" != "FAILBACK" ]]; then
-    log "操作已取消"
-    return
-  fi
-
-  # 检查主集群是否恢复
-  log "检查主集群状态..."
-  run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 10" >/dev/null 2>&1 || \
-    err "主集群仍不可用，无法回切"
-
-  local primary_health
-  primary_health=$(run_on "${DR_PRIMARY_NODE}" "ceph health")
-  log "主集群状态: ${primary_health}"
-
-  # 1. 降级备集群
-  log "降级备集群..."
-  local images
-  images=$(get_pool_images "secondary")
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-    log "  降级: ${image}..."
-    run_on_secondary "rbd mirror image demote ${DR_POOL_NAME}/${image}" 2>/dev/null || \
-      warn "  降级 ${image} 失败（可能已是 secondary）"
-  done <<< "$images"
-
-  # 2. 提升主集群
-  log "提升主集群..."
-  images=$(get_pool_images "primary")
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-    log "  提升: ${image}..."
-    run_on "${DR_PRIMARY_NODE}" "rbd mirror image promote ${DR_POOL_NAME}/${image}" 2>/dev/null || \
-      warn "  提升 ${image} 失败"
-  done <<< "$images"
-
-  # 3. 重新同步
-  do_resync
-
-  log "=========================================="
-  log "故障回切完成！主集群已恢复服务"
-  log "请更新 DNS / 负载均衡 指向主集群"
-  log "=========================================="
-}
-
-# ==================== 提升备集群 ====================
-do_promote() {
-  step "提升备集群为 Primary"
-
-  local images
-  images=$(get_pool_images "secondary")
-
-  if [[ -z "$images" ]]; then
-    warn "备集群池 ${DR_POOL_NAME} 中无 image"
-    return
-  fi
-
-  local success=0 failed=0
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-    log "提升: ${DR_POOL_NAME}/${image}..."
-    if run_on_secondary "rbd mirror image promote --force ${DR_POOL_NAME}/${image}" 2>/dev/null; then
-      success=$((success + 1))
-    else
-      warn "提升 ${image} 失败"
-      failed=$((failed + 1))
+    if ! ceph status &>/dev/null; then
+        log_error "无法连接本地 Ceph 集群"
+        exit 1
     fi
-  done <<< "$images"
 
-  log "提升完成: 成功 ${success}, 失败 ${failed}"
-}
-
-# ==================== 降级主集群 ====================
-do_demote() {
-  step "降级主集群为 Secondary"
-
-  local images
-  images=$(get_pool_images "primary")
-
-  if [[ -z "$images" ]]; then
-    warn "主集群池 ${DR_POOL_NAME} 中无 image"
-    return
-  fi
-
-  local success=0 failed=0
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-    log "降级: ${DR_POOL_NAME}/${image}..."
-    if run_on "${DR_PRIMARY_NODE}" "rbd mirror image demote ${DR_POOL_NAME}/${image}" 2>/dev/null; then
-      success=$((success + 1))
-    else
-      warn "降级 ${image} 失败"
-      failed=$((failed + 1))
+    # 检查 pool 镜像状态
+    local mirror_info
+    mirror_info=$(rbd mirror pool info "${DR_POOL}" --format=json 2>/dev/null)
+    if [[ -z "${mirror_info}" ]]; then
+        log_error "Pool '${DR_POOL}' 未配置镜像"
+        exit 1
     fi
-  done <<< "$images"
 
-  log "降级完成: 成功 ${success}, 失败 ${failed}"
+    log_info "前置检查通过"
 }
 
-# ==================== 重新同步 ====================
-do_resync() {
-  step "重新同步 (Resync)"
+# ---------- 提升镜像为 Primary ----------
+promote_images() {
+    log_info "开始将 pool '${DR_POOL}' 中的所有镜像提升为 Primary..."
 
-  log "触发备集群重新同步..."
-  local images
-  images=$(get_pool_images "secondary")
+    # 获取所有被镜像的 image
+    local images
+    images=$(rbd mirror pool status "${DR_POOL}" --format=json 2>/dev/null | \
+             python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for img in data.get('images', []):
+    print(img['name'])
+" 2>/dev/null || true)
 
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-    log "  重新同步: ${image}..."
-    run_on_secondary "rbd mirror image resync ${DR_POOL_NAME}/${image}" 2>/dev/null || \
-      warn "  重新同步 ${image} 失败"
-  done <<< "$images"
+    if [[ -z "${images}" ]]; then
+        # 回退：列出 pool 中所有镜像
+        images=$(rbd ls "${DR_POOL}" 2>/dev/null || true)
+    fi
 
-  log "重新同步已触发，请通过 disaster-recovery-status.sh 监控进度"
+    if [[ -z "${images}" ]]; then
+        log_warn "未找到需要提升的镜像"
+        return
+    fi
+
+    local count=0
+    local failed=0
+    while IFS= read -r img; do
+        log_info "  提升镜像: ${DR_POOL}/${img}"
+        if rbd mirror image promote --force "${DR_POOL}/${img}" 2>/dev/null; then
+            (( count++ ))
+        else
+            log_warn "  提升失败: ${DR_POOL}/${img}"
+            (( failed++ ))
+        fi
+    done <<< "${images}"
+
+    log_info "镜像提升完成: 成功 ${count} 个, 失败 ${failed} 个"
+
+    if (( failed > 0 )); then
+        log_warn "部分镜像提升失败，请手动检查"
+    fi
 }
 
-# ==================== 状态查看 ====================
-do_status() {
-  step "灾备状态"
+# ---------- 更新 DNS ----------
+update_dns() {
+    if [[ -z "${DR_DNS_ZONE}" || -z "${DR_DNS_SERVER}" || -z "${DR_NEW_VIP}" ]]; then
+        log_warn "DNS 参数未配置，跳过 DNS 更新"
+        log_warn "  请手动将服务 DNS 指向新的 VIP: ${DR_NEW_VIP:-未设置}"
+        return
+    fi
 
-  # 主集群状态
-  log "--- 主集群 ---"
-  if run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    run_on "${DR_PRIMARY_NODE}" "rbd mirror pool status ${DR_POOL_NAME}" 2>/dev/null || \
-      warn "主集群镜像状态不可用"
-  else
-    warn "主集群不可达"
-  fi
+    log_info "更新 DNS 记录..."
+    log_info "  Zone: ${DR_DNS_ZONE}"
+    log_info "  新 VIP: ${DR_NEW_VIP}"
 
-  echo ""
-
-  # 备集群状态
-  log "--- 备集群 ---"
-  if run_on_secondary "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    run_on_secondary "rbd mirror pool status ${DR_POOL_NAME}" 2>/dev/null || \
-      warn "备集群镜像状态不可用"
-  else
-    warn "备集群不可达"
-  fi
+    # 使用 nsupdate 动态更新 DNS
+    if command -v nsupdate &>/dev/null; then
+        local update_cmd
+        update_cmd=$(cat <<NSUPDATE
+server ${DR_DNS_SERVER}
+zone ${DR_DNS_ZONE}
+update delete ${DR_DNS_ZONE} A
+update add ${DR_DNS_ZONE} 60 A ${DR_NEW_VIP}
+send
+NSUPDATE
+)
+        if [[ -n "${DR_DNS_KEY}" ]]; then
+            echo "${update_cmd}" | nsupdate -k "${DR_DNS_KEY}"
+        else
+            echo "${update_cmd}" | nsupdate
+        fi
+        log_info "DNS 记录已更新"
+    else
+        log_warn "nsupdate 未安装，请手动更新 DNS"
+        log_warn "  将 ${DR_DNS_ZONE} A 记录指向 ${DR_NEW_VIP}"
+    fi
 }
 
-# ==================== 主入口 ====================
+# ---------- 验证可用性 ----------
+verify_availability() {
+    log_info "验证故障切换后的服务可用性..."
+
+    # 1. 检查 Ceph 集群健康
+    log_info "  检查 Ceph 集群健康状态..."
+    local health
+    health=$(ceph health 2>/dev/null || echo "UNKNOWN")
+    log_info "  Ceph 健康状态: ${health}"
+
+    # 2. 检查 RBD 镜像状态
+    log_info "  检查 RBD 镜像状态..."
+    rbd mirror pool status "${DR_POOL}" 2>/dev/null || true
+
+    # 3. 尝试创建并删除一个测试镜像
+    log_info "  验证 RBD 可用性..."
+    local test_image="dr-failover-test-$(date +%s)"
+    if rbd create "${DR_POOL}/${test_image}" --size 1 2>/dev/null; then
+        rbd rm "${DR_POOL}/${test_image}" 2>/dev/null || true
+        log_info "  RBD 读写验证通过"
+    else
+        log_warn "  RBD 读写验证失败"
+    fi
+
+    # 4. 检查 DNS 解析（如果配置了）
+    if [[ -n "${DR_DNS_ZONE}" && -n "${DR_NEW_VIP}" ]]; then
+        log_info "  检查 DNS 解析..."
+        local resolved_ip
+        resolved_ip=$(dig +short "${DR_DNS_ZONE}" A 2>/dev/null | head -1)
+        if [[ "${resolved_ip}" == "${DR_NEW_VIP}" ]]; then
+            log_info "  DNS 解析正确: ${DR_DNS_ZONE} -> ${resolved_ip}"
+        else
+            log_warn "  DNS 解析不匹配: 期望 ${DR_NEW_VIP}，实际 ${resolved_ip:-无结果}"
+            log_warn "  DNS 传播可能需要时间"
+        fi
+    fi
+
+    log_info "可用性验证完成"
+}
+
+# ---------- 使用说明 ----------
 usage() {
-  echo "用法: $0 <操作>"
-  echo ""
-  echo "操作:"
-  echo "  failover    故障切换（主→备）"
-  echo "  failback    故障回切（备→主）"
-  echo "  promote     将备集群提升为主"
-  echo "  demote      将主集群降级为备"
-  echo "  resync      重新同步"
-  echo "  status      查看灾备状态"
-  exit 1
+    cat <<EOF
+用法: $(basename "$0") <命令>
+
+命令:
+  failover     执行完整故障切换流程（提升镜像 + 更新 DNS + 验证）
+  promote      仅提升镜像为 Primary
+  update-dns   仅更新 DNS 记录
+  verify       仅验证可用性
+
+环境变量:
+  DR_POOL              目标 pool (默认: incus-pool)
+  DR_DNS_ZONE          DNS zone 名称
+  DR_DNS_SERVER        DNS 服务器地址
+  DR_DNS_KEY           nsupdate TSIG 密钥文件路径
+  DR_NEW_VIP           新的服务 VIP 地址
+  DR_VERIFY_TIMEOUT    验证超时时间 (秒，默认: 120)
+
+示例:
+  # 完整故障切换
+  DR_NEW_VIP=10.0.1.100 DR_DNS_ZONE=storage.example.com $(basename "$0") failover
+
+  # 仅提升镜像
+  $(basename "$0") promote
+EOF
 }
 
+# ---------- 主入口 ----------
 main() {
-  local action="${1:-}"
-  [[ -z "$action" ]] && usage
+    local cmd="${1:-}"
 
-  case "$action" in
-    failover) do_failover ;;
-    failback) do_failback ;;
-    promote)  do_promote ;;
-    demote)   do_demote ;;
-    resync)   do_resync ;;
-    status)   do_status ;;
-    *) usage ;;
-  esac
+    case "${cmd}" in
+        failover)
+            log_info "========== 开始灾备故障切换 =========="
+            preflight_check
+            promote_images
+            update_dns
+            verify_availability
+            log_info "========== 故障切换完成 =========="
+            ;;
+        promote)
+            preflight_check
+            promote_images
+            ;;
+        update-dns)
+            update_dns
+            ;;
+        verify)
+            preflight_check
+            verify_availability
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
 }
 
 main "$@"

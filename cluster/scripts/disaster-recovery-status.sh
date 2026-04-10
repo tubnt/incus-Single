@@ -1,353 +1,274 @@
-#!/bin/bash
-# ============================================================
-# 灾备状态监控脚本
-# 用途: 检查 RBD mirroring 同步状态、延迟、健康度
-#
-# 用法:
-#   disaster-recovery-status.sh [选项]
-#
-# 选项:
-#   --summary       简要状态（默认）
-#   --detail        详细状态（含每个 image）
-#   --json          JSON 格式输出
-#   --watch         持续监控（每 30 秒刷新）
-#   --check         健康检查模式（返回退出码: 0=正常, 1=降级, 2=故障）
-# ============================================================
+#!/usr/bin/env bash
 set -euo pipefail
+
+# ============================================================
+# disaster-recovery-status.sh — 灾备状态监控脚本
+# 功能：检查镜像同步延迟、健康状态、RPO 估算
+# ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../configs/cluster-env.sh"
 
-# ==================== 日志 ====================
+# ---------- 默认参数 ----------
+DR_POOL="${DR_POOL:-incus-pool}"
+DR_WARN_DELAY_SEC="${DR_WARN_DELAY_SEC:-60}"
+DR_CRIT_DELAY_SEC="${DR_CRIT_DELAY_SEC:-300}"
+
+# ---------- 日志工具 ----------
+log_info()  { echo "[INFO]  $(date '+%Y-%m-%d %H:%M:%S') $*"; }
+log_warn()  { echo "[WARN]  $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
+log_error() { echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
+
+# ---------- 颜色输出 ----------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
 NC='\033[0m'
 
-log()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERR]${NC} $*" >&2; }
-step() { echo -e "\n${BLUE}========== $* ==========${NC}"; }
-
-# ==================== 灾备配置 ====================
-DR_PRIMARY_NODE="${DR_PRIMARY_NODE:-node1}"
-DR_SECONDARY_HOST="${DR_SECONDARY_HOST:-}"
-DR_SECONDARY_USER="${DR_SECONDARY_USER:-root}"
-DR_POOL_NAME="${DR_POOL_NAME:-${CEPH_POOL_NAME}}"
-
-run_on() {
-  local node="$1"; shift
-  local ip
-  ip=$(get_node_field "$node" 3)
-  ssh -o StrictHostKeyChecking=no "${SSH_USER}@${ip}" "$@" 2>/dev/null
-}
-
-run_on_secondary() {
-  [[ -z "$DR_SECONDARY_HOST" ]] && return 1
-  ssh -o StrictHostKeyChecking=no "${DR_SECONDARY_USER}@${DR_SECONDARY_HOST}" "$@" 2>/dev/null
-}
-
-# ==================== 简要状态 ====================
-do_summary() {
-  step "灾备状态概览"
-
-  local ts
-  ts=$(date '+%Y-%m-%d %H:%M:%S')
-  echo -e "${CYAN}检查时间: ${ts}${NC}"
-  echo ""
-
-  # 主集群
-  echo -e "${BLUE}[主集群]${NC}"
-  local primary_ok=false
-  if run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    local health
-    health=$(run_on "${DR_PRIMARY_NODE}" "ceph health")
-    echo -e "  集群健康: ${health}"
-    primary_ok=true
-
-    local mirror_status
-    mirror_status=$(run_on "${DR_PRIMARY_NODE}" "rbd mirror pool status ${DR_POOL_NAME} --format json" 2>/dev/null) || mirror_status="{}"
-
-    local pool_health images_total images_ok images_warn images_err
-    pool_health=$(echo "$mirror_status" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    s = d.get('summary', {})
-    print(s.get('health', 'UNKNOWN'))
-except: print('UNKNOWN')
-" 2>/dev/null) || pool_health="UNKNOWN"
-
-    images_total=$(echo "$mirror_status" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    s = d.get('summary', {}).get('states', {})
-    print(sum(s.values()))
-except: print(0)
-" 2>/dev/null) || images_total=0
-
-    case "$pool_health" in
-      OK)      echo -e "  镜像健康: ${GREEN}${pool_health}${NC}" ;;
-      WARNING) echo -e "  镜像健康: ${YELLOW}${pool_health}${NC}" ;;
-      *)       echo -e "  镜像健康: ${RED}${pool_health}${NC}" ;;
+color_status() {
+    local status="$1"
+    case "${status}" in
+        OK|ok|healthy)           echo -e "${GREEN}${status}${NC}" ;;
+        WARNING|warning)         echo -e "${YELLOW}${status}${NC}" ;;
+        CRITICAL|critical|error) echo -e "${RED}${status}${NC}" ;;
+        *)                       echo "${status}" ;;
     esac
-    echo "  镜像 Image 数: ${images_total}"
-  else
-    echo -e "  状态: ${RED}不可达${NC}"
-  fi
-
-  echo ""
-
-  # 备集群
-  echo -e "${BLUE}[备集群]${NC}"
-  local secondary_ok=false
-  if [[ -n "$DR_SECONDARY_HOST" ]] && run_on_secondary "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    local health
-    health=$(run_on_secondary "ceph health")
-    echo -e "  集群健康: ${health}"
-    secondary_ok=true
-
-    local mirror_status
-    mirror_status=$(run_on_secondary "rbd mirror pool status ${DR_POOL_NAME} --format json" 2>/dev/null) || mirror_status="{}"
-
-    local daemon_status
-    daemon_status=$(echo "$mirror_status" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    daemons = d.get('daemons', [])
-    if daemons:
-        print(f\"运行中 ({len(daemons)} 个守护进程)\")
-    else:
-        print('无守护进程')
-except: print('UNKNOWN')
-" 2>/dev/null) || daemon_status="UNKNOWN"
-    echo "  rbd-mirror: ${daemon_status}"
-
-    local pool_health
-    pool_health=$(echo "$mirror_status" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('summary', {}).get('health', 'UNKNOWN'))
-except: print('UNKNOWN')
-" 2>/dev/null) || pool_health="UNKNOWN"
-
-    case "$pool_health" in
-      OK)      echo -e "  镜像健康: ${GREEN}${pool_health}${NC}" ;;
-      WARNING) echo -e "  镜像健康: ${YELLOW}${pool_health}${NC}" ;;
-      *)       echo -e "  镜像健康: ${RED}${pool_health}${NC}" ;;
-    esac
-  else
-    if [[ -z "$DR_SECONDARY_HOST" ]]; then
-      echo -e "  状态: ${YELLOW}未配置${NC}"
-    else
-      echo -e "  状态: ${RED}不可达${NC}"
-    fi
-  fi
-
-  echo ""
-
-  # 综合判定
-  if $primary_ok && $secondary_ok; then
-    echo -e "${GREEN}综合状态: 灾备正常${NC}"
-  elif $primary_ok && ! $secondary_ok; then
-    echo -e "${YELLOW}综合状态: 备集群异常，灾备降级${NC}"
-  elif ! $primary_ok && $secondary_ok; then
-    echo -e "${RED}综合状态: 主集群故障，需要故障切换${NC}"
-  else
-    echo -e "${RED}综合状态: 双集群故障${NC}"
-  fi
 }
 
-# ==================== 详细状态 ====================
-do_detail() {
-  do_summary
+# ---------- 获取 pool 镜像摘要 ----------
+get_pool_mirror_summary() {
+    log_info "========== Pool 镜像摘要 =========="
+    echo ""
 
-  step "Image 级同步详情"
+    local pool_status
+    pool_status=$(rbd mirror pool status "${DR_POOL}" --format=json 2>/dev/null)
 
-  local images
-  images=$(run_on "${DR_PRIMARY_NODE}" "rbd ls ${DR_POOL_NAME}" 2>/dev/null) || \
-    images=$(run_on_secondary "rbd ls ${DR_POOL_NAME}" 2>/dev/null) || \
-    images=""
-
-  if [[ -z "$images" ]]; then
-    warn "无法获取 image 列表"
-    return
-  fi
-
-  printf "%-30s %-12s %-12s %-20s\n" "IMAGE" "主集群角色" "备集群角色" "同步状态"
-  printf "%-30s %-12s %-12s %-20s\n" "-----" "--------" "--------" "--------"
-
-  while IFS= read -r image; do
-    [[ -z "$image" ]] && continue
-
-    local primary_role="N/A" secondary_role="N/A" sync_state="N/A"
-
-    # 主集群 image 状态
-    if run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 3" >/dev/null 2>&1; then
-      primary_role=$(run_on "${DR_PRIMARY_NODE}" "
-        rbd mirror image status ${DR_POOL_NAME}/${image} --format json 2>/dev/null | \
-        python3 -c \"import sys,json; print(json.load(sys.stdin).get('state','unknown'))\" 2>/dev/null
-      ") || primary_role="N/A"
+    if [[ -z "${pool_status}" ]]; then
+        log_error "无法获取 pool '${DR_POOL}' 的镜像状态"
+        return 1
     fi
 
-    # 备集群 image 状态
-    if [[ -n "$DR_SECONDARY_HOST" ]] && run_on_secondary "ceph health --connect-timeout 3" >/dev/null 2>&1; then
-      local sec_info
-      sec_info=$(run_on_secondary "
-        rbd mirror image status ${DR_POOL_NAME}/${image} --format json 2>/dev/null
-      ") || sec_info="{}"
-
-      secondary_role=$(echo "$sec_info" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('state', 'unknown'))
-except: print('N/A')
-" 2>/dev/null) || secondary_role="N/A"
-
-      sync_state=$(echo "$sec_info" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    desc = d.get('description', '')
-    if 'replaying' in desc:
-        print('同步中')
-    elif 'stopped' in desc:
-        print('已停止')
-    else:
-        print(desc[:20] if desc else 'N/A')
-except: print('N/A')
-" 2>/dev/null) || sync_state="N/A"
-    fi
-
-    printf "%-30s %-12s %-12s %-20s\n" "$image" "$primary_role" "$secondary_role" "$sync_state"
-  done <<< "$images"
-}
-
-# ==================== JSON 格式输出 ====================
-do_json() {
-  local result="{}"
-
-  # 主集群
-  local primary_health="unreachable" primary_mirror="{}"
-  if run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    primary_health=$(run_on "${DR_PRIMARY_NODE}" "ceph health")
-    primary_mirror=$(run_on "${DR_PRIMARY_NODE}" "rbd mirror pool status ${DR_POOL_NAME} --format json" 2>/dev/null) || primary_mirror="{}"
-  fi
-
-  # 备集群
-  local secondary_health="unreachable" secondary_mirror="{}"
-  if [[ -n "$DR_SECONDARY_HOST" ]] && run_on_secondary "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    secondary_health=$(run_on_secondary "ceph health")
-    secondary_mirror=$(run_on_secondary "rbd mirror pool status ${DR_POOL_NAME} --format json" 2>/dev/null) || secondary_mirror="{}"
-  fi
-
-  python3 -c "
+    # 解析摘要信息
+    echo "${pool_status}" | python3 -c "
 import json, sys
-result = {
-    'timestamp': '$(date -u +%Y-%m-%dT%H:%M:%SZ)',
-    'pool': '${DR_POOL_NAME}',
-    'primary': {
-        'health': '${primary_health}',
-        'mirror': ${primary_mirror}
-    },
-    'secondary': {
-        'health': '${secondary_health}',
-        'mirror': ${secondary_mirror}
-    }
+data = json.load(sys.stdin)
+summary = data.get('summary', {})
+states = summary.get('states', {})
+health = summary.get('health', 'UNKNOWN')
+images = data.get('images', [])
+
+print(f'  Pool:       ${DR_POOL}')
+print(f'  健康状态:   {health}')
+print(f'  守护进程:   {summary.get(\"daemon_health\", \"UNKNOWN\")}')
+print(f'  镜像健康:   {summary.get(\"image_health\", \"UNKNOWN\")}')
+print()
+print('  镜像状态分布:')
+for state, count in states.items():
+    print(f'    {state}: {count}')
+print(f'\n  镜像总数:   {len(images)}')
+"
+
+    echo ""
 }
-print(json.dumps(result, indent=2))
+
+# ---------- 逐镜像同步状态 ----------
+get_image_sync_status() {
+    log_info "========== 镜像同步详情 =========="
+    echo ""
+
+    local images
+    images=$(rbd ls "${DR_POOL}" 2>/dev/null || true)
+
+    if [[ -z "${images}" ]]; then
+        log_warn "Pool '${DR_POOL}' 中无镜像"
+        return
+    fi
+
+    printf "  %-30s %-12s %-15s %-10s\n" "镜像名称" "状态" "同步延迟" "级别"
+    printf "  %-30s %-12s %-15s %-10s\n" "-----" "----" "------" "----"
+
+    local total=0 healthy=0 warning=0 critical=0
+
+    while IFS= read -r img; do
+        (( total++ ))
+
+        local mirror_status
+        mirror_status=$(rbd mirror image status "${DR_POOL}/${img}" --format=json 2>/dev/null || echo "{}")
+
+        local state description delay_sec level
+        state=$(echo "${mirror_status}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state','unknown'))" 2>/dev/null || echo "unknown")
+        description=$(echo "${mirror_status}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('description',''))" 2>/dev/null || echo "")
+
+        # 解析同步延迟（从 description 提取）
+        delay_sec=0
+        if echo "${description}" | grep -qoP 'replaying.*?(\d+)s' 2>/dev/null; then
+            delay_sec=$(echo "${description}" | grep -oP '(\d+)s' | grep -oP '\d+' | head -1)
+        fi
+
+        # 判断告警级别
+        if [[ "${state}" == "up+replaying" || "${state}" == "up+stopped" ]]; then
+            if (( delay_sec >= DR_CRIT_DELAY_SEC )); then
+                level="CRITICAL"
+                (( critical++ ))
+            elif (( delay_sec >= DR_WARN_DELAY_SEC )); then
+                level="WARNING"
+                (( warning++ ))
+            else
+                level="OK"
+                (( healthy++ ))
+            fi
+        elif [[ "${state}" == "up+syncing" ]]; then
+            level="WARNING"
+            (( warning++ ))
+        else
+            level="CRITICAL"
+            (( critical++ ))
+        fi
+
+        printf "  %-30s %-12s %-15s " "${img}" "${state}" "${delay_sec}s"
+        color_status "${level}"
+    done <<< "${images}"
+
+    echo ""
+    echo "  汇总: 总计 ${total} | 健康 ${healthy} | 警告 ${warning} | 严重 ${critical}"
+    echo ""
+}
+
+# ---------- RPO 估算 ----------
+estimate_rpo() {
+    log_info "========== RPO (恢复点目标) 估算 =========="
+    echo ""
+
+    local pool_status
+    pool_status=$(rbd mirror pool status "${DR_POOL}" --format=json 2>/dev/null)
+
+    if [[ -z "${pool_status}" ]]; then
+        log_error "无法获取镜像状态，RPO 无法估算"
+        return 1
+    fi
+
+    echo "${pool_status}" | python3 -c "
+import json, sys, re
+
+data = json.load(sys.stdin)
+images = data.get('images', [])
+if not images:
+    print('  无镜像数据，RPO 无法估算')
+    sys.exit(0)
+
+max_delay = 0
+total_delay = 0
+count = 0
+
+for img in images:
+    desc = img.get('description', '')
+    match = re.search(r'(\d+)s', desc)
+    if match:
+        delay = int(match.group(1))
+        max_delay = max(max_delay, delay)
+        total_delay += delay
+        count += 1
+
+avg_delay = total_delay / count if count > 0 else 0
+
+print(f'  监控镜像数:     {len(images)}')
+print(f'  有延迟数据的:   {count}')
+print(f'  最大同步延迟:   {max_delay}s')
+print(f'  平均同步延迟:   {avg_delay:.1f}s')
+print()
+print(f'  估算 RPO:       {max_delay}s ({max_delay/60:.1f} 分钟)')
+print()
+if max_delay < 60:
+    print('  RPO 评级: 优秀 (< 1 分钟)')
+elif max_delay < 300:
+    print('  RPO 评级: 良好 (< 5 分钟)')
+elif max_delay < 900:
+    print('  RPO 评级: 一般 (< 15 分钟)')
+else:
+    print('  RPO 评级: 需要关注 (>= 15 分钟)')
+"
+    echo ""
+}
+
+# ---------- Peer 连接状态 ----------
+check_peer_status() {
+    log_info "========== Peer 连接状态 =========="
+    echo ""
+
+    local peers
+    peers=$(rbd mirror pool peer list "${DR_POOL}" --format=json 2>/dev/null || echo "[]")
+
+    echo "${peers}" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+if not data:
+    print('  未配置镜像 Peer')
+else:
+    for peer in data:
+        print(f'  UUID:        {peer.get(\"uuid\", \"-\")}')
+        print(f'  集群名:     {peer.get(\"cluster_name\", \"-\")}')
+        print(f'  客户端:     {peer.get(\"client_name\", \"-\")}')
+        print(f'  站点名:     {peer.get(\"site_name\", \"-\")}')
+        print(f'  方向:       {peer.get(\"direction\", \"-\")}')
+        print()
 "
 }
 
-# ==================== 健康检查模式 ====================
-do_check() {
-  local exit_code=0
-
-  # 检查主集群
-  if ! run_on "${DR_PRIMARY_NODE}" "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    err "主集群不可达"
-    exit_code=2
-  fi
-
-  # 检查备集群
-  if [[ -z "$DR_SECONDARY_HOST" ]]; then
-    err "备集群未配置"
-    exit_code=1
-  elif ! run_on_secondary "ceph health --connect-timeout 5" >/dev/null 2>&1; then
-    err "备集群不可达"
-    [[ $exit_code -lt 2 ]] && exit_code=1
-  fi
-
-  # 检查镜像健康
-  if [[ $exit_code -eq 0 ]]; then
-    local mirror_health
-    mirror_health=$(run_on_secondary "
-      rbd mirror pool status ${DR_POOL_NAME} --format json 2>/dev/null | \
-      python3 -c \"import sys,json; print(json.load(sys.stdin).get('summary',{}).get('health','UNKNOWN'))\" 2>/dev/null
-    ") || mirror_health="UNKNOWN"
-
-    case "$mirror_health" in
-      OK)
-        log "灾备状态正常"
-        exit_code=0
-        ;;
-      WARNING)
-        warn "灾备降级"
-        exit_code=1
-        ;;
-      *)
-        err "灾备异常: ${mirror_health}"
-        exit_code=2
-        ;;
-    esac
-  fi
-
-  exit $exit_code
-}
-
-# ==================== 持续监控 ====================
-do_watch() {
-  local interval="${1:-30}"
-  log "持续监控模式，每 ${interval} 秒刷新 (Ctrl+C 退出)"
-
-  while true; do
-    clear
-    do_summary
-    sleep "$interval"
-  done
-}
-
-# ==================== 主入口 ====================
+# ---------- 使用说明 ----------
 usage() {
-  echo "用法: $0 [选项]"
-  echo ""
-  echo "选项:"
-  echo "  --summary    简要状态（默认）"
-  echo "  --detail     详细状态"
-  echo "  --json       JSON 格式输出"
-  echo "  --watch [N]  持续监控（每 N 秒，默认 30）"
-  echo "  --check      健康检查（退出码: 0=正常, 1=降级, 2=故障）"
-  exit 1
+    cat <<EOF
+用法: $(basename "$0") [命令]
+
+命令:
+  all          显示全部状态（默认）
+  summary      Pool 镜像摘要
+  images       逐镜像同步状态
+  rpo          RPO 估算
+  peers        Peer 连接状态
+
+环境变量:
+  DR_POOL              目标 pool (默认: incus-pool)
+  DR_WARN_DELAY_SEC    警告阈值 (秒，默认: 60)
+  DR_CRIT_DELAY_SEC    严重阈值 (秒，默认: 300)
+
+示例:
+  $(basename "$0")              # 全部状态
+  $(basename "$0") rpo          # 仅 RPO 估算
+  DR_POOL=vm-pool $(basename "$0") images
+EOF
 }
 
+# ---------- 主入口 ----------
 main() {
-  local action="${1:---summary}"
+    local cmd="${1:-all}"
 
-  case "$action" in
-    --summary)  do_summary ;;
-    --detail)   do_detail ;;
-    --json)     do_json ;;
-    --watch)    do_watch "${2:-30}" ;;
-    --check)    do_check ;;
-    -h|--help)  usage ;;
-    *)          usage ;;
-  esac
+    case "${cmd}" in
+        all)
+            get_pool_mirror_summary
+            get_image_sync_status
+            estimate_rpo
+            check_peer_status
+            ;;
+        summary)
+            get_pool_mirror_summary
+            ;;
+        images)
+            get_image_sync_status
+            ;;
+        rpo)
+            estimate_rpo
+            ;;
+        peers)
+            check_peer_status
+            ;;
+        -h|--help|help)
+            usage
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
 }
 
 main "$@"
