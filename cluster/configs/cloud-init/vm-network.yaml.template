@@ -1,0 +1,11 @@
+#cloud-config
+# VM 网络配置模板（静态 IP）
+# 变量: ${IP}, ${SUBNET_MASK}, ${GATEWAY}, ${DNS1}, ${DNS2}
+network:
+  version: 2
+  ethernets:
+    enp5s0:
+      addresses: [${IP}/${SUBNET_MASK}]
+      gateway4: ${GATEWAY}
+      nameservers:
+        addresses: [${DNS1}, ${DNS2}]
