@@ -67,6 +67,7 @@ fi
 log "配置受限模式（restricted=true）"
 incus project set "${PROJECT_NAME}" restricted=true
 incus project set "${PROJECT_NAME}" restricted.devices.disk=allow
+incus project set "${PROJECT_NAME}" restricted.devices.nic=block
 
 # ── 资源配额 ──
 log "设置资源配额"

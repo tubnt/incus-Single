@@ -19,10 +19,11 @@ usage() {
     cat <<EOF
 ${CYAN}setup-console-cert.sh${NC} — 签发 Console 代理独立证书
 
-Console 证书独立于 Paymenter 主证书，遵循最小权限原则：
-  - 受限到 customers project
-  - 仅用于实例 console/exec 操作
-  - 不可创建/删除/修改实例
+Console 证书独立于 Paymenter 主证书：
+  - 受限到 customers project（Incus --restricted 级别隔离）
+  - 设计用途：仅用于实例 console/exec 操作
+  - 注意：Incus 受限证书无法限制 Project 内的具体操作
+  - 必须在 Console 代理应用层实现 API 调用白名单
 
 用法:
   $(basename "$0") [选项]
@@ -64,6 +65,7 @@ command -v incus >/dev/null   || err "Incus 未安装"
 
 # ── 创建输出目录 ──
 mkdir -p "${OUTPUT_DIR}"
+chmod 700 "${OUTPUT_DIR}"
 
 KEY_FILE="${OUTPUT_DIR}/${CERT_CN}.key"
 CRT_FILE="${OUTPUT_DIR}/${CERT_CN}.crt"

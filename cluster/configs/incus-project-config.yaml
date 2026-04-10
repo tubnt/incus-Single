@@ -13,6 +13,7 @@ config:
   #   - 修改安全相关的实例配置
   restricted: "true"
   restricted.devices.disk: allow
+  restricted.devices.nic: block
 
   # ── 资源配额 ──
   limits.instances: "50"
@@ -32,9 +33,9 @@ name: customers
 #    - 签发：setup-restricted-cert.sh
 #
 # 2. Console 代理证书（CN=console-proxy）
-#    - 权限：Project 内资源访问（Incus 层面同 paymenter）
+#    - 权限：Project 内资源访问（Incus 层面与 paymenter 相同）
 #    - 用途：VNC/SPICE console 代理
-#    - 限制：代理应用层限制为 console/exec 操作
+#    - 限制：Incus 无法限制 Project 内具体操作，必须在代理应用层实现 API 白名单
 #    - 签发：setup-console-cert.sh
 #
 # 恢复步骤：

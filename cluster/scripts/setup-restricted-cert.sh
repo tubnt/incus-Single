@@ -59,6 +59,7 @@ command -v incus >/dev/null   || err "Incus 未安装"
 
 # ── 创建输出目录 ──
 mkdir -p "${OUTPUT_DIR}"
+chmod 700 "${OUTPUT_DIR}"
 
 KEY_FILE="${OUTPUT_DIR}/${CERT_CN}.key"
 CRT_FILE="${OUTPUT_DIR}/${CERT_CN}.crt"
