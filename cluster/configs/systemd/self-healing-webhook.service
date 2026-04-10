@@ -1,0 +1,29 @@
+[Unit]
+Description=自愈 Webhook 服务 - 接收 Alertmanager 告警并执行自愈动作
+Documentation=file:///opt/incus-cluster/cluster/scripts/self-healing-webhook.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/incus-cluster/cluster/scripts/self-healing-webhook.sh
+Restart=on-failure
+RestartSec=10
+
+# 环境变量
+Environment=WEBHOOK_PORT=9095
+Environment=ALLOWED_IPS=127.0.0.1
+
+# 安全加固
+NoNewPrivileges=no
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=self-healing-webhook
+
+[Install]
+WantedBy=multi-user.target

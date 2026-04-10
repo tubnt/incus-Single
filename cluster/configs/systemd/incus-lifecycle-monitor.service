@@ -1,0 +1,26 @@
+[Unit]
+Description=Incus Lifecycle 事件监控 - 记录实例生命周期事件到 journald
+Documentation=man:incus(1)
+After=incus.service
+Requires=incus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/incus monitor --type=lifecycle --format=json
+Restart=always
+RestartSec=5
+
+# 安全加固
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=incus-lifecycle
+
+[Install]
+WantedBy=multi-user.target
