@@ -73,29 +73,49 @@ class RescueMode
             'devices' => $rescueDevices,
         ]);
 
-        // 使用 rebuild API 更换启动镜像（PUT 时 source 字段无效）
-        $this->client->request('POST', "/1.0/instances/{$vmName}/rebuild", [
-            'source' => [
-                'type' => 'image',
-                'alias' => self::RESCUE_IMAGE,
-            ],
-        ]);
+        // config 已标记 rescue，后续步骤失败时必须回滚
+        try {
+            // 使用 rebuild API 更换启动镜像（PUT 时 source 字段无效）
+            $this->client->request('POST', "/1.0/instances/{$vmName}/rebuild", [
+                'source' => [
+                    'type' => 'image',
+                    'alias' => self::RESCUE_IMAGE,
+                ],
+            ]);
 
-        // 启动 VM
-        $this->client->request('PUT', "/1.0/instances/{$vmName}/state", [
-            'action' => 'start',
-        ]);
+            // 启动 VM
+            $this->client->request('PUT', "/1.0/instances/{$vmName}/state", [
+                'action' => 'start',
+            ]);
 
-        // 等待 VM 启动后设置临时 root 密码
-        $tempPassword = $this->generateTempPassword();
-        $this->waitForAgent($vmName);
+            // 等待 VM 启动后设置临时 root 密码
+            $tempPassword = $this->generateTempPassword();
+            $this->waitForAgent($vmName);
 
-        // 使用 chpasswd 的 stdin 传入密码，避免命令注入
-        $this->client->request('POST', "/1.0/instances/{$vmName}/exec", [
-            'command' => ['chpasswd'],
-            'wait-for-websocket' => false,
-            'stdin' => 'root:' . $tempPassword . "\n",
-        ]);
+            // 使用 chpasswd 的 stdin 传入密码，避免命令注入
+            $this->client->request('POST', "/1.0/instances/{$vmName}/exec", [
+                'command' => ['chpasswd'],
+                'wait-for-websocket' => false,
+                'stdin' => 'root:' . $tempPassword . "\n",
+            ]);
+        } catch (\Throwable $e) {
+            // 回滚：清除 rescue 标记，恢复原配置
+            Log::error("进入救援模式失败，正在回滚：{$vmName} - {$e->getMessage()}");
+            try {
+                $this->stopVm($vmName);
+                $originalDevices = $originalConfig['devices'] ?? [];
+                unset($originalDevices['rescue-original-disk']);
+                $rollbackConfig = $originalConfig['config'] ?? [];
+                unset($rollbackConfig['user.rescue_mode'], $rollbackConfig['user.rescue_expires']);
+                $this->client->request('PUT', "/1.0/instances/{$vmName}", [
+                    'config' => $rollbackConfig,
+                    'devices' => $originalDevices,
+                ]);
+            } catch (\Throwable $rollbackEx) {
+                Log::critical("救援模式回滚也失败：{$vmName} - {$rollbackEx->getMessage()}");
+            }
+            throw new \RuntimeException("进入救援模式失败：{$e->getMessage()}", 0, $e);
+        }
 
         // 所有 Incus 操作成功后再写 DB，避免 orphan 记录
         DB::table('vm_rescue_sessions')->insert([
@@ -203,7 +223,16 @@ class RescueMode
         $cleaned = [];
         foreach ($expired as $session) {
             try {
-                $this->exitRescue($session->vm_name);
+                if ($this->isInRescue($session->vm_name)) {
+                    // Incus 侧仍有 rescue 标记，走完整退出流程
+                    $this->exitRescue($session->vm_name);
+                } else {
+                    // Incus 侧已无 rescue 标记（手动清除等），仅关闭 DB 记录
+                    DB::table('vm_rescue_sessions')
+                        ->where('id', $session->id)
+                        ->update(['exited_at' => now()]);
+                    Log::info("救援会话 DB 记录已关闭（Incus 侧已无标记）：{$session->vm_name}");
+                }
                 $cleaned[] = $session->vm_name;
                 Log::info("自动退出救援模式：{$session->vm_name}（已超时）");
             } catch (\Throwable $e) {
@@ -271,6 +300,6 @@ class RescueMode
             sleep(2);
         }
 
-        Log::warning("VM {$vmName} agent 未在 {$timeout} 秒内就绪，继续执行");
+        throw new \RuntimeException("VM {$vmName} agent 未在 {$timeout} 秒内就绪，无法设置密码");
     }
 }

@@ -188,17 +188,23 @@ class StartupScriptManager
 
         $cloudInitConfig = $this->buildCloudInitConfig($script->script, $script->type);
 
-        // 获取当前 VM 配置
+        // 获取当前 VM 配置，使用 ETag 乐观锁防止并发覆盖
         $instance = $this->client->request('GET', "/1.0/instances/{$vmName}");
+        $etag = $instance['etag'] ?? '';
         $config = $instance['metadata']['config'] ?? [];
 
         // 注入 cloud-init 用户数据
         $config['user.user-data'] = $cloudInitConfig;
         $config['user.startup_script_id'] = (string) $scriptId;
 
+        $headers = [];
+        if ($etag !== '') {
+            $headers['If-Match'] = $etag;
+        }
+
         $this->client->request('PATCH', "/1.0/instances/{$vmName}", [
             'config' => $config,
-        ]);
+        ], $headers);
 
         Log::info("启动脚本 #{$scriptId} 已应用到 VM {$vmName}");
     }
