@@ -208,6 +208,7 @@ do_update() {
         fi
     ) &
     local noout_guard_pid=$!
+    disown "$noout_guard_pid"
 
     # trap 保护：异常退出时清理 guard 进程并警告 noout 状态
     trap 'kill "$noout_guard_pid" 2>/dev/null || true; log_warn "do_update 异常退出，noout 仍处于设置状态，请手动执行: ceph osd unset noout"' ERR
@@ -216,6 +217,9 @@ do_update() {
     log_info "执行系统更新: apt update && apt upgrade -y"
     apt update && apt upgrade -y
     log_ok "系统更新完成"
+
+    # 清除 ERR trap，防止泄漏到后续阶段
+    trap - ERR
 
     # 可选：重启节点
     if $DO_REBOOT; then
@@ -287,6 +291,10 @@ if $DO_UPDATE; then
 fi
 
 if $DO_RESTORE; then
+    # 单独 restore 时也需检查并行维护状态
+    if ! $DO_EVACUATE; then
+        check_no_parallel_maintenance
+    fi
     do_restore
 fi
 
