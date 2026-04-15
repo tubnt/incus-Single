@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-04-15 21:45 [progress]
+
+IncusAdmin Phase 1+2 complete (14 commits):
+- Go backend: config, cluster manager, VM service, scheduler, user/VM repos, IP pool handler
+- React frontend: Dashboard, Clusters (5 nodes real-time), All VMs, Create VM, My VMs, IP Pools, Monitoring, Users
+- Auth: oauth2-proxy + Logto SSO, emergency login :8081
+- Deploy: 9.4MB single binary, systemd, PostgreSQL, WireGuard tunnel (27ms SG↔TW)
+- Live at https://vmc.5ok.co — SSO login, 3 VMs running, 19 IPs available
+
 ## 2026-04-15 09:00 [decision]
 
 Confirmed IncusAdmin architecture (PLAN-004):

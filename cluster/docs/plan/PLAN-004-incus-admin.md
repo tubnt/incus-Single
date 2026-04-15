@@ -518,36 +518,40 @@ CREATE TABLE api_tokens (
 
 ## 开发计划
 
-### Phase 1：后端 MVP（1-2 周）
+### Phase 1：后端 MVP ✅ Complete
 
-- [ ] Go 项目脚手架（cmd/internal/config）
-- [ ] 数据库 migration（sqlc + PostgreSQL）
-- [ ] 多集群 Incus client 管理
-- [ ] VM CRUD API（创建/列表/详情/操作）
-- [ ] IP 池自动分配/回收
-- [ ] 用户认证（Logto SSO OIDC + session cookie + API Token）
-- [ ] cloud-init 模板（静态 IP + SSH Key + 密码）
-- [ ] 节点调度（按负载选节点）
-- [ ] 基本 RBAC（admin/customer）
+- [x] Go 项目脚手架（cmd/internal/config）
+- [x] 数据库 migration（PostgreSQL 17 tables + indexes）
+- [x] 多集群 Incus client 管理（mTLS via WireGuard）
+- [x] VM CRUD API（创建/列表/详情/操作/删除）
+- [x] IP 池自动分配/回收（扫描 Incus instances）
+- [x] 用户认证（oauth2-proxy + Logto SSO OIDC + session）
+- [x] cloud-init 模板（network-config 静态 IP + SSH Key + 密码）
+- [x] 节点调度（按内存空闲率选节点，60s 缓存刷新）
+- [x] 基本 RBAC（admin/customer，ADMIN_EMAILS 自动提升）
 
-### Phase 2：管理面板前端（1 周）
+### Phase 2：管理面板前端 ✅ Complete
 
-- [ ] React + Vite + shadcn/ui 脚手架
-- [ ] 登录页
-- [ ] Dashboard（集群概览 / 节点状态 / VM 统计）
-- [ ] VM 管理（列表/详情/创建/操作）
-- [ ] IP 池管理
-- [ ] 用户管理
-- [ ] 嵌入 Grafana 监控
+- [x] React 19 + Vite 8 + Tailwind v4 + TanStack Router/Query
+- [x] SSO 登录（oauth2-proxy → Logto）
+- [x] Dashboard（Clusters/Nodes/VMs/API Status 实时统计）
+- [x] VM 管理（All VMs 列表 + Stop/Restart/Delete + Create VM 表单）
+- [x] IP 池管理（使用率进度条 + 可用数量）
+- [x] 用户管理（角色切换 + 余额充值）
+- [x] 监控入口（Grafana/Prometheus/Alertmanager 链接）
+- [x] My VMs 用户页面（内联创建 + 卡片详情 + 操作按钮）
 
-### Phase 3：售卖端前端（1 周）
+### Phase 3：功能补全（进行中）
 
-- [ ] 用户注册/登录
-- [ ] 产品浏览 + 配置选择器（CPU/RAM/磁盘/OS/SSH Key）
-- [ ] 购物车 + Checkout
-- [ ] Stripe 支付集成
-- [ ] 用户 Dashboard + VM 管理
-- [ ] 账单/发票
+- [ ] Web Console（xterm.js + Incus console API）
+- [ ] 快照管理
+- [ ] 重装系统
+- [ ] 防火墙 UI
+- [ ] 多 OS 镜像选择
+- [ ] rDNS 管理
+- [ ] 自动续费 + 到期处理
+- [ ] Stripe 在线充值
+- [ ] 多售卖端品牌支持
 
 ### Phase 4：功能补全（持续）
 
