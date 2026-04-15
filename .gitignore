@@ -2,8 +2,11 @@ tmp/
 *.bak
 .env
 *.credentials
-# Added by code-review-graph
+*.png
+node_modules/
+
+# Tool data
 .code-review-graph/
 .playwright-mcp/
-qa-*.png
 .serena/
+.claude/

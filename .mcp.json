@@ -13,6 +13,14 @@
       "headers": {
         "Authorization": "Bearer cgw_9cf69291_3738253282feaff3b15b4c2b04600c9f706ac3ca502bfbb020338d10db736e57"
       }
+    },
+    "code-review-graph": {
+      "command": "uvx",
+      "args": [
+        "code-review-graph",
+        "serve"
+      ],
+      "type": "stdio"
     }
   }
 }
