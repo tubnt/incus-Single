@@ -64,8 +64,9 @@ type Handlers struct {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
 	}
-	Audit     AdminRouteRegistrar
-	APITokens RouteRegistrar
+	Audit      AdminRouteRegistrar
+	APITokens  RouteRegistrar
+	ClusterMgmt AdminRouteRegistrar
 	Invoices  interface {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
@@ -150,6 +151,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Invoices != nil {
 				h.Invoices.AdminRoutes(r)
+			}
+			if h.ClusterMgmt != nil {
+				h.ClusterMgmt.AdminRoutes(r)
 			}
 		})
 

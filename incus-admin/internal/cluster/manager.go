@@ -60,12 +60,47 @@ func (m *Manager) List() []*Client {
 }
 
 func (m *Manager) ConfigByName(name string) (config.ClusterConfig, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, cc := range m.configs {
 		if cc.Name == name {
 			return cc, true
 		}
 	}
 	return config.ClusterConfig{}, false
+}
+
+func (m *Manager) AddCluster(cc config.ClusterConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.clients[cc.Name]; exists {
+		return fmt.Errorf("cluster %q already exists", cc.Name)
+	}
+	client, err := newClient(cc)
+	if err != nil {
+		return fmt.Errorf("connect cluster: %w", err)
+	}
+	m.clients[cc.Name] = client
+	m.configs = append(m.configs, cc)
+	slog.Info("cluster added dynamically", "name", cc.Name, "url", cc.APIURL)
+	return nil
+}
+
+func (m *Manager) RemoveCluster(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.clients[name]; !exists {
+		return fmt.Errorf("cluster %q not found", name)
+	}
+	delete(m.clients, name)
+	for i, cc := range m.configs {
+		if cc.Name == name {
+			m.configs = append(m.configs[:i], m.configs[i+1:]...)
+			break
+		}
+	}
+	slog.Info("cluster removed dynamically", "name", name)
+	return nil
 }
 
 func buildTLSConfig(cc config.ClusterConfig) (*tls.Config, error) {

@@ -124,7 +124,8 @@ func main() {
 		Orders:    portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr),
 		Audit:     portal.NewAuditHandler(auditRepo),
 		APITokens: portal.NewAPITokenHandler(apiTokenRepo),
-		Invoices:  portal.NewInvoiceHandler(invoiceRepo),
+		Invoices:    portal.NewInvoiceHandler(invoiceRepo),
+		ClusterMgmt: portal.NewClusterMgmtHandler(clusterMgr),
 	})
 
 	if err := srv.Run(); err != nil {
