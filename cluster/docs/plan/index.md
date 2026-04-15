@@ -1,8 +1,34 @@
-# 集群版计划索引
+# Incus Cloud Platform - Plan Index
 
-> 更新时间：2026-04-09
+> Updated: 2026-04-15
 
-| 状态 | 编号 | 描述 |
-|------|------|------|
-| [ ] | PLAN-002 | 集群基础设施 — Incus + Ceph + 网络 + 监控 + 安全 |
-| [ ] | PLAN-003 | 业务平台 — Paymenter + Incus Extension + 计费 + 多租户 |
+## Usage
+
+Each plan is a single line linking to its detail file. All detailed information lives in `docs/plan/PLAN-NNN.md`.
+
+### Format
+
+- [ ] [**PLAN-001 Short plan title**](PLAN-001.md) `YYYY-MM-DD`
+
+### Status Markers
+
+| Marker | Meaning |
+|--------|---------|
+| `[ ]`  | Draft / Pending review |
+| `[-]`  | Approved / Implementing |
+| `[x]`  | Completed |
+| `[~]`  | Rejected / Abandoned |
+
+### Rules
+
+- Only update the checkbox marker; never delete the line.
+- New plans append to the end.
+- See each `PLAN-NNN.md` for full details.
+
+---
+
+## Plans
+
+- [x] [**PLAN-002 Cluster Infrastructure — Incus + Ceph + Network + Monitoring**](PLAN-002.md) `2026-04-09`
+- [x] [**PLAN-003 Business Platform — Paymenter + Incus Extension + Billing**](PLAN-003.md) `2026-04-09`
+- [-] [**PLAN-004 IncusAdmin — Self-hosted Cloud Platform Management System**](PLAN-004-incus-admin.md) `2026-04-15`
