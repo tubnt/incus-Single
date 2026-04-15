@@ -50,6 +50,12 @@ function RootLayout() {
             <Link to="/vms" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
               My VMs
             </Link>
+            <Link to="/ssh-keys" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+              SSH Keys
+            </Link>
+            <Link to="/tickets" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+              工单
+            </Link>
             {user && isAdmin(user) && (
               <>
                 <Link to="/admin/clusters" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
@@ -66,6 +72,12 @@ function RootLayout() {
                 </Link>
                 <Link to="/admin/users" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
                   Users
+                </Link>
+                <Link to="/admin/products" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+                  Products
+                </Link>
+                <Link to="/admin/tickets" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+                  Tickets
                 </Link>
                 <Link to="/admin/create-vm" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
                   + VM

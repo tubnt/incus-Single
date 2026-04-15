@@ -40,10 +40,29 @@ type PortalRouteRegistrar interface {
 	PortalRoutes(r chi.Router)
 }
 
-func New(cfg *config.Config, userLookup func(ctx context.Context, email string) (int64, string, error), adminHandler RouteRegistrar, portalHandler RouteRegistrar, userHandler AdminRouteRegistrar, ipPoolHandler AdminRouteRegistrar, consoleHandler ConsoleHandlerFunc, snapshotHandler AdminRouteRegistrar, metricsHandler interface {
-	AdminRouteRegistrar
-	PortalRouteRegistrar
-}) *Server {
+type Handlers struct {
+	Admin    RouteRegistrar
+	Portal   RouteRegistrar
+	Users    AdminRouteRegistrar
+	IPPools  AdminRouteRegistrar
+	Console  ConsoleHandlerFunc
+	Snaps    AdminRouteRegistrar
+	Metrics  interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+	SSHKeys  RouteRegistrar
+	Tickets  interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+	Products interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+}
+
+func New(cfg *config.Config, userLookup func(ctx context.Context, email string) (int64, string, error), h Handlers) *Server {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RequestID)
@@ -62,35 +81,50 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 		r.Use(middleware.UserFromEmail(userLookup))
 
 		r.Route("/api/portal", func(r chi.Router) {
-			if portalHandler != nil {
-				portalHandler.Routes(r)
+			if h.Portal != nil {
+				h.Portal.Routes(r)
 			}
-			if metricsHandler != nil {
-				metricsHandler.PortalRoutes(r)
+			if h.Metrics != nil {
+				h.Metrics.PortalRoutes(r)
+			}
+			if h.SSHKeys != nil {
+				h.SSHKeys.Routes(r)
+			}
+			if h.Tickets != nil {
+				h.Tickets.PortalRoutes(r)
+			}
+			if h.Products != nil {
+				h.Products.PortalRoutes(r)
 			}
 		})
 
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(middleware.RequireRole("admin"))
-			if adminHandler != nil {
-				adminHandler.Routes(r)
+			if h.Admin != nil {
+				h.Admin.Routes(r)
 			}
-			if userHandler != nil {
-				userHandler.AdminRoutes(r)
+			if h.Users != nil {
+				h.Users.AdminRoutes(r)
 			}
-			if ipPoolHandler != nil {
-				ipPoolHandler.AdminRoutes(r)
+			if h.IPPools != nil {
+				h.IPPools.AdminRoutes(r)
 			}
-			if snapshotHandler != nil {
-				snapshotHandler.AdminRoutes(r)
+			if h.Snaps != nil {
+				h.Snaps.AdminRoutes(r)
 			}
-			if metricsHandler != nil {
-				metricsHandler.AdminRoutes(r)
+			if h.Metrics != nil {
+				h.Metrics.AdminRoutes(r)
+			}
+			if h.Tickets != nil {
+				h.Tickets.AdminRoutes(r)
+			}
+			if h.Products != nil {
+				h.Products.AdminRoutes(r)
 			}
 		})
 
-		if consoleHandler != nil {
-			r.Get("/api/console", consoleHandler.HandleConsole)
+		if h.Console != nil {
+			r.Get("/api/console", h.Console.HandleConsole)
 		}
 
 		r.Get("/api/auth/me", func(w http.ResponseWriter, r *http.Request) {

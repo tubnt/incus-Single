@@ -109,6 +109,34 @@ type AuditLog struct {
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 }
 
+type SSHKey struct {
+	ID          int64     `json:"id" db:"id"`
+	UserID      int64     `json:"user_id" db:"user_id"`
+	Name        string    `json:"name" db:"name"`
+	PublicKey   string    `json:"public_key" db:"public_key"`
+	Fingerprint string    `json:"fingerprint" db:"fingerprint"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+type Ticket struct {
+	ID        int64     `json:"id" db:"id"`
+	UserID    int64     `json:"user_id" db:"user_id"`
+	Subject   string    `json:"subject" db:"subject"`
+	Status    string    `json:"status" db:"status"`
+	Priority  string    `json:"priority" db:"priority"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type TicketMessage struct {
+	ID        int64     `json:"id" db:"id"`
+	TicketID  int64     `json:"ticket_id" db:"ticket_id"`
+	UserID    int64     `json:"user_id" db:"user_id"`
+	Body      string    `json:"body" db:"body"`
+	IsStaff   bool      `json:"is_staff" db:"is_staff"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
 const (
 	RoleAdmin    = "admin"
 	RoleCustomer = "customer"

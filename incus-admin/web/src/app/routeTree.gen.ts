@@ -10,10 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VmsRouteImport } from './routes/vms'
+import { Route as TicketsRouteImport } from './routes/tickets'
+import { Route as SshKeysRouteImport } from './routes/ssh-keys'
 import { Route as ConsoleRouteImport } from './routes/console'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminVmsRouteImport } from './routes/admin/vms'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminTicketsRouteImport } from './routes/admin/tickets'
+import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
 import { Route as AdminCreateVmRouteImport } from './routes/admin/create-vm'
@@ -22,6 +26,16 @@ import { Route as AdminClustersRouteImport } from './routes/admin/clusters'
 const VmsRoute = VmsRouteImport.update({
   id: '/vms',
   path: '/vms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TicketsRoute = TicketsRouteImport.update({
+  id: '/tickets',
+  path: '/tickets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SshKeysRoute = SshKeysRouteImport.update({
+  id: '/ssh-keys',
+  path: '/ssh-keys',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConsoleRoute = ConsoleRouteImport.update({
@@ -42,6 +56,16 @@ const AdminVmsRoute = AdminVmsRouteImport.update({
 const AdminUsersRoute = AdminUsersRouteImport.update({
   id: '/admin/users',
   path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminTicketsRoute = AdminTicketsRouteImport.update({
+  id: '/admin/tickets',
+  path: '/admin/tickets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminProductsRoute = AdminProductsRouteImport.update({
+  id: '/admin/products',
+  path: '/admin/products',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminMonitoringRoute = AdminMonitoringRouteImport.update({
@@ -68,22 +92,30 @@ const AdminClustersRoute = AdminClustersRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/console': typeof ConsoleRoute
+  '/ssh-keys': typeof SshKeysRoute
+  '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/products': typeof AdminProductsRoute
+  '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/console': typeof ConsoleRoute
+  '/ssh-keys': typeof SshKeysRoute
+  '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/products': typeof AdminProductsRoute
+  '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
 }
@@ -91,11 +123,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/console': typeof ConsoleRoute
+  '/ssh-keys': typeof SshKeysRoute
+  '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/products': typeof AdminProductsRoute
+  '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
 }
@@ -104,33 +140,45 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/console'
+    | '/ssh-keys'
+    | '/tickets'
     | '/vms'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/products'
+    | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/console'
+    | '/ssh-keys'
+    | '/tickets'
     | '/vms'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/products'
+    | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
   id:
     | '__root__'
     | '/'
     | '/console'
+    | '/ssh-keys'
+    | '/tickets'
     | '/vms'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/products'
+    | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
   fileRoutesById: FileRoutesById
@@ -138,11 +186,15 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ConsoleRoute: typeof ConsoleRoute
+  SshKeysRoute: typeof SshKeysRoute
+  TicketsRoute: typeof TicketsRoute
   VmsRoute: typeof VmsRoute
   AdminClustersRoute: typeof AdminClustersRoute
   AdminCreateVmRoute: typeof AdminCreateVmRoute
   AdminIpPoolsRoute: typeof AdminIpPoolsRoute
   AdminMonitoringRoute: typeof AdminMonitoringRoute
+  AdminProductsRoute: typeof AdminProductsRoute
+  AdminTicketsRoute: typeof AdminTicketsRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminVmsRoute: typeof AdminVmsRoute
 }
@@ -154,6 +206,20 @@ declare module '@tanstack/react-router' {
       path: '/vms'
       fullPath: '/vms'
       preLoaderRoute: typeof VmsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tickets': {
+      id: '/tickets'
+      path: '/tickets'
+      fullPath: '/tickets'
+      preLoaderRoute: typeof TicketsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ssh-keys': {
+      id: '/ssh-keys'
+      path: '/ssh-keys'
+      fullPath: '/ssh-keys'
+      preLoaderRoute: typeof SshKeysRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/console': {
@@ -182,6 +248,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/tickets': {
+      id: '/admin/tickets'
+      path: '/admin/tickets'
+      fullPath: '/admin/tickets'
+      preLoaderRoute: typeof AdminTicketsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/products': {
+      id: '/admin/products'
+      path: '/admin/products'
+      fullPath: '/admin/products'
+      preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/monitoring': {
@@ -218,11 +298,15 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ConsoleRoute: ConsoleRoute,
+  SshKeysRoute: SshKeysRoute,
+  TicketsRoute: TicketsRoute,
   VmsRoute: VmsRoute,
   AdminClustersRoute: AdminClustersRoute,
   AdminCreateVmRoute: AdminCreateVmRoute,
   AdminIpPoolsRoute: AdminIpPoolsRoute,
   AdminMonitoringRoute: AdminMonitoringRoute,
+  AdminProductsRoute: AdminProductsRoute,
+  AdminTicketsRoute: AdminTicketsRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminVmsRoute: AdminVmsRoute,
 }

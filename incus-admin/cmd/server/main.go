@@ -75,16 +75,22 @@ func main() {
 	}
 
 	vmRepo := repository.NewVMRepo(db)
+	sshKeyRepo := repository.NewSSHKeyRepo(db)
+	ticketRepo := repository.NewTicketRepo(db)
+	productRepo := repository.NewProductRepo(db)
 
-	adminHandler := portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler)
-	portalHandler := portal.NewVMHandler(vmSvc, vmRepo, clusterMgr)
-	userHandler := portal.NewUserHandler(userRepo)
-	ipPoolHandler := portal.NewIPPoolHandler(clusterMgr)
-	consoleHandler := portal.NewConsoleHandler(clusterMgr)
-	snapshotHandler := portal.NewSnapshotHandler(clusterMgr)
-	metricsHandler := portal.NewMetricsHandler(clusterMgr)
-
-	srv := server.New(cfg, userLookup, adminHandler, portalHandler, userHandler, ipPoolHandler, consoleHandler, snapshotHandler, metricsHandler)
+	srv := server.New(cfg, userLookup, server.Handlers{
+		Admin:    portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler),
+		Portal:   portal.NewVMHandler(vmSvc, vmRepo, clusterMgr),
+		Users:    portal.NewUserHandler(userRepo),
+		IPPools:  portal.NewIPPoolHandler(clusterMgr),
+		Console:  portal.NewConsoleHandler(clusterMgr),
+		Snaps:    portal.NewSnapshotHandler(clusterMgr),
+		Metrics:  portal.NewMetricsHandler(clusterMgr),
+		SSHKeys:  portal.NewSSHKeyHandler(sshKeyRepo),
+		Tickets:  portal.NewTicketHandler(ticketRepo),
+		Products: portal.NewProductHandler(productRepo),
+	})
 
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
