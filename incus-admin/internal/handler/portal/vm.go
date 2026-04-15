@@ -5,49 +5,195 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/model"
+	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service"
 )
 
 type VMHandler struct {
-	vmSvc *service.VMService
+	vmSvc    *service.VMService
+	vmRepo   *repository.VMRepo
+	clusters *cluster.Manager
 }
 
-func NewVMHandler(vmSvc *service.VMService) *VMHandler {
-	return &VMHandler{vmSvc: vmSvc}
+func NewVMHandler(vmSvc *service.VMService, vmRepo *repository.VMRepo, clusters *cluster.Manager) *VMHandler {
+	return &VMHandler{vmSvc: vmSvc, vmRepo: vmRepo, clusters: clusters}
 }
 
 func (h *VMHandler) Routes(r chi.Router) {
 	r.Get("/services", h.ListServices)
 	r.Get("/services/{id}", h.GetService)
 	r.Post("/services/{id}/actions/{action}", h.VMAction)
+	r.Post("/services", h.CreateService)
 }
 
 func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {
-	_ = r.Context().Value(middleware.CtxUserID)
-	writeJSON(w, http.StatusOK, map[string]any{"services": []any{}})
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if userID == 0 {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		return
+	}
+	vms, err := h.vmRepo.ListByUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("list user vms failed", "user_id", userID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to list VMs"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"services": vms})
 }
 
 func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "id")
-	writeJSON(w, http.StatusOK, map[string]any{"service": nil})
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), id)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"service": vm})
 }
 
 func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
 	action := chi.URLParam(r, "action")
+
+	vm, err := h.vmRepo.GetByID(r.Context(), id)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+
+	if h.vmSvc == nil || h.clusters == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "cluster not connected"})
+		return
+	}
+
+	cc, _ := h.clusters.ConfigByName(findClusterName(h.clusters, vm.ClusterID))
+	project := "customers"
+	if len(cc.Projects) > 0 {
+		project = cc.Projects[0].Name
+	}
 
 	switch action {
 	case "start", "stop", "restart":
+		err := h.vmSvc.ChangeState(r.Context(), cc.Name, project, vm.Name, action, false)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "action": action})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown action"})
 	}
+}
+
+func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if userID == 0 {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		CPU      int    `json:"cpu"`
+		MemoryMB int    `json:"memory_mb"`
+		DiskGB   int    `json:"disk_gb"`
+		OSImage  string `json:"os_image"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid body"})
+		return
+	}
+	if req.CPU == 0 { req.CPU = 2 }
+	if req.MemoryMB == 0 { req.MemoryMB = 2048 }
+	if req.DiskGB == 0 { req.DiskGB = 50 }
+	if req.OSImage == "" { req.OSImage = "images:ubuntu/24.04/cloud" }
+
+	if h.clusters == nil || len(h.clusters.List()) == 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no clusters available"})
+		return
+	}
+
+	client := h.clusters.List()[0]
+	cc, _ := h.clusters.ConfigByName(client.Name)
+
+	ip, gateway, cidr := "", "", ""
+	if len(cc.IPPools) > 0 {
+		p := cc.IPPools[0]
+		gateway = p.Gateway
+		cidr = extractCIDR(p.CIDR)
+		ip = pickNextIP(r.Context(), h.vmSvc, client.Name, "customers", p.Range)
+	}
+	if ip == "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs"})
+		return
+	}
+
+	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
+		ClusterName: client.Name,
+		Project:     "customers",
+		UserID:      userID,
+		CPU:         req.CPU,
+		MemoryMB:    req.MemoryMB,
+		DiskGB:      req.DiskGB,
+		OSImage:     req.OSImage,
+		IP:          ip,
+		Gateway:     gateway,
+		SubnetCIDR:  cidr,
+		StoragePool: "ceph-pool",
+		Network:     "br-pub",
+	})
+	if err != nil {
+		slog.Error("user create VM failed", "user_id", userID, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	vm := &model.VM{
+		Name:      result.VMName,
+		ClusterID: 1,
+		UserID:    userID,
+		Status:    model.VMStatusRunning,
+		CPU:       req.CPU,
+		MemoryMB:  req.MemoryMB,
+		DiskGB:    req.DiskGB,
+		OSImage:   req.OSImage,
+		Node:      result.Node,
+		Password:  result.Password,
+	}
+	if result.IP != "" {
+		ipAddr := net.ParseIP(result.IP)
+		vm.IP = &ipAddr
+	}
+	h.vmRepo.Create(r.Context(), vm)
+
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func findClusterName(mgr *cluster.Manager, clusterID int64) string {
+	clients := mgr.List()
+	if len(clients) > 0 {
+		return clients[0].Name
+	}
+	return ""
 }
 
 type AdminVMHandler struct {

@@ -74,8 +74,10 @@ func main() {
 		return user.ID, user.Role, nil
 	}
 
+	vmRepo := repository.NewVMRepo(db)
+
 	adminHandler := portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler)
-	portalHandler := portal.NewVMHandler(vmSvc)
+	portalHandler := portal.NewVMHandler(vmSvc, vmRepo, clusterMgr)
 	userHandler := portal.NewUserHandler(userRepo)
 
 	srv := server.New(cfg, userLookup, adminHandler, portalHandler, userHandler)
