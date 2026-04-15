@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -104,26 +106,68 @@ func (s *Server) Run() error {
 
 func (s *Server) emergencyRouter() http.Handler {
 	r := chi.NewRouter()
+
+	var (
+		failCount int
+		failMu    sync.Mutex
+		lockUntil time.Time
+	)
+	const maxAttempts = 5
+	const lockDuration = 15 * time.Minute
+
 	r.Get("/auth/emergency", func(w http.ResponseWriter, _ *http.Request) {
+		failMu.Lock()
+		locked := time.Now().Before(lockUntil)
+		failMu.Unlock()
+
+		if locked {
+			http.Error(w, "too many attempts, locked for 15 minutes", http.StatusTooManyRequests)
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<!DOCTYPE html>
 <html><head><title>Emergency Login</title></head>
 <body style="font-family:sans-serif;max-width:400px;margin:100px auto">
 <h2>Emergency Admin Login</h2>
+<p style="color:#666;font-size:14px">This port is localhost-only. Access via SSH tunnel.</p>
 <form method="POST" action="/auth/emergency">
-<input name="token" type="password" placeholder="Emergency Token" style="width:100%;padding:8px;margin:8px 0">
+<input name="token" type="password" placeholder="Emergency Token" style="width:100%;padding:8px;margin:8px 0" autocomplete="off">
 <button type="submit" style="width:100%;padding:8px;background:#dc2626;color:#fff;border:none;cursor:pointer">Login</button>
 </form></body></html>`))
 	})
 
 	r.Post("/auth/emergency", func(w http.ResponseWriter, r *http.Request) {
+		failMu.Lock()
+		if time.Now().Before(lockUntil) {
+			failMu.Unlock()
+			slog.Warn("emergency login blocked (locked)", "ip", r.RemoteAddr)
+			http.Error(w, "too many attempts, locked for 15 minutes", http.StatusTooManyRequests)
+			return
+		}
+		failMu.Unlock()
+
 		token := r.FormValue("token")
-		if token != s.cfg.Auth.EmergencyToken {
+		if !constantTimeEqual(token, s.cfg.Auth.EmergencyToken) {
+			failMu.Lock()
+			failCount++
+			if failCount >= maxAttempts {
+				lockUntil = time.Now().Add(lockDuration)
+				slog.Error("emergency login LOCKED after max attempts", "ip", r.RemoteAddr, "attempts", failCount)
+				failCount = 0
+			}
+			failMu.Unlock()
+			slog.Warn("emergency login failed", "ip", r.RemoteAddr)
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
-		// In production: set session cookie for the first admin email
-		slog.Warn("emergency login used", "ip", r.RemoteAddr)
+
+		failMu.Lock()
+		failCount = 0
+		failMu.Unlock()
+
+		slog.Warn("emergency login SUCCESS", "ip", r.RemoteAddr)
+		// TODO: set session cookie for the first admin email
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
@@ -132,6 +176,10 @@ func (s *Server) emergencyRouter() http.Handler {
 	})
 
 	return r
+}
+
+func constantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func slogMiddleware(next http.Handler) http.Handler {
