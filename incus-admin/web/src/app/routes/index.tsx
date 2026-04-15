@@ -20,7 +20,7 @@ function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <StatCard title="My VMs" value="—" />
         <StatCard title="Balance" value={user ? `$${user.balance.toFixed(2)}` : "—"} />
-        <StatCard title="Open Tickets" value="—" />
+        <StatCard title="Open Tickets" value="0" />
       </div>
 
       {user && isAdmin(user) && <AdminSection />}
@@ -37,21 +37,43 @@ function StatCard({ title, value }: { title: string; value: string }) {
   );
 }
 
+interface ClusterInfo {
+  name: string;
+  display_name: string;
+  nodes: number;
+  status: string;
+}
+
 function AdminSection() {
-  const { data } = useQuery({
+  const { data: healthData } = useQuery({
     queryKey: ["adminHealth"],
     queryFn: () => http.get<{ status: string }>("/health"),
   });
 
+  const { data: clustersData } = useQuery({
+    queryKey: ["adminClusters"],
+    queryFn: () => http.get<{ clusters: ClusterInfo[] }>("/admin/clusters"),
+  });
+
+  const clusters = clustersData?.clusters ?? [];
+  const totalNodes = clusters.reduce((sum, c) => sum + (c.nodes || 0), 0);
+
+  const { data: vmsData } = useQuery({
+    queryKey: ["adminClusterVMs", clusters[0]?.name],
+    queryFn: () => clusters[0] ? http.get<{ count: number }>(`/admin/clusters/${clusters[0].name}/vms`) : Promise.resolve({ count: 0 }),
+    enabled: clusters.length > 0,
+  });
+
   return (
     <div className="mt-8">
-      <h2 className="text-lg font-semibold mb-4">Admin</h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard title="Clusters" value="—" />
-        <StatCard title="Total VMs" value="—" />
+      <h2 className="text-lg font-semibold mb-4">Admin Overview</h2>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard title="Clusters" value={String(clusters.length)} />
+        <StatCard title="Nodes" value={String(totalNodes)} />
+        <StatCard title="Total VMs" value={String(vmsData?.count ?? "—")} />
         <StatCard
           title="API Status"
-          value={data?.status === "ok" ? "Healthy" : "—"}
+          value={healthData?.status === "ok" ? "Healthy" : "—"}
         />
       </div>
     </div>

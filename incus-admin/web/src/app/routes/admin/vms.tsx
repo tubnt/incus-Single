@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "@/shared/lib/http";
+import { queryClient } from "@/shared/lib/query-client";
 
 export const Route = createFileRoute("/admin/vms")({
   component: AllVMsPage,
@@ -29,7 +30,12 @@ function AllVMsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">All VMs</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">All VMs</h1>
+        <Link to="/admin/create-vm" className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90">
+          + Create VM
+        </Link>
+      </div>
       {clusters.map((c) => (
         <ClusterVMs key={c.name} clusterName={c.name} displayName={c.display_name} />
       ))}
@@ -41,6 +47,7 @@ function ClusterVMs({ clusterName, displayName }: { clusterName: string; display
   const { data, isLoading } = useQuery({
     queryKey: ["adminClusterVMs", clusterName],
     queryFn: () => http.get<{ vms: IncusInstance[]; count: number }>(`/admin/clusters/${clusterName}/vms`),
+    refetchInterval: 10_000,
   });
 
   const vms = data?.vms ?? [];
@@ -61,35 +68,99 @@ function ClusterVMs({ clusterName, displayName }: { clusterName: string; display
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Name</th>
                 <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">Type</th>
                 <th className="text-left px-4 py-2 font-medium">Node</th>
-                <th className="text-left px-4 py-2 font-medium">CPU / RAM</th>
+                <th className="text-left px-4 py-2 font-medium">Config</th>
                 <th className="text-left px-4 py-2 font-medium">IP</th>
+                <th className="text-right px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {vms.map((vm) => {
-                const ip = extractIP(vm);
-                return (
-                  <tr key={vm.name} className="border-t border-border">
-                    <td className="px-4 py-2 font-mono">{vm.name}</td>
-                    <td className="px-4 py-2">
-                      <StatusBadge status={vm.status} />
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">{vm.type}</td>
-                    <td className="px-4 py-2">{vm.location}</td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {vm.config?.["limits.cpu"] ?? "—"}C / {vm.config?.["limits.memory"] ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs">{ip || "—"}</td>
-                  </tr>
-                );
-              })}
+              {vms.map((vm) => (
+                <VMRow key={vm.name} vm={vm} clusterName={clusterName} />
+              ))}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) {
+  const ip = extractIP(vm);
+  const project = vm.config?.["volatile.uuid"] ? "customers" : "default";
+
+  const stateMutation = useMutation({
+    mutationFn: (action: string) =>
+      http.put(`/admin/vms/${vm.name}/state`, { action, cluster: clusterName, project }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      http.delete(`/admin/vms/${vm.name}`, { cluster: clusterName, project }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
+    },
+  });
+
+  const isActing = stateMutation.isPending || deleteMutation.isPending;
+
+  return (
+    <tr className="border-t border-border">
+      <td className="px-4 py-2 font-mono">{vm.name}</td>
+      <td className="px-4 py-2">
+        <StatusBadge status={vm.status} />
+      </td>
+      <td className="px-4 py-2">{vm.location}</td>
+      <td className="px-4 py-2 text-muted-foreground">
+        {vm.config?.["limits.cpu"] ?? "—"}C / {vm.config?.["limits.memory"] ?? "—"}
+      </td>
+      <td className="px-4 py-2 font-mono text-xs">{ip || "—"}</td>
+      <td className="px-4 py-2 text-right">
+        <div className="flex gap-1 justify-end">
+          {vm.status === "Stopped" && (
+            <ActionBtn label="Start" color="success" disabled={isActing}
+              onClick={() => stateMutation.mutate("start")} />
+          )}
+          {vm.status === "Running" && (
+            <>
+              <ActionBtn label="Stop" color="muted" disabled={isActing}
+                onClick={() => stateMutation.mutate("stop")} />
+              <ActionBtn label="Restart" color="muted" disabled={isActing}
+                onClick={() => stateMutation.mutate("restart")} />
+            </>
+          )}
+          <ActionBtn label="Delete" color="destructive" disabled={isActing}
+            onClick={() => {
+              if (confirm(`Delete ${vm.name}? This cannot be undone.`)) {
+                deleteMutation.mutate();
+              }
+            }} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function ActionBtn({ label, color, disabled, onClick }: {
+  label: string; color: string; disabled: boolean; onClick: () => void;
+}) {
+  const colorMap: Record<string, string> = {
+    success: "bg-success/20 text-success hover:bg-success/30",
+    muted: "bg-muted/50 text-muted-foreground hover:bg-muted",
+    destructive: "bg-destructive/20 text-destructive hover:bg-destructive/30",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`px-2 py-1 rounded text-xs font-medium disabled:opacity-50 ${colorMap[color] ?? colorMap.muted}`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -111,6 +182,7 @@ function StatusBadge({ status }: { status: string }) {
     Running: "bg-success/20 text-success",
     Stopped: "bg-muted text-muted-foreground",
     Error: "bg-destructive/20 text-destructive",
+    Frozen: "bg-primary/20 text-primary",
   };
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? "bg-muted text-muted-foreground"}`}>

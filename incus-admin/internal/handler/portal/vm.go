@@ -220,13 +220,14 @@ func (h *AdminVMHandler) ChangeVMState(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 	vmName := chi.URLParam(r, "name")
-	var req struct {
-		Cluster string `json:"cluster"`
-		Project string `json:"project"`
+	clusterParam := r.URL.Query().Get("cluster")
+	projectParam := r.URL.Query().Get("project")
+	if clusterParam == "" && len(h.clusters.List()) > 0 {
+		clusterParam = h.clusters.List()[0].Name
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-	if req.Cluster == "" { req.Cluster = h.clusters.List()[0].Name }
-	if req.Project == "" { req.Project = "customers" }
+	if projectParam == "" { projectParam = "customers" }
+
+	req := struct{ Cluster, Project string }{clusterParam, projectParam}
 
 	err := h.vmSvc.Delete(r.Context(), req.Cluster, req.Project, vmName)
 	if err != nil {
