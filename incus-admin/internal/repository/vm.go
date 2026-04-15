@@ -63,6 +63,21 @@ func (r *VMRepo) ListAll(ctx context.Context) ([]model.VM, error) {
 	return scanVMs(rows)
 }
 
+func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) {
+	var vm model.VM
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, name, cluster_id, user_id, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		 FROM vms WHERE name = $1 AND status != 'deleted' LIMIT 1`, name,
+	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password, &vm.CreatedAt, &vm.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get vm by name: %w", err)
+	}
+	return &vm, nil
+}
+
 func (r *VMRepo) UpdateStatus(ctx context.Context, id int64, status string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE vms SET status = $1, updated_at = $2 WHERE id = $3`,

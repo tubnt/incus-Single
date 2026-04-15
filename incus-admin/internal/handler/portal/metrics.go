@@ -10,14 +10,17 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
+	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/repository"
 )
 
 type MetricsHandler struct {
 	clusters *cluster.Manager
+	vmRepo   *repository.VMRepo
 }
 
-func NewMetricsHandler(clusters *cluster.Manager) *MetricsHandler {
-	return &MetricsHandler{clusters: clusters}
+func NewMetricsHandler(clusters *cluster.Manager, vmRepo *repository.VMRepo) *MetricsHandler {
+	return &MetricsHandler{clusters: clusters, vmRepo: vmRepo}
 }
 
 func (h *MetricsHandler) AdminRoutes(r chi.Router) {
@@ -26,7 +29,20 @@ func (h *MetricsHandler) AdminRoutes(r chi.Router) {
 }
 
 func (h *MetricsHandler) PortalRoutes(r chi.Router) {
-	r.Get("/metrics/vm/{name}", h.VMMetrics)
+	r.Get("/metrics/vm/{name}", h.PortalVMMetrics)
+}
+
+func (h *MetricsHandler) PortalVMMetrics(w http.ResponseWriter, r *http.Request) {
+	vmName := chi.URLParam(r, "name")
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if h.vmRepo != nil {
+		vm, err := h.vmRepo.GetByName(r.Context(), vmName)
+		if err != nil || vm == nil || vm.UserID != userID {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "access denied"})
+			return
+		}
+	}
+	h.VMMetrics(w, r)
 }
 
 type VMMetric struct {

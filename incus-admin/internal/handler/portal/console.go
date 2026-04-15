@@ -8,23 +8,34 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
+	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/repository"
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		host := r.Host
+		return strings.Contains(origin, host)
+	},
 }
 
 type ConsoleHandler struct {
 	clusters *cluster.Manager
+	vmRepo   *repository.VMRepo
 }
 
-func NewConsoleHandler(clusters *cluster.Manager) *ConsoleHandler {
-	return &ConsoleHandler{clusters: clusters}
+func NewConsoleHandler(clusters *cluster.Manager, vmRepo *repository.VMRepo) *ConsoleHandler {
+	return &ConsoleHandler{clusters: clusters, vmRepo: vmRepo}
 }
 
 func (h *ConsoleHandler) HandleConsole(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +46,16 @@ func (h *ConsoleHandler) HandleConsole(w http.ResponseWriter, r *http.Request) {
 	if vmName == "" || project == "" || clusterName == "" {
 		http.Error(w, "missing vm, project, or cluster param", http.StatusBadRequest)
 		return
+	}
+
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	role, _ := r.Context().Value(middleware.CtxUserRole).(string)
+	if role != "admin" && h.vmRepo != nil {
+		vm, err := h.vmRepo.GetByName(r.Context(), vmName)
+		if err != nil || vm == nil || vm.UserID != userID {
+			http.Error(w, "access denied", http.StatusForbidden)
+			return
+		}
 	}
 
 	client, ok := h.clusters.Get(clusterName)
