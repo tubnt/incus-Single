@@ -2,4 +2,7 @@
 certs/
 certbot/
 storage/
-extensions/
+# 第三方扩展（旧版自定义代码）
+extensions/incus/
+# 保留 Servers/Incus（Paymenter v1.4.7 Server Extension）
+!extensions/Servers/
