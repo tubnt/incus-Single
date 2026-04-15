@@ -38,7 +38,6 @@ func (h *VMHandler) Routes(r chi.Router) {
 	r.Get("/services", h.ListServices)
 	r.Get("/services/{id}", h.GetService)
 	r.Post("/services/{id}/actions/{action}", h.VMAction)
-	r.Post("/services", h.CreateService)
 }
 
 func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {

@@ -24,20 +24,8 @@ interface VMService {
   created_at: string;
 }
 
-const OS_IMAGES = [
-  { value: "images:ubuntu/24.04/cloud", label: "Ubuntu 24.04 LTS" },
-  { value: "images:debian/12/cloud", label: "Debian 12" },
-  { value: "images:rockylinux/9/cloud", label: "Rocky Linux 9" },
-];
-
-const SIZES = [
-  { label: "Small", cpu: 1, memory_mb: 1024, disk_gb: 25 },
-  { label: "Medium", cpu: 2, memory_mb: 2048, disk_gb: 50 },
-  { label: "Large", cpu: 4, memory_mb: 4096, disk_gb: 100 },
-];
 
 function MyVMs() {
-  const [showCreate, setShowCreate] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["myServices"],
     queryFn: () => http.get<{ services: VMService[] }>("/portal/services"),
@@ -50,15 +38,13 @@ function MyVMs() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">My VMs</h1>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
+        <a
+          href="/billing"
           className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
         >
-          {showCreate ? "Cancel" : "+ Create VM"}
-        </button>
+          + Create VM
+        </a>
       </div>
-
-      {showCreate && <CreateVMForm onCreated={() => setShowCreate(false)} />}
 
       {isLoading ? (
         <div className="text-muted-foreground">Loading...</div>
@@ -128,46 +114,6 @@ function VMCard({ vm }: { vm: VMService }) {
       {showSnaps && (
         <SnapshotPanel vmName={vm.name} cluster="cn-sz-01" project="customers" />
       )}
-    </div>
-  );
-}
-
-function CreateVMForm({ onCreated }: { onCreated: () => void }) {
-  const [size, setSize] = useState(1);
-  const [os, setOs] = useState(OS_IMAGES[0]!.value);
-
-  const mutation = useMutation({
-    mutationFn: () => {
-      const s = SIZES[size]!;
-      return http.post("/portal/services", { cpu: s.cpu, memory_mb: s.memory_mb, disk_gb: s.disk_gb, os_image: os });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["myServices"] });
-      onCreated();
-    },
-  });
-
-  return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6">
-      <h3 className="font-semibold mb-3">New Virtual Machine</h3>
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {SIZES.map((s, i) => (
-          <button key={s.label} onClick={() => setSize(i)}
-            className={`p-2 rounded border text-sm text-center ${i === size ? "border-primary bg-primary/10" : "border-border"}`}>
-            <div className="font-medium">{s.label}</div>
-            <div className="text-xs text-muted-foreground">{s.cpu}C / {(s.memory_mb/1024).toFixed(0)}G / {s.disk_gb}G</div>
-          </button>
-        ))}
-      </div>
-      <select value={os} onChange={(e) => setOs(e.target.value)}
-        className="w-full px-3 py-2 mb-4 rounded border border-border bg-card text-sm">
-        {OS_IMAGES.map((img) => <option key={img.value} value={img.value}>{img.label}</option>)}
-      </select>
-      {mutation.isError && <div className="text-destructive text-sm mb-2">{(mutation.error as Error).message}</div>}
-      <button onClick={() => mutation.mutate()} disabled={mutation.isPending}
-        className="w-full py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50">
-        {mutation.isPending ? "Creating..." : "Create VM"}
-      </button>
     </div>
   );
 }
