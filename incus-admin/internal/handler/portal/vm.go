@@ -213,12 +213,14 @@ func findClusterName(mgr *cluster.Manager, clusterID int64) string {
 
 type AdminVMHandler struct {
 	vmSvc     *service.VMService
+	vmRepo    *repository.VMRepo
+	sshKeys   *repository.SSHKeyRepo
 	clusters  *cluster.Manager
 	scheduler *cluster.Scheduler
 }
 
-func NewAdminVMHandler(vmSvc *service.VMService, clusters *cluster.Manager, scheduler *cluster.Scheduler) *AdminVMHandler {
-	return &AdminVMHandler{vmSvc: vmSvc, clusters: clusters, scheduler: scheduler}
+func NewAdminVMHandler(vmSvc *service.VMService, vmRepo *repository.VMRepo, sshKeys *repository.SSHKeyRepo, clusters *cluster.Manager, scheduler *cluster.Scheduler) *AdminVMHandler {
+	return &AdminVMHandler{vmSvc: vmSvc, vmRepo: vmRepo, sshKeys: sshKeys, clusters: clusters, scheduler: scheduler}
 }
 
 func (h *AdminVMHandler) Routes(r chi.Router) {
@@ -439,10 +441,17 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+
+	sshKeys, _ := h.sshKeys.GetByUser(r.Context(), userID)
+	if len(req.SSHKeys) == 0 && len(sshKeys) > 0 {
+		req.SSHKeys = sshKeys
+	}
+
 	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
 		ClusterName: clusterName,
 		Project:     req.Project,
-		UserID:      0,
+		UserID:      userID,
 		CPU:         req.CPU,
 		MemoryMB:    req.MemoryMB,
 		DiskGB:      req.DiskGB,
@@ -459,6 +468,25 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+
+	vm := &model.VM{
+		Name:      result.VMName,
+		ClusterID: 1,
+		UserID:    userID,
+		Status:    model.VMStatusRunning,
+		CPU:       req.CPU,
+		MemoryMB:  req.MemoryMB,
+		DiskGB:    req.DiskGB,
+		OSImage:   req.OSImage,
+		Node:      result.Node,
+		Password:  result.Password,
+	}
+	if result.IP != "" {
+		ipAddr := net.ParseIP(result.IP)
+		vm.IP = &ipAddr
+	}
+	h.vmRepo.Create(r.Context(), vm)
+	audit(r.Context(), r, "vm.create", "vm", 0, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})
 
 	slog.Info("VM created via admin", "vm", result.VMName, "ip", result.IP)
 	writeJSON(w, http.StatusCreated, result)
@@ -552,6 +580,11 @@ func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+
+	if dbVM, _ := h.vmRepo.GetByName(r.Context(), vmName); dbVM != nil {
+		h.vmRepo.Delete(r.Context(), dbVM.ID)
+	}
+
 	slog.Info("vm deleted", "vm", vmName)
 	audit(r.Context(), r, "vm.delete", "vm", 0, map[string]any{"name": vmName})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})

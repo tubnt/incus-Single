@@ -34,12 +34,14 @@ function CreateVMPage() {
   });
   const clusterName = clustersData?.clusters?.[0]?.name ?? "";
 
+  const [result, setResult] = useState<{ vm_name: string; ip: string; username: string; password: string } | null>(null);
+
   const createMutation = useMutation({
     mutationFn: (params: { cpu: number; memory_mb: number; disk_gb: number; os_image: string; project: string }) =>
-      http.post(`/admin/clusters/${clusterName}/vms`, params),
-    onSuccess: () => {
+      http.post<{ vm_name: string; ip: string; username: string; password: string }>(`/admin/clusters/${clusterName}/vms`, params),
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      navigate({ to: "/admin/vms" });
+      setResult(data);
     },
   });
 
@@ -48,6 +50,23 @@ function CreateVMPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold mb-6">Create VM</h1>
+
+      {result && (
+        <div className="border border-success/30 bg-success/10 rounded-lg p-4 mb-6">
+          <h3 className="font-semibold mb-2">VM Created Successfully</h3>
+          <div className="text-sm space-y-1 font-mono">
+            <div>Name: {result.vm_name}</div>
+            <div>IP: {result.ip}</div>
+            <div>Username: {result.username}</div>
+            <div>Password: {result.password}</div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">Save these credentials — the password will not be shown again.</p>
+          <button onClick={() => { setResult(null); navigate({ to: "/admin/vms" }); }}
+            className="mt-3 px-4 py-2 bg-primary text-primary-foreground rounded text-sm">
+            Go to All VMs
+          </button>
+        </div>
+      )}
 
       <div className="space-y-6">
         <div>

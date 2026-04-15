@@ -112,7 +112,7 @@ func main() {
 	})
 
 	srv := server.New(cfg, userLookup, roleLookup, balanceLookup, server.Handlers{
-		Admin:     portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler),
+		Admin:     portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler),
 		Portal:    portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr),
 		Users:     portal.NewUserHandler(userRepo),
 		IPPools:   portal.NewIPPoolHandler(clusterMgr),
