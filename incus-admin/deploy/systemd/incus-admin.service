@@ -1,0 +1,17 @@
+[Unit]
+Description=IncusAdmin Cloud Management Platform
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=incusadmin
+Group=incusadmin
+EnvironmentFile=/etc/incus-admin/incus-admin.env
+ExecStart=/usr/local/bin/incus-admin
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
