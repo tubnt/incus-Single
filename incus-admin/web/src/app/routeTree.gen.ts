@@ -13,15 +13,18 @@ import { Route as VmsRouteImport } from './routes/vms'
 import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as SshKeysRouteImport } from './routes/ssh-keys'
 import { Route as ConsoleRouteImport } from './routes/console'
+import { Route as ApiTokensRouteImport } from './routes/api-tokens'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminVmsRouteImport } from './routes/admin/vms'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminTicketsRouteImport } from './routes/admin/tickets'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
+import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
 import { Route as AdminCreateVmRouteImport } from './routes/admin/create-vm'
 import { Route as AdminClustersRouteImport } from './routes/admin/clusters'
+import { Route as AdminAuditLogsRouteImport } from './routes/admin/audit-logs'
 
 const VmsRoute = VmsRouteImport.update({
   id: '/vms',
@@ -41,6 +44,11 @@ const SshKeysRoute = SshKeysRouteImport.update({
 const ConsoleRoute = ConsoleRouteImport.update({
   id: '/console',
   path: '/console',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTokensRoute = ApiTokensRouteImport.update({
+  id: '/api-tokens',
+  path: '/api-tokens',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -68,6 +76,11 @@ const AdminProductsRoute = AdminProductsRouteImport.update({
   path: '/admin/products',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminOrdersRoute = AdminOrdersRouteImport.update({
+  id: '/admin/orders',
+  path: '/admin/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminMonitoringRoute = AdminMonitoringRouteImport.update({
   id: '/admin/monitoring',
   path: '/admin/monitoring',
@@ -88,17 +101,25 @@ const AdminClustersRoute = AdminClustersRouteImport.update({
   path: '/admin/clusters',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAuditLogsRoute = AdminAuditLogsRouteImport.update({
+  id: '/admin/audit-logs',
+  path: '/admin/audit-logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api-tokens': typeof ApiTokensRoute
   '/console': typeof ConsoleRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
+  '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -106,14 +127,17 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api-tokens': typeof ApiTokensRoute
   '/console': typeof ConsoleRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
+  '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -122,14 +146,17 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api-tokens': typeof ApiTokensRoute
   '/console': typeof ConsoleRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vms': typeof VmsRoute
+  '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -139,14 +166,17 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/api-tokens'
     | '/console'
     | '/ssh-keys'
     | '/tickets'
     | '/vms'
+    | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/orders'
     | '/admin/products'
     | '/admin/tickets'
     | '/admin/users'
@@ -154,14 +184,17 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/api-tokens'
     | '/console'
     | '/ssh-keys'
     | '/tickets'
     | '/vms'
+    | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/orders'
     | '/admin/products'
     | '/admin/tickets'
     | '/admin/users'
@@ -169,14 +202,17 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/api-tokens'
     | '/console'
     | '/ssh-keys'
     | '/tickets'
     | '/vms'
+    | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
     | '/admin/ip-pools'
     | '/admin/monitoring'
+    | '/admin/orders'
     | '/admin/products'
     | '/admin/tickets'
     | '/admin/users'
@@ -185,14 +221,17 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiTokensRoute: typeof ApiTokensRoute
   ConsoleRoute: typeof ConsoleRoute
   SshKeysRoute: typeof SshKeysRoute
   TicketsRoute: typeof TicketsRoute
   VmsRoute: typeof VmsRoute
+  AdminAuditLogsRoute: typeof AdminAuditLogsRoute
   AdminClustersRoute: typeof AdminClustersRoute
   AdminCreateVmRoute: typeof AdminCreateVmRoute
   AdminIpPoolsRoute: typeof AdminIpPoolsRoute
   AdminMonitoringRoute: typeof AdminMonitoringRoute
+  AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminTicketsRoute: typeof AdminTicketsRoute
   AdminUsersRoute: typeof AdminUsersRoute
@@ -227,6 +266,13 @@ declare module '@tanstack/react-router' {
       path: '/console'
       fullPath: '/console'
       preLoaderRoute: typeof ConsoleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api-tokens': {
+      id: '/api-tokens'
+      path: '/api-tokens'
+      fullPath: '/api-tokens'
+      preLoaderRoute: typeof ApiTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -264,6 +310,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/orders': {
+      id: '/admin/orders'
+      path: '/admin/orders'
+      fullPath: '/admin/orders'
+      preLoaderRoute: typeof AdminOrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/monitoring': {
       id: '/admin/monitoring'
       path: '/admin/monitoring'
@@ -292,19 +345,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminClustersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/audit-logs': {
+      id: '/admin/audit-logs'
+      path: '/admin/audit-logs'
+      fullPath: '/admin/audit-logs'
+      preLoaderRoute: typeof AdminAuditLogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiTokensRoute: ApiTokensRoute,
   ConsoleRoute: ConsoleRoute,
   SshKeysRoute: SshKeysRoute,
   TicketsRoute: TicketsRoute,
   VmsRoute: VmsRoute,
+  AdminAuditLogsRoute: AdminAuditLogsRoute,
   AdminClustersRoute: AdminClustersRoute,
   AdminCreateVmRoute: AdminCreateVmRoute,
   AdminIpPoolsRoute: AdminIpPoolsRoute,
   AdminMonitoringRoute: AdminMonitoringRoute,
+  AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminTicketsRoute: AdminTicketsRoute,
   AdminUsersRoute: AdminUsersRoute,

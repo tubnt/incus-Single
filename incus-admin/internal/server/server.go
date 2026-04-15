@@ -60,6 +60,12 @@ type Handlers struct {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
 	}
+	Orders interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+	Audit     AdminRouteRegistrar
+	APITokens RouteRegistrar
 }
 
 func New(cfg *config.Config, userLookup func(ctx context.Context, email string) (int64, string, error), h Handlers) *Server {
@@ -96,6 +102,12 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			if h.Products != nil {
 				h.Products.PortalRoutes(r)
 			}
+			if h.Orders != nil {
+				h.Orders.PortalRoutes(r)
+			}
+			if h.APITokens != nil {
+				h.APITokens.Routes(r)
+			}
 		})
 
 		r.Route("/api/admin", func(r chi.Router) {
@@ -120,6 +132,12 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Products != nil {
 				h.Products.AdminRoutes(r)
+			}
+			if h.Orders != nil {
+				h.Orders.AdminRoutes(r)
+			}
+			if h.Audit != nil {
+				h.Audit.AdminRoutes(r)
 			}
 		})
 

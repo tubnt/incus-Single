@@ -56,6 +56,9 @@ function RootLayout() {
             <Link to="/tickets" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
               工单
             </Link>
+            <Link to="/api-tokens" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+              API
+            </Link>
             {user && isAdmin(user) && (
               <>
                 <Link to="/admin/clusters" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
@@ -78,6 +81,12 @@ function RootLayout() {
                 </Link>
                 <Link to="/admin/tickets" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
                   Tickets
+                </Link>
+                <Link to="/admin/orders" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+                  Orders
+                </Link>
+                <Link to="/admin/audit-logs" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
+                  Audit
                 </Link>
                 <Link to="/admin/create-vm" className="text-foreground/70 hover:text-foreground [&.active]:text-foreground [&.active]:font-medium">
                   + VM

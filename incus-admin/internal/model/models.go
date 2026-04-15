@@ -109,6 +109,28 @@ type AuditLog struct {
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 }
 
+type Invoice struct {
+	ID        int64      `json:"id" db:"id"`
+	OrderID   int64      `json:"order_id" db:"order_id"`
+	UserID    int64      `json:"user_id" db:"user_id"`
+	Amount    float64    `json:"amount" db:"amount"`
+	Status    string     `json:"status" db:"status"`
+	DueAt     *time.Time `json:"due_at,omitempty" db:"due_at"`
+	PaidAt    *time.Time `json:"paid_at,omitempty" db:"paid_at"`
+	CreatedAt time.Time  `json:"created_at" db:"created_at"`
+}
+
+type APIToken struct {
+	ID         int64      `json:"id" db:"id"`
+	UserID     int64      `json:"user_id" db:"user_id"`
+	Name       string     `json:"name" db:"name"`
+	TokenHash  string     `json:"-" db:"token_hash"`
+	Token      string     `json:"token,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty" db:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
+}
+
 type SSHKey struct {
 	ID          int64     `json:"id" db:"id"`
 	UserID      int64     `json:"user_id" db:"user_id"`

@@ -78,18 +78,24 @@ func main() {
 	sshKeyRepo := repository.NewSSHKeyRepo(db)
 	ticketRepo := repository.NewTicketRepo(db)
 	productRepo := repository.NewProductRepo(db)
+	orderRepo := repository.NewOrderRepo(db)
+	auditRepo := repository.NewAuditRepo(db)
+	apiTokenRepo := repository.NewAPITokenRepo(db)
 
 	srv := server.New(cfg, userLookup, server.Handlers{
-		Admin:    portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler),
-		Portal:   portal.NewVMHandler(vmSvc, vmRepo, clusterMgr),
-		Users:    portal.NewUserHandler(userRepo),
-		IPPools:  portal.NewIPPoolHandler(clusterMgr),
-		Console:  portal.NewConsoleHandler(clusterMgr),
-		Snaps:    portal.NewSnapshotHandler(clusterMgr),
-		Metrics:  portal.NewMetricsHandler(clusterMgr),
-		SSHKeys:  portal.NewSSHKeyHandler(sshKeyRepo),
-		Tickets:  portal.NewTicketHandler(ticketRepo),
-		Products: portal.NewProductHandler(productRepo),
+		Admin:     portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler),
+		Portal:    portal.NewVMHandler(vmSvc, vmRepo, clusterMgr),
+		Users:     portal.NewUserHandler(userRepo),
+		IPPools:   portal.NewIPPoolHandler(clusterMgr),
+		Console:   portal.NewConsoleHandler(clusterMgr),
+		Snaps:     portal.NewSnapshotHandler(clusterMgr),
+		Metrics:   portal.NewMetricsHandler(clusterMgr),
+		SSHKeys:   portal.NewSSHKeyHandler(sshKeyRepo),
+		Tickets:   portal.NewTicketHandler(ticketRepo),
+		Products:  portal.NewProductHandler(productRepo),
+		Orders:    portal.NewOrderHandler(orderRepo, productRepo),
+		Audit:     portal.NewAuditHandler(auditRepo),
+		APITokens: portal.NewAPITokenHandler(apiTokenRepo),
 	})
 
 	if err := srv.Run(); err != nil {
