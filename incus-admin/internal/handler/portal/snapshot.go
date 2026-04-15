@@ -11,14 +11,17 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
+	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/repository"
 )
 
 type SnapshotHandler struct {
 	clusters *cluster.Manager
+	vmRepo   *repository.VMRepo
 }
 
-func NewSnapshotHandler(clusters *cluster.Manager) *SnapshotHandler {
-	return &SnapshotHandler{clusters: clusters}
+func NewSnapshotHandler(clusters *cluster.Manager, vmRepo *repository.VMRepo) *SnapshotHandler {
+	return &SnapshotHandler{clusters: clusters, vmRepo: vmRepo}
 }
 
 func (h *SnapshotHandler) AdminRoutes(r chi.Router) {
@@ -26,6 +29,28 @@ func (h *SnapshotHandler) AdminRoutes(r chi.Router) {
 	r.Post("/vms/{name}/snapshots", h.Create)
 	r.Delete("/vms/{name}/snapshots/{snap}", h.Delete)
 	r.Post("/vms/{name}/snapshots/{snap}/restore", h.Restore)
+}
+
+func (h *SnapshotHandler) PortalRoutes(r chi.Router) {
+	r.Get("/vms/{name}/snapshots", h.portalWrap(h.List))
+	r.Post("/vms/{name}/snapshots", h.portalWrap(h.Create))
+	r.Delete("/vms/{name}/snapshots/{snap}", h.portalWrap(h.Delete))
+	r.Post("/vms/{name}/snapshots/{snap}/restore", h.portalWrap(h.Restore))
+}
+
+func (h *SnapshotHandler) portalWrap(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vmName := chi.URLParam(r, "name")
+		userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+		if h.vmRepo != nil {
+			vm, err := h.vmRepo.GetByName(r.Context(), vmName)
+			if err != nil || vm == nil || vm.UserID != userID {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "access denied"})
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
 func (h *SnapshotHandler) List(w http.ResponseWriter, r *http.Request) {

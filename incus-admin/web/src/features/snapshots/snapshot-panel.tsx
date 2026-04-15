@@ -13,20 +13,21 @@ interface SnapshotPanelProps {
   vmName: string;
   cluster: string;
   project: string;
+  apiBase?: "/admin" | "/portal";
 }
 
-export function SnapshotPanel({ vmName, cluster, project }: SnapshotPanelProps) {
+export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: SnapshotPanelProps) {
   const [newName, setNewName] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["snapshots", vmName, cluster, project],
     queryFn: () =>
-      http.get<{ snapshots: SnapshotInfo[] }>(`/admin/vms/${vmName}/snapshots`, { cluster, project }),
+      http.get<{ snapshots: SnapshotInfo[] }>(`${apiBase}/vms/${vmName}/snapshots`, { cluster, project }),
   });
 
   const createMutation = useMutation({
     mutationFn: (name: string) =>
-      http.post(`/admin/vms/${vmName}/snapshots`, { cluster, project, name: name || undefined }),
+      http.post(`${apiBase}/vms/${vmName}/snapshots`, { cluster, project, name: name || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["snapshots", vmName] });
       setNewName("");

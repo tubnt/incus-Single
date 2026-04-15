@@ -49,7 +49,10 @@ type Handlers struct {
 	Users    AdminRouteRegistrar
 	IPPools  AdminRouteRegistrar
 	Console  ConsoleHandlerFunc
-	Snaps    AdminRouteRegistrar
+	Snaps    interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
 	Metrics  interface {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
@@ -115,6 +118,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Orders != nil {
 				h.Orders.PortalRoutes(r)
+			}
+			if h.Snaps != nil {
+				h.Snaps.PortalRoutes(r)
 			}
 			if h.APITokens != nil {
 				h.APITokens.Routes(r)

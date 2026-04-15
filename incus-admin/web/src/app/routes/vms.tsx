@@ -112,7 +112,7 @@ function VMCard({ vm }: { vm: VMService }) {
         <VMMetricsPanel vmName={vm.name} apiBase="/portal" />
       )}
       {showSnaps && (
-        <SnapshotPanel vmName={vm.name} cluster="cn-sz-01" project="customers" />
+        <SnapshotPanel vmName={vm.name} cluster="cn-sz-01" project="customers" apiBase="/portal" />
       )}
     </div>
   );

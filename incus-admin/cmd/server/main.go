@@ -117,7 +117,7 @@ func main() {
 		Users:     portal.NewUserHandler(userRepo),
 		IPPools:   portal.NewIPPoolHandler(clusterMgr),
 		Console:   portal.NewConsoleHandler(clusterMgr, vmRepo),
-		Snaps:     portal.NewSnapshotHandler(clusterMgr),
+		Snaps:     portal.NewSnapshotHandler(clusterMgr, vmRepo),
 		Metrics:   portal.NewMetricsHandler(clusterMgr, vmRepo),
 		SSHKeys:   portal.NewSSHKeyHandler(sshKeyRepo),
 		Tickets:   portal.NewTicketHandler(ticketRepo),
