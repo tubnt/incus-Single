@@ -1,8 +1,8 @@
 # PLAN-005 Full-stack refactor to pma-web and pma-go standards
 
-- **status**: draft
+- **status**: implementing
 - **createdAt**: 2026-04-15 17:40
-- **approvedAt**: (pending)
+- **approvedAt**: 2026-04-15 19:30
 - **relatedTask**: REFACTOR-001, REFACTOR-002
 
 ## Context
@@ -293,4 +293,17 @@ Phased execution plan (updated):
 
 ## Annotations
 
-(User annotations and responses. Keep all history.)
+### 2026-04-15 19:30 — User decisions (12 items confirmed)
+
+Q1: Plan A — order-driven VM creation (select product → order → pay → auto-provision). Admin manually tops up balance.
+Q2: All features open to users (Console, Snapshot, Reinstall, Monitor) with ownership check.
+Q3: User-defined VM name + `vm-{random6}` fallback.
+Q4: Fix emergency login — research best practice for simple CLI-triggered auth bypass.
+Q5: i18n — Chinese + English, detect from browser language.
+Q6: Currency — USD ($).
+Q7: Theme — default dark, support light/dark/system toggle.
+Q8: Config — migrate to koanf (pma-go standard).
+Q9: Ownership verification required for all user operations via `vms.user_id`.
+Q10: SSH deployment via aissh MCP, self-deploy SSH keys between nodes.
+Q11: healing_threshold = 300s, research community best practices to confirm.
+Q12: Cluster config DB migration in PLAN-005 (not deferred to PLAN-006).
