@@ -237,8 +237,12 @@ Future roles (add when needed): `operator` (VM ops + monitoring, no billing), `v
 
 ## API Design
 
-Auth is handled entirely by oauth2-proxy + Logto. IncusAdmin reads `X-Auth-Email`
-header. No `/auth/login` or `/auth/register` endpoints — those happen at Logto.
+**Browser auth**: oauth2-proxy + Logto OIDC. IncusAdmin reads `X-Auth-Email` header.
+No `/auth/login` or `/auth/register` endpoints — those happen at Logto.
+
+**API Token auth**: `Authorization: Bearer <token>` header. oauth2-proxy passes through
+JWT bearer tokens (`skip_jwt_bearer_tokens = true`). IncusAdmin validates the token
+against `api_tokens` table (SHA-256 hash match), then loads the user from DB.
 
 ```
 System endpoints (no auth):
@@ -605,18 +609,7 @@ Phase 3: Stripe 在线充值（对外售卖时接入）
 
 #### 3. 多维度配额
 
-```sql
-CREATE TABLE quotas (
-    id            SERIAL PRIMARY KEY,
-    user_id       INT UNIQUE REFERENCES users(id),
-    max_vms       INT DEFAULT 5,
-    max_vcpus     INT DEFAULT 8,
-    max_ram_mb    INT DEFAULT 16384,     -- 16 GB
-    max_disk_gb   INT DEFAULT 200,
-    max_ips       INT DEFAULT 3,
-    max_snapshots INT DEFAULT 10
-);
-```
+See `quotas` table in Database Schema section above. Default limits: 5 VMs / 8 vCPU / 16GB RAM / 200GB disk / 3 IPs / 10 snapshots.
 
 创建 VM 时检查所有维度，任一超限则拒绝并提示具体哪个配额不够。
 
@@ -707,14 +700,17 @@ provider = "oidc"
 client_id = "${LOGTO_CLIENT_ID}"
 client_secret = "${LOGTO_CLIENT_SECRET}"
 oidc_issuer_url = "https://auth.l.5ok.co/oidc"
-allowed_groups = ["23hldzpnetw6"]
+scope = "openid email profile urn:logto:scope:organizations"  # required for org claim
+oidc_groups_claim = "organizations"        # Logto uses "organizations" not "groups"
+allowed_groups = ["23hldzpnetw6"]          # org ID restriction
 set_xauthrequest = true
 pass_access_token = true
+skip_jwt_bearer_tokens = true              # pass through API Token requests
 proxy_websockets = true                    # required for VM console WebSocket
 skip_auth_routes = ["/api/health"]         # emergency login on :8081, not here
 upstreams = ["http://127.0.0.1:8080"]
 http_address = "0.0.0.0:4180"
-cookie_secure = false                      # CF CDN terminates HTTPS
+cookie_secure = false                      # CF CDN terminates HTTPS (Flexible mode)
 ```
 
 ### Role Assignment
@@ -778,9 +774,25 @@ Issues found during user journey audit, tracked for implementation:
 - Added order lifecycle states: pending→paid→provisioning→active→expired→cancelled
 - Added `updated_at` to all tables
 
+**Fixed in second-pass review:**
+- oauth2-proxy: added `oidc_groups_claim = "organizations"` + `scope` with `urn:logto:scope:organizations` (Logto uses "organizations" claim, not "groups" — without this, org restriction is bypassed)
+- oauth2-proxy: added `skip_jwt_bearer_tokens = true` for API Token passthrough
+- Added dual auth documentation (browser via proxy header, API via Bearer token)
+- Removed duplicate quotas table definition (kept only canonical schema version)
+- Verified all Incus API capabilities: snapshots (18 ext), console (4), migration (9), rebuild (1) — all supported on v6.23
+- Verified Go SDK methods: CreateInstance, GetInstanceState, ConsoleInstance — all available
+
 **Deferred to implementation phase:**
 - Billing scheduler (cron for renewals/suspensions) — design in Phase 2
 - Image cache management across clusters
 - API rate limiting middleware
 - Notifications (email/webhook)
 - IncusAdmin PostgreSQL backup strategy
+- Internal vs external user product filtering (user.access_level or org metadata)
+- Balance race condition handling (SELECT FOR UPDATE)
+
+**Sources consulted:**
+- [Incus Go SDK](https://pkg.go.dev/github.com/lxc/incus/client)
+- [oauth2-proxy OIDC groups claim](https://github.com/oauth2-proxy/oauth2-proxy/issues/1730)
+- [Logto organizations scope](https://docs.logto.io/docs/recipes/organizations/integration/)
+- [oauth2-proxy skip-jwt-bearer-tokens](https://oauth2-proxy.github.io/oauth2-proxy/configuration/alpha-config/)
