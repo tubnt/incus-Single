@@ -30,5 +30,5 @@ Each plan is a single line linking to its detail file. All detailed information 
 ## Plans
 
 - [x] [**PLAN-002 Cluster Infrastructure — Incus + Ceph + Network + Monitoring**](PLAN-002.md) `2026-04-09`
-- [x] [**PLAN-003 Business Platform — Paymenter + Incus Extension + Billing**](PLAN-003.md) `2026-04-09`
+- [~] [**PLAN-003 Business Platform — Paymenter + Incus Extension + Billing**](PLAN-003.md) `2026-04-09`
 - [-] [**PLAN-004 IncusAdmin — Self-hosted Cloud Platform Management System**](PLAN-004-incus-admin.md) `2026-04-15`

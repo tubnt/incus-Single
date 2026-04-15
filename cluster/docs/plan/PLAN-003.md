@@ -1,8 +1,11 @@
 # PLAN-003：业务平台 — Paymenter + Incus 云主机销售系统
 
-- **状态**: draft
-- **创建**: 2026-04-09
+- **status**: rejected
+- **createdAt**: 2026-04-09
+- **rejectedAt**: 2026-04-15
 - **关联**: PLAN-002（集群基础设施）
+
+> **Superseded by [PLAN-004 IncusAdmin](PLAN-004-incus-admin.md).** Paymenter was deployed and tested but replaced by a self-built Go+React platform for better multi-cluster support, internal-first workflow, and full control over the billing/auth stack. The Paymenter deployment remains functional at 202.151.179.233 but will be decommissioned.
 
 ---
 

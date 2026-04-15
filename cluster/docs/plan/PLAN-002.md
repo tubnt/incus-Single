@@ -1,10 +1,12 @@
 # PLAN-002：集群版完整方案 — 7 大模块架构设计
 
-- **状态**: draft
-- **创建**: 2026-04-05
-- **更新**: 2026-04-09
+- **status**: completed
+- **createdAt**: 2026-04-05
+- **completedAt**: 2026-04-14
 - **审查**: R3（R1 15项 + R2 4P0+13P1 + R3 副本数3+ACL project级+dmcrypt密钥备份）
 - **关联任务**: CLUSTER-001
+
+> Deployed: 5-node Incus cluster + Ceph 29 OSD / 25TiB + 4-plane network + monitoring + firewall. Next phase: [PLAN-004 IncusAdmin](PLAN-004-incus-admin.md).
 
 ---
 

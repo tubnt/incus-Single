@@ -151,51 +151,43 @@ incus config set cluster.healing_threshold 300
 | 系统预留 | 2 核 | 4 GB | |
 | **可分配给 VM** | **剩余** | **剩余** | 64G 节点约 46G 可用 |
 
-## 开发计划
+## Project Status
 
-### Phase 1：基础集群
+### Completed (PLAN-002)
 
-- [ ] 集群初始化脚本（3 节点组建 Incus 集群）
-- [ ] Ceph 部署脚本（MON + MGR + OSD）
-- [ ] Ceph 存储池接入 Incus
-- [ ] 网络配置（双 10G VLAN 隔离）
-- [ ] 防火墙策略统一下发
+- [x] 5-node Incus cluster (3 voter + 2 standby, Incus 6.23)
+- [x] Ceph distributed storage (29 OSD / 25TiB / 3-replica / dmcrypt)
+- [x] 4-plane network (management bond 10G / Ceph bond 25G / public VLAN 376 / OVN reserved)
+- [x] nftables firewall + VM isolation + RFC1918 blocking
+- [x] Monitoring stack (Prometheus + Grafana + Loki + Alertmanager)
+- [x] VM creation, migration, storage verified end-to-end
+- [x] Paymenter v1.4.7 deployed with Incus Extension (interim, being replaced)
 
-### Phase 2：VM 管理
+### In Progress (PLAN-004)
 
-- [ ] 跨节点 create-vm（指定/自动选择目标节点）
-- [ ] VM 迁移工具（热迁移 + 冷迁移）
-- [ ] 公网 IP 迁移（Gratuitous ARP）
-- [ ] 统一凭据管理
+- [ ] IncusAdmin — self-built Go+React cloud management platform
+- [ ] See [PLAN-004](docs/plan/PLAN-004-incus-admin.md) for full architecture
 
-### Phase 3：高可用
+### Superseded (PLAN-003)
 
-- [ ] 自动 healing 配置
-- [ ] 节点维护模式（evacuate/restore）
-- [ ] 监控告警（节点状态、Ceph 健康度）
-- [ ] 自动扩缩容（新节点加入流程）
+- [~] Paymenter business platform — replaced by IncusAdmin
 
-### Phase 4（可选）：OVN
-
-- [ ] OVN overlay 网络部署
-- [ ] network forward（公网 IP → VM 内部 IP）
-- [ ] VM 迁移 IP 自动跟随
-
-## 脚本目录（规划）
+## Directory Structure
 
 ```
 cluster/
-├── scripts/
-│   ├── setup-cluster.sh      # 集群初始化（Incus + Ceph）
-│   ├── join-node.sh           # 新节点加入集群
-│   ├── create-vm.sh           # 集群版创建 VM
-│   ├── migrate-vm.sh          # VM 迁移工具
-│   ├── vm-firewall.sh         # 集群统一防火墙
-│   └── ceph-status.sh         # Ceph 状态监控
-├── configs/
-│   ├── ceph.conf.template     # Ceph 配置模板
-│   ├── netplan-nic1.yaml      # 网卡 1 配置模板
-│   └── netplan-nic2.yaml      # 网卡 2 配置模板
+├── scripts/           # Cluster operation scripts (bash)
+├── configs/           # netplan, nftables, wireguard, cloud-init templates
+├── monitoring/        # Prometheus + Grafana + Loki Docker Compose
+├── paymenter/         # Paymenter deployment (Docker, being replaced)
+│   └── extensions/
+│       ├── Servers/Incus/  # Paymenter v1.4.7 Incus Extension (active)
+│       └── incus/          # Old extension code (deprecated, reference only)
+├── console-proxy/     # Go WebSocket console proxy (to be integrated into IncusAdmin)
+├── ai-gateway/        # Go AI gateway (deferred)
 └── docs/
-    └── plan/
+    ├── plan/          # Architecture plans (PLAN-002/003/004)
+    ├── task/          # Task tracking
+    ├── operations/    # Ops manual, troubleshooting, security checklist, DR
+    └── changelog.md
 ```
