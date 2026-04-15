@@ -15,14 +15,14 @@ interface ClusterInfo {
 }
 
 interface NodeInfo {
-  Name: string;
-  Status: string;
-  Message: string;
-  CPUTotal: number;
-  MemTotal: number;
-  MemUsed: number;
-  MemFree: number;
-  FreeRatio: number;
+  server_name: string;
+  status: string;
+  message: string;
+  cpu_total: number;
+  mem_total: number;
+  mem_used: number;
+  mem_free: number;
+  free_ratio: number;
 }
 
 function ClustersPage() {
@@ -89,27 +89,27 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
             </thead>
             <tbody>
               {nodes.map((n) => (
-                <tr key={n.Name} className="border-t border-border">
-                  <td className="px-4 py-2 font-mono">{n.Name}</td>
+                <tr key={n.server_name} className="border-t border-border">
+                  <td className="px-4 py-2 font-mono">{n.server_name}</td>
                   <td className="px-4 py-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${n.Status === "Online" ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}>
-                      {n.Status}
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${n.status === "Online" ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}>
+                      {n.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2">{n.CPUTotal} cores</td>
+                  <td className="px-4 py-2">{n.cpu_total} cores</td>
                   <td className="px-4 py-2">
-                    {formatBytes(n.MemUsed)} / {formatBytes(n.MemTotal)}
+                    {formatBytes(n.mem_used)} / {formatBytes(n.mem_total)}
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2">
                       <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
                         <div
                           className="h-full bg-success rounded-full"
-                          style={{ width: `${(n.FreeRatio * 100).toFixed(0)}%` }}
+                          style={{ width: `${(n.free_ratio * 100).toFixed(0)}%` }}
                         />
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {(n.FreeRatio * 100).toFixed(0)}%
+                        {(n.free_ratio * 100).toFixed(0)}%
                       </span>
                     </div>
                   </td>
