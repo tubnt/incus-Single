@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/shared/lib/http";
 
@@ -9,9 +9,20 @@ export const Route = createFileRoute("/admin/clusters")({
 interface ClusterInfo {
   name: string;
   display_name: string;
+  api_url: string;
   nodes: number;
-  vms: number;
   status: string;
+}
+
+interface NodeInfo {
+  Name: string;
+  Status: string;
+  Message: string;
+  CPUTotal: number;
+  MemTotal: number;
+  MemUsed: number;
+  MemFree: number;
+  FreeRatio: number;
 }
 
 function ClustersPage() {
@@ -32,24 +43,90 @@ function ClustersPage() {
           No clusters configured.
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="space-y-6">
           {clusters.map((c) => (
-            <div key={c.name} className="border border-border rounded-lg p-4 bg-card">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold">{c.display_name || c.name}</h3>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {c.nodes} nodes · {c.vms} VMs
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-success/20 text-success">
-                  {c.status}
-                </span>
-              </div>
-            </div>
+            <ClusterCard key={c.name} cluster={c} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
+  const { data } = useQuery({
+    queryKey: ["adminNodes", cluster.name],
+    queryFn: () => http.get<{ nodes: NodeInfo[] }>(`/admin/clusters/${cluster.name}/nodes`),
+  });
+
+  const nodes = data?.nodes ?? [];
+
+  return (
+    <div className="border border-border rounded-lg bg-card overflow-hidden">
+      <div className="p-4 flex items-center justify-between border-b border-border">
+        <div>
+          <h3 className="font-semibold text-lg">{cluster.display_name || cluster.name}</h3>
+          <div className="text-sm text-muted-foreground mt-1">
+            {cluster.api_url} · {nodes.length} nodes
+          </div>
+        </div>
+        <span className="px-2 py-0.5 rounded text-xs font-medium bg-success/20 text-success">
+          {cluster.status}
+        </span>
+      </div>
+
+      {nodes.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/30">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Node</th>
+                <th className="text-left px-4 py-2 font-medium">Status</th>
+                <th className="text-left px-4 py-2 font-medium">CPU</th>
+                <th className="text-left px-4 py-2 font-medium">Memory</th>
+                <th className="text-left px-4 py-2 font-medium">Free %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {nodes.map((n) => (
+                <tr key={n.Name} className="border-t border-border">
+                  <td className="px-4 py-2 font-mono">{n.Name}</td>
+                  <td className="px-4 py-2">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${n.Status === "Online" ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}>
+                      {n.Status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">{n.CPUTotal} cores</td>
+                  <td className="px-4 py-2">
+                    {formatBytes(n.MemUsed)} / {formatBytes(n.MemTotal)}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-success rounded-full"
+                          style={{ width: `${(n.FreeRatio * 100).toFixed(0)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {(n.FreeRatio * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(0)} MB`;
 }

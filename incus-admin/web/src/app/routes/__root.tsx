@@ -7,7 +7,7 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  const { data: user, isLoading } = useQuery({
+  const { data: user, isLoading, isError } = useQuery({
     queryKey: ["currentUser"],
     queryFn: fetchCurrentUser,
     retry: false,
@@ -17,6 +17,21 @@ function RootLayout() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (isError || !user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+        <h1 className="text-2xl font-bold">IncusAdmin</h1>
+        <p className="text-muted-foreground">Please sign in to continue.</p>
+        <a
+          href="/oauth2/start?rd=/"
+          className="px-6 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90"
+        >
+          Sign in with SSO
+        </a>
       </div>
     );
   }

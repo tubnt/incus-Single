@@ -121,7 +121,7 @@ func (s *Scheduler) refreshCluster(clusterName string) error {
 		}
 
 		resPath := fmt.Sprintf("/1.0/cluster/members/%s/state", member.ServerName)
-		if resp, err := client.apiGet(ctx, resPath); err == nil {
+		if resp, err := client.APIGet(ctx, resPath); err == nil {
 			var state struct {
 				Memory struct {
 					Total int64 `json:"total"`

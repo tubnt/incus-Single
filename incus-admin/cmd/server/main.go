@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/config"
+	"github.com/incuscloud/incus-admin/internal/handler/portal"
 	"github.com/incuscloud/incus-admin/internal/server"
+	"github.com/incuscloud/incus-admin/internal/service"
 )
 
 func main() {
@@ -25,7 +28,21 @@ func main() {
 		"clusters", len(cfg.Clusters),
 	)
 
-	// Placeholder user lookup — will be replaced by DB-backed lookup
+	var clusterMgr *cluster.Manager
+	var scheduler *cluster.Scheduler
+	var vmSvc *service.VMService
+
+	if len(cfg.Clusters) > 0 {
+		clusterMgr, err = cluster.NewManager(cfg.Clusters)
+		if err != nil {
+			slog.Warn("cluster manager init failed, running without clusters", "error", err)
+		} else {
+			scheduler = cluster.NewScheduler(clusterMgr)
+			vmSvc = service.NewVMService(clusterMgr)
+			slog.Info("cluster manager ready", "clusters", len(clusterMgr.List()))
+		}
+	}
+
 	userLookup := func(ctx context.Context, email string) (int64, string, error) {
 		for _, adminEmail := range cfg.Auth.AdminEmails {
 			if email == adminEmail {
@@ -35,7 +52,10 @@ func main() {
 		return 0, "customer", nil
 	}
 
-	srv := server.New(cfg, userLookup)
+	adminHandler := portal.NewAdminVMHandler(vmSvc, clusterMgr, scheduler)
+	portalHandler := portal.NewVMHandler(vmSvc)
+
+	srv := server.New(cfg, userLookup, adminHandler, portalHandler)
 
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)

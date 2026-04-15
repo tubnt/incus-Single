@@ -24,7 +24,11 @@ type Server struct {
 	router *chi.Mux
 }
 
-func New(cfg *config.Config, userLookup func(ctx context.Context, email string) (int64, string, error)) *Server {
+type RouteRegistrar interface {
+	Routes(r chi.Router)
+}
+
+func New(cfg *config.Config, userLookup func(ctx context.Context, email string) (int64, string, error), adminHandler RouteRegistrar, portalHandler RouteRegistrar) *Server {
 	r := chi.NewRouter()
 
 	r.Use(chimw.RequestID)
@@ -43,15 +47,19 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 		r.Use(middleware.UserFromEmail(userLookup))
 
 		r.Route("/api/portal", func(r chi.Router) {
-			// Portal routes registered by handler packages
+			if portalHandler != nil {
+				portalHandler.Routes(r)
+			}
 		})
 
 		r.Route("/api/admin", func(r chi.Router) {
 			r.Use(middleware.RequireRole("admin"))
-			// Admin routes registered by handler packages
+			if adminHandler != nil {
+				adminHandler.Routes(r)
+			}
 		})
 
-		r.Get("/auth/me", func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/api/auth/me", func(w http.ResponseWriter, r *http.Request) {
 			email, _ := r.Context().Value(middleware.CtxUserEmail).(string)
 			userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
 			role, _ := r.Context().Value(middleware.CtxUserRole).(string)

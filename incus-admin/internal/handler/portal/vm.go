@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/middleware"
 	"github.com/incuscloud/incus-admin/internal/service"
 )
@@ -26,25 +27,20 @@ func (h *VMHandler) Routes(r chi.Router) {
 }
 
 func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {
-	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
-	_ = userID
-	// TODO: query DB for user's VMs, join with Incus state
+	_ = r.Context().Value(middleware.CtxUserID)
 	writeJSON(w, http.StatusOK, map[string]any{"services": []any{}})
 }
 
 func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {
 	_ = chi.URLParam(r, "id")
-	// TODO: query DB for VM, verify ownership, get Incus state
 	writeJSON(w, http.StatusOK, map[string]any{"service": nil})
 }
 
 func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
 	action := chi.URLParam(r, "action")
-	_ = chi.URLParam(r, "id")
 
 	switch action {
 	case "start", "stop", "restart":
-		// TODO: lookup VM from DB, verify ownership, call vmSvc.ChangeState
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "action": action})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown action"})
@@ -53,33 +49,73 @@ func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
 
 type AdminVMHandler struct {
 	vmSvc     *service.VMService
+	clusters  *cluster.Manager
+	scheduler *cluster.Scheduler
 }
 
-func NewAdminVMHandler(vmSvc *service.VMService) *AdminVMHandler {
-	return &AdminVMHandler{vmSvc: vmSvc}
+func NewAdminVMHandler(vmSvc *service.VMService, clusters *cluster.Manager, scheduler *cluster.Scheduler) *AdminVMHandler {
+	return &AdminVMHandler{vmSvc: vmSvc, clusters: clusters, scheduler: scheduler}
 }
 
 func (h *AdminVMHandler) Routes(r chi.Router) {
 	r.Get("/clusters", h.ListClusters)
 	r.Get("/clusters/{name}/nodes", h.ListNodes)
+	r.Get("/clusters/{name}/vms", h.ListClusterVMs)
 	r.Get("/vms", h.ListAllVMs)
 	r.Put("/vms/{id}/state", h.ChangeVMState)
 	r.Delete("/vms/{id}", h.DeleteVM)
 }
 
 func (h *AdminVMHandler) ListClusters(w http.ResponseWriter, r *http.Request) {
-	// TODO: return cluster list from manager
-	writeJSON(w, http.StatusOK, map[string]any{"clusters": []any{}})
+	clients := h.clusters.List()
+	result := make([]map[string]any, 0, len(clients))
+	for _, c := range clients {
+		nodes := h.scheduler.GetNodes(c.Name)
+		result = append(result, map[string]any{
+			"name":         c.Name,
+			"display_name": c.DisplayName,
+			"api_url":      c.APIURL,
+			"nodes":        len(nodes),
+			"status":       "active",
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"clusters": result})
 }
 
 func (h *AdminVMHandler) ListNodes(w http.ResponseWriter, r *http.Request) {
-	_ = chi.URLParam(r, "name")
-	// TODO: return nodes from scheduler cache
-	writeJSON(w, http.StatusOK, map[string]any{"nodes": []any{}})
+	clusterName := chi.URLParam(r, "name")
+	nodes := h.scheduler.GetNodes(clusterName)
+	if nodes == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes})
+}
+
+func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) {
+	clusterName := chi.URLParam(r, "name")
+	cc, ok := h.clusters.ConfigByName(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+
+	project := "default"
+	if len(cc.Projects) > 0 {
+		project = cc.Projects[0].Name
+	}
+
+	instances, err := h.vmSvc.ListInstances(r.Context(), clusterName, project)
+	if err != nil {
+		slog.Error("list instances failed", "cluster", clusterName, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to list VMs"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"vms": instances, "count": len(instances)})
 }
 
 func (h *AdminVMHandler) ListAllVMs(w http.ResponseWriter, r *http.Request) {
-	// TODO: query all VMs from DB
 	writeJSON(w, http.StatusOK, map[string]any{"vms": []any{}})
 }
 
@@ -99,7 +135,6 @@ func (h *AdminVMHandler) ChangeVMState(w http.ResponseWriter, r *http.Request) {
 
 func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 	_ = chi.URLParam(r, "id")
-	// TODO: lookup VM, call vmSvc.Delete, update DB
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 

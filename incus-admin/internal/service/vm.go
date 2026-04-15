@@ -98,7 +98,7 @@ func (s *VMService) Create(ctx context.Context, params CreateVMParams) (*CreateV
 
 	bodyJSON, _ := json.Marshal(body)
 	path := fmt.Sprintf("/1.0/instances?project=%s", params.Project)
-	resp, err := client.apiPost(ctx, path, bytes.NewReader(bodyJSON))
+	resp, err := client.APIPost(ctx, path, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create instance: %w", err)
 	}
@@ -115,7 +115,7 @@ func (s *VMService) Create(ctx context.Context, params CreateVMParams) (*CreateV
 
 	startBody, _ := json.Marshal(map[string]any{"action": "start", "timeout": 60})
 	startPath := fmt.Sprintf("/1.0/instances/%s/state?project=%s", vmName, params.Project)
-	startResp, err := client.apiPut(ctx, startPath, bytes.NewReader(startBody))
+	startResp, err := client.APIPut(ctx, startPath, bytes.NewReader(startBody))
 	if err != nil {
 		slog.Error("start instance failed", "vm", vmName, "error", err)
 	} else if startResp.Type == "async" {
@@ -154,7 +154,7 @@ func (s *VMService) ChangeState(ctx context.Context, clusterName, project, vmNam
 	bodyJSON, _ := json.Marshal(body)
 	path := fmt.Sprintf("/1.0/instances/%s/state?project=%s", vmName, project)
 
-	resp, err := client.apiPut(ctx, path, bytes.NewReader(bodyJSON))
+	resp, err := client.APIPut(ctx, path, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return fmt.Errorf("%s vm: %w", action, err)
 	}
@@ -179,7 +179,7 @@ func (s *VMService) Delete(ctx context.Context, clusterName, project, vmName str
 	}
 
 	path := fmt.Sprintf("/1.0/instances/%s?project=%s", vmName, project)
-	_, err := client.apiDelete(ctx, path)
+	_, err := client.APIDelete(ctx, path)
 	return err
 }
 

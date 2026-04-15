@@ -38,7 +38,7 @@ func newClient(cc config.ClusterConfig) (*Client, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := c.apiGet(ctx, "/1.0"); err != nil {
+	if _, err := c.APIGet(ctx, "/1.0"); err != nil {
 		return nil, fmt.Errorf("health check failed: %w", err)
 	}
 
@@ -88,26 +88,26 @@ func (c *Client) apiRequest(ctx context.Context, method, path string, body io.Re
 	return &incusResp, nil
 }
 
-func (c *Client) apiGet(ctx context.Context, path string) (*IncusResponse, error) {
+func (c *Client) APIGet(ctx context.Context, path string) (*IncusResponse, error) {
 	return c.apiRequest(ctx, http.MethodGet, path, nil)
 }
 
-func (c *Client) apiPost(ctx context.Context, path string, body io.Reader) (*IncusResponse, error) {
+func (c *Client) APIPost(ctx context.Context, path string, body io.Reader) (*IncusResponse, error) {
 	return c.apiRequest(ctx, http.MethodPost, path, body)
 }
 
-func (c *Client) apiPut(ctx context.Context, path string, body io.Reader) (*IncusResponse, error) {
+func (c *Client) APIPut(ctx context.Context, path string, body io.Reader) (*IncusResponse, error) {
 	return c.apiRequest(ctx, http.MethodPut, path, body)
 }
 
-func (c *Client) apiDelete(ctx context.Context, path string) (*IncusResponse, error) {
+func (c *Client) APIDelete(ctx context.Context, path string) (*IncusResponse, error) {
 	return c.apiRequest(ctx, http.MethodDelete, path, nil)
 }
 
 // WaitForOperation blocks until an async operation completes.
 func (c *Client) WaitForOperation(ctx context.Context, operationID string) error {
 	path := fmt.Sprintf("/1.0/operations/%s/wait?timeout=120", operationID)
-	resp, err := c.apiGet(ctx, path)
+	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (c *Client) WaitForOperation(ctx context.Context, operationID string) error
 
 // GetClusterMembers returns all cluster members (nodes).
 func (c *Client) GetClusterMembers(ctx context.Context) ([]json.RawMessage, error) {
-	resp, err := c.apiGet(ctx, "/1.0/cluster/members?recursion=1")
+	resp, err := c.APIGet(ctx, "/1.0/cluster/members?recursion=1")
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (c *Client) GetClusterMembers(ctx context.Context) ([]json.RawMessage, erro
 // GetInstances returns all instances in a project.
 func (c *Client) GetInstances(ctx context.Context, project string) ([]json.RawMessage, error) {
 	path := fmt.Sprintf("/1.0/instances?recursion=2&project=%s", project)
-	resp, err := c.apiGet(ctx, path)
+	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (c *Client) GetInstances(ctx context.Context, project string) ([]json.RawMe
 // GetInstance returns a single instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (json.RawMessage, error) {
 	path := fmt.Sprintf("/1.0/instances/%s?project=%s", name, project)
-	resp, err := c.apiGet(ctx, path)
+	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (json.Ra
 // GetInstanceState returns the runtime state of an instance.
 func (c *Client) GetInstanceState(ctx context.Context, project, name string) (json.RawMessage, error) {
 	path := fmt.Sprintf("/1.0/instances/%s/state?project=%s", name, project)
-	resp, err := c.apiGet(ctx, path)
+	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
 	}

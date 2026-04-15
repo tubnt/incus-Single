@@ -102,6 +102,21 @@ func Load() (*Config, error) {
 		cfg.Auth.AdminEmails = nil
 	}
 
+	if clusterURL := envOr("CLUSTER_API_URL", ""); clusterURL != "" {
+		cfg.Clusters = append(cfg.Clusters, ClusterConfig{
+			Name:        envOr("CLUSTER_NAME", "default"),
+			DisplayName: envOr("CLUSTER_DISPLAY_NAME", "Default Cluster"),
+			APIURL:      clusterURL,
+			CertFile:    envOr("CLUSTER_CERT_FILE", "/etc/incus-admin/certs/client.crt"),
+			KeyFile:     envOr("CLUSTER_KEY_FILE", "/etc/incus-admin/certs/client.key"),
+			CAFile:      envOr("CLUSTER_CA_FILE", ""),
+			Projects: []ProjectConfig{
+				{Name: "default", Access: "internal", Description: "Default project"},
+				{Name: "customers", Access: "public", Description: "Customer VMs"},
+			},
+		})
+	}
+
 	return cfg, nil
 }
 
