@@ -307,3 +307,30 @@ Q9: Ownership verification required for all user operations via `vms.user_id`.
 Q10: SSH deployment via aissh MCP, self-deploy SSH keys between nodes.
 Q11: healing_threshold = 300s, research community best practices to confirm.
 Q12: Cluster config DB migration in PLAN-005 (not deferred to PLAN-006).
+
+### 2026-04-15 20:30 — QA Test Results (18 pages tested)
+
+**Passed**: Dashboard, My VMs, SSH Keys, Tickets, API Tokens, Clusters (5 nodes), All VMs (vm-8aa7f7), Monitor (Recharts), HA Failover, Users, Audit Logs, 404 fallback, SSO login, theme toggle, i18n sidebar, sidebar collapse, header balance, password reveal.
+
+**Bugs found**:
+
+| # | Severity | Page | Issue |
+|---|----------|------|-------|
+| QA-1 | LOW | `/billing` | No "暂无可用套餐" when products empty — section disappears entirely |
+| QA-2 | LOW | all pages | i18n only covers sidebar/header; page body has hardcoded zh/en mix |
+| QA-3 | MEDIUM | `/admin/audit-logs` | 0 records — audit goroutine was broken before P0-1 fix; need to verify new ops write logs |
+| QA-4 | LOW | `/` | Dashboard cards "My VMs"/"Balance" don't follow i18n, "Tickets" does |
+| QA-5 | LOW | sidebar | User "Tickets" and Admin "Tickets" same i18n key, confusing |
+| QA-6 | LOW | 404 | "Not Found" plain text, no back button |
+
+**Not yet tested** (need live data): VM create, Console, Snapshots, Reinstall, Order→Pay→VM, Ticket create→reply→close.
+
+### 2026-04-15 20:45 — QA Round 2 plan
+
+Test remaining flows that require data creation:
+1. Admin creates product → user sees it on billing page
+2. Admin top-up user balance → user sees balance
+3. User creates order → pays → VM auto-created
+4. User opens ticket → admin replies → user sees reply
+5. Console WebSocket on running VM
+6. Snapshot create/list on running VM
