@@ -91,11 +91,13 @@
 - Add `vmRepo` to `AdminVMHandler`
 - After `vmSvc.Delete`, call `vmRepo.Delete(id)` or `vmRepo.UpdateStatus(id, "deleted")`
 
-**1.6 Remove hardcoded storage/network values**
-- Replace `"ceph-pool"` (4 occurrences) → read from cluster config `cc.StoragePool`
-- Replace `"br-pub"` (3 occurrences) → read from cluster config `cc.Network`
-- Add `StoragePool` and `Network` fields to `ClusterConfig` struct
-- Add corresponding DB columns to `clusters` table
+**1.6 Remove ALL hardcoded infra values**
+- `"ceph-pool"` (4 backend) → `cc.StoragePool` from cluster config
+- `"br-pub"` (3 backend) → `cc.Network` from cluster config
+- `"customers"` (8 backend + 3 frontend) → `cc.DefaultProject` from cluster config
+- `"cn-sz-01"` (2 frontend) → from API response, not hardcoded
+- Add `StoragePool`, `Network`, `DefaultProject` fields to `ClusterConfig` struct + `clusters` DB table
+- Frontend `vms.tsx`: get cluster/project from VM's DB record, not hardcoded
 
 **1.7 Delete dead feature API files (Q8)**
 - Delete: `features/ssh-keys/api.ts`, `features/billing/api.ts`, `features/users/api.ts`, `features/api-tokens/api.ts`, `features/audit/api.ts`
