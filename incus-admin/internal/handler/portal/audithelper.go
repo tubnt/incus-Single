@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"time"
 
@@ -20,7 +21,10 @@ func audit(ctx context.Context, r *http.Request, action, targetType string, targ
 		return
 	}
 	userID, _ := ctx.Value(middleware.CtxUserID).(int64)
-	ip := r.RemoteAddr
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
 	var uid *int64
 	if userID > 0 {
 		uid = &userID

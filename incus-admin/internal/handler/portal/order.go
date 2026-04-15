@@ -149,6 +149,11 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 
 	sshKeys, _ := h.sshKeys.GetByUser(r.Context(), userID)
 
+	osImage := payReq.OSImage
+	if osImage == "" {
+		osImage = "images:ubuntu/24.04/cloud"
+	}
+
 	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
 		ClusterName: client.Name,
 		Project:     "customers",
@@ -157,7 +162,7 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		CPU:         product.CPU,
 		MemoryMB:    product.MemoryMB,
 		DiskGB:      product.DiskGB,
-		OSImage:     payReq.OSImage,
+		OSImage:     osImage,
 		SSHKeys:     sshKeys,
 		IP:          ip,
 		Gateway:     gateway,
@@ -183,7 +188,7 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		CPU:       product.CPU,
 		MemoryMB:  product.MemoryMB,
 		DiskGB:    product.DiskGB,
-		OSImage:   payReq.OSImage,
+		OSImage:   osImage,
 		Node:      result.Node,
 		Password:  result.Password,
 	}
