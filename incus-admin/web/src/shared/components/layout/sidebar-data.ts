@@ -33,6 +33,7 @@ export const sidebarGroups: NavGroup[] = [
       { key: "nav.clusters", to: "/admin/clusters", icon: "Network", adminOnly: true },
       { key: "nav.allVms", to: "/admin/vms", icon: "ServerCog", adminOnly: true },
       { key: "nav.monitor", to: "/admin/monitoring", icon: "Activity", adminOnly: true },
+      { key: "HA", to: "/admin/ha", icon: "Shield", adminOnly: true },
       { key: "nav.ipPools", to: "/admin/ip-pools", icon: "Globe", adminOnly: true },
       { key: "nav.users", to: "/admin/users", icon: "Users", adminOnly: true },
       { key: "nav.products", to: "/admin/products", icon: "Package", adminOnly: true },

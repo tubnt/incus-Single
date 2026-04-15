@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -222,6 +223,8 @@ func (h *AdminVMHandler) Routes(r chi.Router) {
 	r.Get("/clusters/{name}/nodes", h.ListNodes)
 	r.Get("/clusters/{name}/vms", h.ListClusterVMs)
 	r.Post("/clusters/{name}/vms", h.CreateVM)
+	r.Get("/clusters/{name}/ha", h.GetHAStatus)
+	r.Post("/clusters/{name}/nodes/{node}/evacuate", h.EvacuateNode)
 	r.Get("/vms", h.ListAllVMs)
 	r.Put("/vms/{name}/state", h.ChangeVMState)
 	r.Post("/vms/{name}/reinstall", h.ReinstallVM)
@@ -252,6 +255,78 @@ func (h *AdminVMHandler) ListNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes})
+}
+
+func (h *AdminVMHandler) GetHAStatus(w http.ResponseWriter, r *http.Request) {
+	clusterName := chi.URLParam(r, "name")
+	client, ok := h.clusters.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+
+	members, err := client.GetClusterMembers(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	type memberStatus struct {
+		Name    string `json:"server_name"`
+		URL     string `json:"url"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Roles   string `json:"roles"`
+	}
+
+	var nodes []memberStatus
+	for _, raw := range members {
+		var m memberStatus
+		json.Unmarshal(raw, &m)
+		nodes = append(nodes, m)
+	}
+	if nodes == nil {
+		nodes = []memberStatus{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cluster":            clusterName,
+		"healing_threshold":  300,
+		"storage":            "ceph-pool",
+		"nodes":              nodes,
+		"ha_enabled":         true,
+	})
+}
+
+func (h *AdminVMHandler) EvacuateNode(w http.ResponseWriter, r *http.Request) {
+	clusterName := chi.URLParam(r, "name")
+	nodeName := chi.URLParam(r, "node")
+	client, ok := h.clusters.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+
+	body, _ := json.Marshal(map[string]any{"action": "evacuate"})
+	path := fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName)
+	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
+	if err != nil {
+		slog.Error("evacuate node failed", "node", nodeName, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	if resp.Type == "async" {
+		var op struct{ ID string }
+		json.Unmarshal(resp.Metadata, &op)
+		if op.ID != "" {
+			client.WaitForOperation(r.Context(), op.ID)
+		}
+	}
+
+	audit(r.Context(), r, "node.evacuate", "node", 0, map[string]any{"cluster": clusterName, "node": nodeName})
+	slog.Info("node evacuated", "cluster", clusterName, "node", nodeName)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "evacuated", "node": nodeName})
 }
 
 func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) {

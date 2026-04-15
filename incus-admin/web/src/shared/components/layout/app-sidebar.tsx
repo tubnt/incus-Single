@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
   Network, ServerCog, Activity, Globe, Users, Package, ShoppingCart,
-  Ticket, FileText, Plus, ChevronLeft, Menu,
+  Ticket, FileText, Plus, ChevronLeft, Menu, Shield,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { sidebarGroups } from "./sidebar-data";
@@ -11,7 +11,7 @@ import { sidebarGroups } from "./sidebar-data";
 const iconMap: Record<string, React.ElementType> = {
   LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
   Network, ServerCog, Activity, Globe, Users, Package, ShoppingCart,
-  Ticket, FileText, Plus, Menu,
+  Ticket, FileText, Plus, Menu, Shield,
 };
 
 interface AppSidebarProps {
