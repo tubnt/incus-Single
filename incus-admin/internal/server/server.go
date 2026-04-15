@@ -94,6 +94,7 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 		r.Use(middleware.UserFromEmail(userLookup, roleLookup))
 
 		r.Route("/api/portal", func(r chi.Router) {
+			r.Use(middleware.RateLimit)
 			if h.Portal != nil {
 				h.Portal.Routes(r)
 			}

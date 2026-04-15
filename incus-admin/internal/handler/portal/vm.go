@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -589,6 +592,12 @@ func extractCIDR(cidr string) string {
 	return "27"
 }
 
+var (
+	ipCacheMu      sync.Mutex
+	ipCacheData    map[string]bool
+	ipCacheUpdated time.Time
+)
+
 func pickNextIP(ctx context.Context, vmSvc *service.VMService, clusterName, project, ipRange string) string {
 	parts := strings.Split(ipRange, "-")
 	if len(parts) != 2 {
@@ -600,30 +609,37 @@ func pickNextIP(ctx context.Context, vmSvc *service.VMService, clusterName, proj
 		return ""
 	}
 
-	instances, _ := vmSvc.ListInstances(ctx, clusterName, project)
-	usedIPs := make(map[string]bool)
-	for _, raw := range instances {
-		var inst struct {
-			State struct {
-				Network map[string]struct {
-					Addresses []struct {
-						Address string `json:"address"`
-						Family  string `json:"family"`
-						Scope   string `json:"scope"`
-					} `json:"addresses"`
-				} `json:"network"`
-			} `json:"state"`
-		}
-		json.Unmarshal(raw, &inst)
-		for nic, data := range inst.State.Network {
-			if nic == "lo" { continue }
-			for _, addr := range data.Addresses {
-				if addr.Family == "inet" && addr.Scope == "global" {
-					usedIPs[addr.Address] = true
+	ipCacheMu.Lock()
+	usedIPs := ipCacheData
+	if usedIPs == nil || time.Since(ipCacheUpdated) > 60*time.Second {
+		instances, _ := vmSvc.ListInstances(ctx, clusterName, project)
+		usedIPs = make(map[string]bool)
+		for _, raw := range instances {
+			var inst struct {
+				State struct {
+					Network map[string]struct {
+						Addresses []struct {
+							Address string `json:"address"`
+							Family  string `json:"family"`
+							Scope   string `json:"scope"`
+						} `json:"addresses"`
+					} `json:"network"`
+				} `json:"state"`
+			}
+			json.Unmarshal(raw, &inst)
+			for nic, data := range inst.State.Network {
+				if nic == "lo" { continue }
+				for _, addr := range data.Addresses {
+					if addr.Family == "inet" && addr.Scope == "global" {
+						usedIPs[addr.Address] = true
+					}
 				}
 			}
 		}
+		ipCacheData = usedIPs
+		ipCacheUpdated = time.Now()
 	}
+	ipCacheMu.Unlock()
 
 	prefix := strings.Join(startParts[:3], ".")
 	start := atoi(startParts[3])
@@ -651,5 +667,20 @@ func atoi(s string) int {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	if m, ok := v.(map[string]any); ok {
+		for k, val := range m {
+			if isNilSlice(val) {
+				m[k] = []any{}
+			}
+		}
+	}
 	json.NewEncoder(w).Encode(v)
+}
+
+func isNilSlice(v any) bool {
+	if v == nil {
+		return false
+	}
+	rv := reflect.ValueOf(v)
+	return rv.Kind() == reflect.Slice && rv.IsNil()
 }
