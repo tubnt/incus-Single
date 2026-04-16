@@ -82,24 +82,42 @@ function EventStream() {
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<IncusEvent[]>([]);
   const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const unmountedRef = useRef(false);
   const maxEvents = 100;
 
   useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  useEffect(() => {
+    unmountedRef.current = false;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/admin/events/ws`;
 
     function connect() {
+      if (unmountedRef.current) return;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        setConnected(true);
+        if (reconnectTimerRef.current !== null) {
+          window.clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+      };
       ws.onclose = () => {
         setConnected(false);
-        setTimeout(connect, 5000);
+        if (!unmountedRef.current) {
+          reconnectTimerRef.current = window.setTimeout(connect, 5000);
+        }
       };
       ws.onerror = () => ws.close();
       ws.onmessage = (e) => {
+        if (pausedRef.current) return;
         try {
           const event = JSON.parse(e.data) as IncusEvent;
           setEvents((prev) => [event, ...prev].slice(0, maxEvents));
@@ -111,11 +129,15 @@ function EventStream() {
 
     connect();
     return () => {
+      unmountedRef.current = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       wsRef.current?.close();
     };
   }, []);
 
-  const displayEvents = paused ? events : events;
   const typeColors: Record<string, string> = {
     lifecycle: "text-primary",
     operation: "text-muted-foreground",
@@ -148,12 +170,12 @@ function EventStream() {
         </div>
       </div>
       <div className="max-h-80 overflow-y-auto bg-black/90 p-2">
-        {displayEvents.length === 0 ? (
+        {events.length === 0 ? (
           <div className="text-center text-xs text-muted-foreground py-4">
             {connected ? "等待事件..." : "正在连接..."}
           </div>
         ) : (
-          displayEvents.map((ev, i) => (
+          events.map((ev, i) => (
             <div key={i} className="flex gap-2 text-xs font-mono py-0.5 hover:bg-white/5">
               <span className="text-muted-foreground shrink-0">
                 {new Date(ev.timestamp).toLocaleTimeString()}

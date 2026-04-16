@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -307,17 +308,22 @@ func (s *VMService) GetInstanceState(ctx context.Context, clusterName, project, 
 	return client.GetInstanceState(ctx, project, vmName)
 }
 
-// ResetPassword 在 VM 内执行 chpasswd 重置密码
+// ResetPassword runs chpasswd inside the VM to reset a user's password.
+// username must match isValidLinuxUsername; the password is crypto/rand hex.
+// Both are shell-escaped before being passed to sh -c for defense in depth.
 func (s *VMService) ResetPassword(ctx context.Context, clusterName, project, vmName, username string) (string, error) {
 	client, ok := s.clusters.Get(clusterName)
 	if !ok {
 		return "", fmt.Errorf("cluster %q not found", clusterName)
 	}
+	if !isValidLinuxUsername(username) {
+		return "", fmt.Errorf("invalid username %q", username)
+	}
 
 	newPassword := generatePassword()
 
-	// 使用非交互式 exec 执行 chpasswd
-	cmd := []string{"sh", "-c", fmt.Sprintf("echo '%s:%s' | chpasswd", username, newPassword)}
+	payload := shellSingleQuote(username + ":" + newPassword)
+	cmd := []string{"sh", "-c", "echo " + payload + " | chpasswd"}
 	retCode, err := client.ExecNonInteractive(ctx, project, vmName, cmd)
 	if err != nil {
 		return "", fmt.Errorf("exec chpasswd: %w", err)
@@ -328,6 +334,38 @@ func (s *VMService) ResetPassword(ctx context.Context, clusterName, project, vmN
 
 	slog.Info("vm password reset", "vm", vmName, "user", username)
 	return newPassword, nil
+}
+
+// isValidLinuxUsername matches POSIX/Debian user_valid_name: start with [a-z_],
+// then [a-z0-9_-], max 32 chars.
+func isValidLinuxUsername(name string) bool {
+	if len(name) == 0 || len(name) > 32 {
+		return false
+	}
+	for i, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c == '_':
+		case c >= '0' && c <= '9':
+			if i == 0 {
+				return false
+			}
+		case c == '-':
+			if i == 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// shellSingleQuote wraps s in single quotes, escaping any embedded single quote
+// with the standard '\'' sequence so the result is safe to concatenate into a
+// sh -c command.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func generatePassword() string {

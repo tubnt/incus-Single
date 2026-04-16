@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-04-15
+> Updated: 2026-04-16
 
 ## Usage
 
@@ -37,3 +37,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-006 Infrastructure automation — HA failover, node management, standalone host**](PLAN-006.md) `2026-04-15`
 - [x] [**PLAN-007 UI/UX completeness — compete with DigitalOcean/Vultr/Hetzner**](PLAN-007.md) `2026-04-15`
 - [ ] [**PLAN-008 QA fixes + three-persona user journey gaps**](PLAN-008.md) `2026-04-16`
+- [-] [**PLAN-009 Code review follow-up — PLAN-008 findings**](PLAN-009.md) `2026-04-16`

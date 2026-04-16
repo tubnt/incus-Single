@@ -66,9 +66,9 @@ func (r *VMRepo) ListAll(ctx context.Context) ([]model.VM, error) {
 func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
 		 FROM vms WHERE name = $1 AND status != 'deleted' LIMIT 1`, name,
-	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password, &vm.CreatedAt, &vm.UpdatedAt)
+	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password, &vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

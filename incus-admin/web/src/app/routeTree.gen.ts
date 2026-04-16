@@ -27,13 +27,13 @@ import { Route as AdminStorageRouteImport } from './routes/admin/storage'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminObservabilityRouteImport } from './routes/admin/observability'
-import { Route as AdminNodeJoinRouteImport } from './routes/admin/node-join'
 import { Route as AdminNodesRouteImport } from './routes/admin/nodes'
 import { Route as AdminNodeOpsRouteImport } from './routes/admin/node-ops'
+import { Route as AdminNodeJoinRouteImport } from './routes/admin/node-join'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
-import { Route as AdminInvoicesRouteImport } from './routes/admin/invoices'
 import { Route as AdminIpRegistryRouteImport } from './routes/admin/ip-registry'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
+import { Route as AdminInvoicesRouteImport } from './routes/admin/invoices'
 import { Route as AdminHaRouteImport } from './routes/admin/ha'
 import { Route as AdminCreateVmRouteImport } from './routes/admin/create-vm'
 import { Route as AdminClustersRouteImport } from './routes/admin/clusters'
@@ -129,11 +129,6 @@ const AdminObservabilityRoute = AdminObservabilityRouteImport.update({
   path: '/observability',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminNodeJoinRoute = AdminNodeJoinRouteImport.update({
-  id: '/node-join',
-  path: '/node-join',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminNodesRoute = AdminNodesRouteImport.update({
   id: '/nodes',
   path: '/nodes',
@@ -144,14 +139,14 @@ const AdminNodeOpsRoute = AdminNodeOpsRouteImport.update({
   path: '/node-ops',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminNodeJoinRoute = AdminNodeJoinRouteImport.update({
+  id: '/node-join',
+  path: '/node-join',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMonitoringRoute = AdminMonitoringRouteImport.update({
   id: '/monitoring',
   path: '/monitoring',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminInvoicesRoute = AdminInvoicesRouteImport.update({
-  id: '/invoices',
-  path: '/invoices',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminIpRegistryRoute = AdminIpRegistryRouteImport.update({
@@ -162,6 +157,11 @@ const AdminIpRegistryRoute = AdminIpRegistryRouteImport.update({
 const AdminIpPoolsRoute = AdminIpPoolsRouteImport.update({
   id: '/ip-pools',
   path: '/ip-pools',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminInvoicesRoute = AdminInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminHaRoute = AdminHaRouteImport.update({
@@ -190,8 +190,8 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
-  '/settings': typeof SettingsRoute
   '/console': typeof ConsoleRoute
+  '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vm-detail': typeof VmDetailRoute
@@ -205,8 +205,8 @@ export interface FileRoutesByFullPath {
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
-  '/admin/nodes': typeof AdminNodesRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
+  '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -221,8 +221,8 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRouteWithChildren
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
-  '/settings': typeof SettingsRoute
   '/console': typeof ConsoleRoute
+  '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vm-detail': typeof VmDetailRoute
@@ -236,8 +236,8 @@ export interface FileRoutesByTo {
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
-  '/admin/nodes': typeof AdminNodesRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
+  '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -253,8 +253,8 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
-  '/settings': typeof SettingsRoute
   '/console': typeof ConsoleRoute
+  '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
   '/tickets': typeof TicketsRoute
   '/vm-detail': typeof VmDetailRoute
@@ -268,8 +268,8 @@ export interface FileRoutesById {
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
-  '/admin/nodes': typeof AdminNodesRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
+  '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -286,8 +286,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api-tokens'
     | '/billing'
-    | '/settings'
     | '/console'
+    | '/settings'
     | '/ssh-keys'
     | '/tickets'
     | '/vm-detail'
@@ -301,8 +301,8 @@ export interface FileRouteTypes {
     | '/admin/ip-registry'
     | '/admin/monitoring'
     | '/admin/node-join'
-    | '/admin/nodes'
     | '/admin/node-ops'
+    | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -317,8 +317,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api-tokens'
     | '/billing'
-    | '/settings'
     | '/console'
+    | '/settings'
     | '/ssh-keys'
     | '/tickets'
     | '/vm-detail'
@@ -332,8 +332,8 @@ export interface FileRouteTypes {
     | '/admin/ip-registry'
     | '/admin/monitoring'
     | '/admin/node-join'
-    | '/admin/nodes'
     | '/admin/node-ops'
+    | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -348,8 +348,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api-tokens'
     | '/billing'
-    | '/settings'
     | '/console'
+    | '/settings'
     | '/ssh-keys'
     | '/tickets'
     | '/vm-detail'
@@ -363,8 +363,8 @@ export interface FileRouteTypes {
     | '/admin/ip-registry'
     | '/admin/monitoring'
     | '/admin/node-join'
-    | '/admin/nodes'
     | '/admin/node-ops'
+    | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -380,8 +380,8 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   ApiTokensRoute: typeof ApiTokensRoute
   BillingRoute: typeof BillingRoute
-  SettingsRoute: typeof SettingsRoute
   ConsoleRoute: typeof ConsoleRoute
+  SettingsRoute: typeof SettingsRoute
   SshKeysRoute: typeof SshKeysRoute
   TicketsRoute: typeof TicketsRoute
   VmDetailRoute: typeof VmDetailRoute
@@ -516,13 +516,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminObservabilityRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/node-join': {
-      id: '/admin/node-join'
-      path: '/node-join'
-      fullPath: '/admin/node-join'
-      preLoaderRoute: typeof AdminNodeJoinRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/nodes': {
       id: '/admin/nodes'
       path: '/nodes'
@@ -535,6 +528,13 @@ declare module '@tanstack/react-router' {
       path: '/node-ops'
       fullPath: '/admin/node-ops'
       preLoaderRoute: typeof AdminNodeOpsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/node-join': {
+      id: '/admin/node-join'
+      path: '/node-join'
+      fullPath: '/admin/node-join'
+      preLoaderRoute: typeof AdminNodeJoinRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/monitoring': {
@@ -551,18 +551,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIpRegistryRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/invoices': {
-      id: '/admin/invoices'
-      path: '/invoices'
-      fullPath: '/admin/invoices'
-      preLoaderRoute: typeof AdminInvoicesRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/ip-pools': {
       id: '/admin/ip-pools'
       path: '/ip-pools'
       fullPath: '/admin/ip-pools'
       preLoaderRoute: typeof AdminIpPoolsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/invoices': {
+      id: '/admin/invoices'
+      path: '/invoices'
+      fullPath: '/admin/invoices'
+      preLoaderRoute: typeof AdminInvoicesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/ha': {
@@ -606,8 +606,8 @@ interface AdminRouteChildren {
   AdminIpRegistryRoute: typeof AdminIpRegistryRoute
   AdminMonitoringRoute: typeof AdminMonitoringRoute
   AdminNodeJoinRoute: typeof AdminNodeJoinRoute
-  AdminNodesRoute: typeof AdminNodesRoute
   AdminNodeOpsRoute: typeof AdminNodeOpsRoute
+  AdminNodesRoute: typeof AdminNodesRoute
   AdminObservabilityRoute: typeof AdminObservabilityRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
@@ -628,8 +628,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIpRegistryRoute: AdminIpRegistryRoute,
   AdminMonitoringRoute: AdminMonitoringRoute,
   AdminNodeJoinRoute: AdminNodeJoinRoute,
-  AdminNodesRoute: AdminNodesRoute,
   AdminNodeOpsRoute: AdminNodeOpsRoute,
+  AdminNodesRoute: AdminNodesRoute,
   AdminObservabilityRoute: AdminObservabilityRoute,
   AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,
@@ -647,8 +647,8 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   ApiTokensRoute: ApiTokensRoute,
   BillingRoute: BillingRoute,
-  SettingsRoute: SettingsRoute,
   ConsoleRoute: ConsoleRoute,
+  SettingsRoute: SettingsRoute,
   SshKeysRoute: SshKeysRoute,
   TicketsRoute: TicketsRoute,
   VmDetailRoute: VmDetailRoute,

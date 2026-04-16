@@ -1,6 +1,6 @@
 # IncusAdmin - Task List
 
-> Updated: 2026-04-15
+> Updated: 2026-04-16
 
 ## Usage
 
@@ -38,3 +38,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [ ] [**INFRA-003 Add standalone Incus host management**](INFRA-003.md) `P2`
 - [x] [**QA-001 Fix 6 QA bugs from browser testing**](QA-001.md) `P2`
 - [ ] [**UX-001 UI/UX completeness per PLAN-007**](UX-001.md) `P1`
+- [-] [**QA-002 Code review follow-up — fix PLAN-008 review findings**](QA-002.md) `P0`

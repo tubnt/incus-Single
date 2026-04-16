@@ -6,12 +6,18 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
+)
+
+const (
+	wsPingInterval = 30 * time.Second
+	wsReadTimeout  = 60 * time.Second
 )
 
 type EventsHandler struct {
@@ -51,7 +57,12 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		project = "customers"
 	}
 
-	incusWSURL := buildEventsWSURL(client.APIURL, eventTypes, project)
+	incusWSURL, err := buildEventsWSURL(client.APIURL, eventTypes, project)
+	if err != nil {
+		slog.Error("build incus events URL failed", "api_url", client.APIURL, "error", err)
+		http.Error(w, "invalid cluster api url", http.StatusInternalServerError)
+		return
+	}
 
 	// 配置 mTLS dialer
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -86,31 +97,59 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("events stream started", "cluster", clusterName, "types", eventTypes)
 
-	done := make(chan struct{}, 2)
+	// Install read deadlines + pong handlers so dead peers are detected.
+	setReadDeadlineHandlers(incusConn)
+	setReadDeadlineHandlers(clientConn)
 
-	// Incus → 浏览器（主要方向，事件只从 Incus 流向客户端）
+	done := make(chan struct{}, 3)
+	var once sync.Once
+	finish := func() { once.Do(func() { close(done) }) }
+
+	// Incus → browser: forward frames.
 	go func() {
-		defer func() { done <- struct{}{} }()
 		for {
 			msgType, msg, err := incusConn.ReadMessage()
 			if err != nil {
 				slog.Debug("incus events read done", "error", err)
+				finish()
 				return
 			}
 			if err := clientConn.WriteMessage(msgType, msg); err != nil {
 				slog.Debug("client events write done", "error", err)
+				finish()
 				return
 			}
 		}
 	}()
 
-	// 浏览器 → Incus（处理客户端关闭）
+	// Browser → Incus: drain (we don't forward client input, just watch for close).
 	go func() {
-		defer func() { done <- struct{}{} }()
 		for {
-			_, _, err := clientConn.ReadMessage()
-			if err != nil {
+			if _, _, err := clientConn.ReadMessage(); err != nil {
+				finish()
 				return
+			}
+		}
+	}()
+
+	// Keep-alive: ping both legs so idle connections don't leak goroutines.
+	go func() {
+		ticker := time.NewTicker(wsPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				deadline := time.Now().Add(wsPingInterval / 2)
+				if err := incusConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+					finish()
+					return
+				}
+				if err := clientConn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+					finish()
+					return
+				}
 			}
 		}
 	}()
@@ -119,11 +158,34 @@ func (h *EventsHandler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 	slog.Info("events stream ended", "cluster", clusterName)
 }
 
-func buildEventsWSURL(apiURL, eventTypes, project string) string {
-	u, _ := url.Parse(apiURL)
+func setReadDeadlineHandlers(c *websocket.Conn) {
+	_ = c.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	c.SetPongHandler(func(string) error {
+		return c.SetReadDeadline(time.Now().Add(wsReadTimeout))
+	})
+	// Browser clients also send ping frames periodically via gorilla default
+	// handler; extending the deadline on ping keeps the connection healthy.
+	prevPing := c.PingHandler()
+	c.SetPingHandler(func(appData string) error {
+		_ = c.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		return prevPing(appData)
+	})
+}
+
+func buildEventsWSURL(apiURL, eventTypes, project string) (string, error) {
+	u, err := url.Parse(apiURL)
+	if err != nil {
+		return "", fmt.Errorf("parse api url %q: %w", apiURL, err)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("api url %q has no host", apiURL)
+	}
 	scheme := "wss"
 	if u.Scheme == "http" {
 		scheme = "ws"
 	}
-	return fmt.Sprintf("%s://%s/1.0/events?type=%s&project=%s", scheme, u.Host, eventTypes, project)
+	q := url.Values{}
+	q.Set("type", eventTypes)
+	q.Set("project", project)
+	return fmt.Sprintf("%s://%s/1.0/events?%s", scheme, u.Host, q.Encode()), nil
 }

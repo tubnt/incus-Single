@@ -146,7 +146,13 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	network := cc.Network
 	if network == "" { network = "br-pub" }
 
-	ip, gateway, cidr, _ := allocateIP(r.Context(), cc, 0)
+	ip, gateway, cidr, ipErr := allocateIP(r.Context(), cc, 0)
+	if ipErr != nil {
+		slog.Error("allocate IP failed", "order", orderID, "error", ipErr)
+		h.orders.UpdateStatus(r.Context(), orderID, model.OrderPaid)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "paid", "error": "IP allocation failed: " + ipErr.Error()})
+		return
+	}
 
 	sshKeys, _ := h.sshKeys.GetByUser(r.Context(), userID)
 
@@ -196,7 +202,11 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	if result.IP != "" {
 		vm.IP = &result.IP
 	}
-	h.vmRepo.Create(r.Context(), vm)
+	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+		slog.Error("vm row insert failed", "order", orderID, "name", result.VMName, "error", err)
+	} else {
+		attachIPToVM(r.Context(), result.IP, vm.ID)
+	}
 
 	slog.Info("VM auto-provisioned after payment", "order", orderID, "vm", result.VMName)
 	writeJSON(w, http.StatusOK, map[string]any{

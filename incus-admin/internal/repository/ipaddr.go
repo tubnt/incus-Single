@@ -34,7 +34,7 @@ func (r *IPAddrRepo) AllocateNext(ctx context.Context, poolID int64, vmID int64,
 
 	var ip string
 	err = tx.QueryRowContext(ctx,
-		`SELECT ip::text FROM ip_addresses WHERE pool_id = $1 AND status = 'available' ORDER BY ip LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		`SELECT host(ip)::text FROM ip_addresses WHERE pool_id = $1 AND status = 'available' ORDER BY ip LIMIT 1 FOR UPDATE SKIP LOCKED`,
 		poolID,
 	).Scan(&ip)
 
@@ -61,6 +61,21 @@ func (r *IPAddrRepo) AllocateNext(ctx context.Context, poolID int64, vmID int64,
 	}
 
 	return ip, tx.Commit()
+}
+
+// AttachVM associates a previously allocated (vm_id NULL) IP with the newly
+// created VM row so reverse lookups and release-on-delete work correctly.
+// Safe to call for IPs already owned by the same vmID (no-op update).
+func (r *IPAddrRepo) AttachVM(ctx context.Context, ip string, vmID int64) error {
+	if ip == "" || vmID <= 0 {
+		return nil
+	}
+	// Accept both "x.x.x.x" and "x.x.x.x/32" by casting through inet.
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE ip_addresses SET vm_id = $1, updated_at = $2 WHERE ip = $3::inet`,
+		vmID, time.Now(), ip,
+	)
+	return err
 }
 
 func (r *IPAddrRepo) Release(ctx context.Context, ip string) error {

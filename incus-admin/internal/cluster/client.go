@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -186,23 +187,26 @@ func (c *Client) GetInstanceState(ctx context.Context, project, name string) (js
 }
 
 // ExecNonInteractive runs a command inside an instance without WebSocket.
-// Returns the operation's return code and any error.
+// Returns the operation's return code and any error. On non-zero return or
+// wait failure, the command's recorded stdout/stderr references (if provided
+// by Incus) are logged to aid debugging. The wait timeout is driven by ctx
+// plus the underlying HTTP client timeout; no hard-coded wait cap here.
 func (c *Client) ExecNonInteractive(ctx context.Context, project, instance string, command []string) (int, error) {
-	body := map[string]any{
-		"command":              command,
-		"interactive":          false,
-		"wait-for-websocket":   false,
-		"record-output":        true,
+	body, err := json.Marshal(map[string]any{
+		"command":            command,
+		"interactive":        false,
+		"wait-for-websocket": false,
+		"record-output":      true,
+	})
+	if err != nil {
+		return -1, fmt.Errorf("marshal exec body: %w", err)
 	}
-	bodyBytes, _ := json.Marshal(body)
 
 	path := fmt.Sprintf("/1.0/instances/%s/exec?project=%s", instance, project)
-	resp, err := c.APIPost(ctx, path, strings.NewReader(string(bodyBytes)))
+	resp, err := c.APIPost(ctx, path, strings.NewReader(string(body)))
 	if err != nil {
 		return -1, fmt.Errorf("exec request: %w", err)
 	}
-
-	// 提取 operation ID
 	if resp.Type != "async" || resp.Operation == "" {
 		return -1, fmt.Errorf("expected async operation, got type=%s", resp.Type)
 	}
@@ -210,19 +214,30 @@ func (c *Client) ExecNonInteractive(ctx context.Context, project, instance strin
 	parts := strings.Split(resp.Operation, "/")
 	opID := parts[len(parts)-1]
 
-	// 等待操作完成
-	waitPath := fmt.Sprintf("/1.0/operations/%s/wait?timeout=30", opID)
-	waitResp, err := c.APIGet(ctx, waitPath)
+	// Rely on ctx + HTTP client timeout for bounding; no hard-coded ?timeout.
+	waitResp, err := c.APIGet(ctx, fmt.Sprintf("/1.0/operations/%s/wait", opID))
 	if err != nil {
 		return -1, fmt.Errorf("wait for exec: %w", err)
 	}
 
-	// 从 metadata 中提取 return code
 	var meta struct {
 		Return int `json:"return"`
+		Output map[string]string `json:"output"`
 	}
 	if waitResp.Metadata != nil {
-		json.Unmarshal(waitResp.Metadata, &meta)
+		if err := json.Unmarshal(waitResp.Metadata, &meta); err != nil {
+			return -1, fmt.Errorf("decode exec metadata: %w", err)
+		}
+	}
+
+	if meta.Return != 0 {
+		slog.Warn("exec non-zero return",
+			"project", project,
+			"instance", instance,
+			"return", meta.Return,
+			"stdout_log", meta.Output["stdout"],
+			"stderr_log", meta.Output["stderr"],
+		)
 	}
 
 	return meta.Return, nil

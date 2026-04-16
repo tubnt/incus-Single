@@ -275,8 +275,12 @@ func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 	if result.IP != "" {
 		vm.IP = &result.IP
 	}
-	h.vmRepo.Create(r.Context(), vm)
-	audit(r.Context(), r, "vm.create", "vm", 0, map[string]any{"name": result.VMName, "ip": result.IP})
+	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+		slog.Error("vm row insert failed", "name", result.VMName, "error", err)
+	} else {
+		attachIPToVM(r.Context(), result.IP, vm.ID)
+	}
+	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{"name": result.VMName, "ip": result.IP})
 
 	writeJSON(w, http.StatusCreated, result)
 }
@@ -559,9 +563,10 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 	network := cc.Network
 	if network == "" { network = "br-pub" }
 
-	ip, gateway, cidr, _ := allocateIP(r.Context(), cc, 0)
-	if ip == "" {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs"})
+	ip, gateway, cidr, err := allocateIP(r.Context(), cc, 0)
+	if err != nil {
+		slog.Error("allocate IP failed", "cluster", clusterName, "error", err)
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs: " + err.Error()})
 		return
 	}
 
@@ -611,8 +616,12 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 	if result.IP != "" {
 		vm.IP = &result.IP
 	}
-	h.vmRepo.Create(r.Context(), vm)
-	audit(r.Context(), r, "vm.create", "vm", 0, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})
+	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+		slog.Error("vm row insert failed", "name", result.VMName, "error", err)
+	} else {
+		attachIPToVM(r.Context(), result.IP, vm.ID)
+	}
+	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})
 
 	slog.Info("VM created via admin", "vm", result.VMName, "ip", result.IP)
 	writeJSON(w, http.StatusCreated, result)
