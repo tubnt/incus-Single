@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
@@ -30,16 +31,27 @@ interface NodeInfo {
 
 function ClustersPage() {
   const { t } = useTranslation();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ["adminClusters"],
     queryFn: () => http.get<{ clusters: ClusterInfo[] }>("/admin/clusters"),
   });
 
   const clusters = data?.clusters ?? [];
 
+  const [showAdd, setShowAdd] = useState(false);
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">{t("nav.clusters")}</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">{t("nav.clusters")}</h1>
+        <button onClick={() => setShowAdd(!showAdd)}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90">
+          {showAdd ? t("common.cancel") : "+ Add Cluster"}
+        </button>
+      </div>
+
+      {showAdd && <AddClusterForm onDone={() => { setShowAdd(false); refetch(); }} />}
+
       {isLoading ? (
         <div className="text-muted-foreground">{t("common.loading")}</div>
       ) : clusters.length === 0 ? (
@@ -164,5 +176,42 @@ function NodeRow({ node: n, clusterName, onDone }: { node: NodeInfo; clusterName
         </div>
       </td>
     </tr>
+  );
+}
+
+function AddClusterForm({ onDone }: { onDone: () => void }) {
+  const [form, setForm] = useState({ name: "", display_name: "", api_url: "", cert_file: "", key_file: "" });
+
+  const mutation = useMutation({
+    mutationFn: () => http.post("/admin/clusters/add", form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["adminClusters"] });
+      onDone();
+    },
+  });
+
+  const set = (k: string, v: string) => setForm({ ...form, [k]: v });
+
+  return (
+    <div className="border border-border rounded-lg bg-card p-4 mb-6">
+      <h3 className="font-semibold mb-3">Add Cluster / Standalone Host</h3>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <input placeholder="Name (e.g. cn-sz-02)" value={form.name} onChange={(e) => set("name", e.target.value)}
+          className="px-3 py-2 rounded border border-border bg-card text-sm" />
+        <input placeholder="Display Name" value={form.display_name} onChange={(e) => set("display_name", e.target.value)}
+          className="px-3 py-2 rounded border border-border bg-card text-sm" />
+        <input placeholder="API URL (https://10.0.20.1:8443)" value={form.api_url} onChange={(e) => set("api_url", e.target.value)}
+          className="col-span-2 px-3 py-2 rounded border border-border bg-card text-sm" />
+        <input placeholder="Client Cert Path" value={form.cert_file} onChange={(e) => set("cert_file", e.target.value)}
+          className="px-3 py-2 rounded border border-border bg-card text-sm" />
+        <input placeholder="Client Key Path" value={form.key_file} onChange={(e) => set("key_file", e.target.value)}
+          className="px-3 py-2 rounded border border-border bg-card text-sm" />
+      </div>
+      {mutation.isError && <div className="text-destructive text-sm mb-2">{(mutation.error as Error).message}</div>}
+      <button onClick={() => mutation.mutate()} disabled={mutation.isPending || !form.name || !form.api_url}
+        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50">
+        {mutation.isPending ? "Connecting..." : "Add Cluster"}
+      </button>
+    </div>
   );
 }
