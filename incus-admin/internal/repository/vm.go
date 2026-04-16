@@ -30,7 +30,7 @@ func (r *VMRepo) Create(ctx context.Context, vm *model.VM) error {
 func (r *VMRepo) GetByID(ctx context.Context, id int64) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, ip, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
 		 FROM vms WHERE id = $1`, id,
 	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
 		&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
@@ -43,7 +43,7 @@ func (r *VMRepo) GetByID(ctx context.Context, id int64) (*model.VM, error) {
 
 func (r *VMRepo) ListByUser(ctx context.Context, userID int64) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, ip, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
 		 FROM vms WHERE user_id = $1 AND status != 'deleted' ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (r *VMRepo) ListByUser(ctx context.Context, userID int64) ([]model.VM, erro
 
 func (r *VMRepo) ListAll(ctx context.Context) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, ip, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
 		 FROM vms WHERE status != 'deleted' ORDER BY id DESC`)
 	if err != nil {
 		return nil, err

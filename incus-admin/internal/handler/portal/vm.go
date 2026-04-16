@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -274,8 +273,7 @@ func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 		Password:  result.Password,
 	}
 	if result.IP != "" {
-		ipAddr := net.ParseIP(result.IP)
-		vm.IP = &ipAddr
+		vm.IP = &result.IP
 	}
 	h.vmRepo.Create(r.Context(), vm)
 	audit(r.Context(), r, "vm.create", "vm", 0, map[string]any{"name": result.VMName, "ip": result.IP})
@@ -611,8 +609,7 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		Password:  result.Password,
 	}
 	if result.IP != "" {
-		ipAddr := net.ParseIP(result.IP)
-		vm.IP = &ipAddr
+		vm.IP = &result.IP
 	}
 	h.vmRepo.Create(r.Context(), vm)
 	audit(r.Context(), r, "vm.create", "vm", 0, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})

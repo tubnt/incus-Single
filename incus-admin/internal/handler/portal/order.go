@@ -3,7 +3,6 @@ package portal
 import (
 	"encoding/json"
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 
@@ -195,8 +194,7 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		Password:  result.Password,
 	}
 	if result.IP != "" {
-		ipAddr := net.ParseIP(result.IP)
-		vm.IP = &ipAddr
+		vm.IP = &result.IP
 	}
 	h.vmRepo.Create(r.Context(), vm)
 

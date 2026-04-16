@@ -1,7 +1,6 @@
 package model
 
 import (
-	"net"
 	"time"
 )
 
@@ -22,7 +21,7 @@ type VM struct {
 	ClusterID int64     `json:"cluster_id" db:"cluster_id"`
 	UserID    int64     `json:"user_id" db:"user_id"`
 	OrderID   *int64    `json:"order_id,omitempty" db:"order_id"`
-	IP        *net.IP   `json:"ip,omitempty" db:"ip"`
+	IP        *string   `json:"ip,omitempty" db:"ip"`
 	Status    string    `json:"status" db:"status"`
 	CPU       int       `json:"cpu" db:"cpu"`
 	MemoryMB  int       `json:"memory_mb" db:"memory_mb"`
