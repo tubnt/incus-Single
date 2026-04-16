@@ -14,6 +14,17 @@ Product direction clarified: internal private cloud first, external API later. P
 
 ## 2026-04-15 18:30 [BUG-P1]
 
+## 2026-04-16 00:30 [progress]
+
+PLAN-007 Phase 1-5 + partial 2,3 implemented:
+- Phase 1 (8 tasks): Admin DB write, delete free-create path, billing redesign, snapshot portal, hardcode elimination, dead code cleanup
+- Phase 2: IP Pool CRUD (add/remove + UI form)
+- Phase 3.1: Add Cluster/Standalone Host form
+- Phase 3.3: Ceph Storage overview page
+- Phase 4: VM detail pages (admin + user, DO-style tabs)
+- Phase 5: Logout button, Console dynamic back link
+Total: 11 commits in this session. Deployed to vmc.5ok.co.
+
 ## 2026-04-15 20:30 [progress]
 
 PLAN-005 + PLAN-006 all phases completed:

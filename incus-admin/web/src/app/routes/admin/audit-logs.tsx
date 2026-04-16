@@ -29,6 +29,7 @@ function AuditLogsPage() {
         "/admin/audit-logs",
         { limit: String(limit), offset: String(offset) },
       ),
+    refetchInterval: 15_000,
   });
 
   const logs = data?.logs ?? [];
