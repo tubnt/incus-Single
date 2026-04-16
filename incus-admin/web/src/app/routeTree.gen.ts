@@ -20,6 +20,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminVmsRouteImport } from './routes/admin/vms'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminTicketsRouteImport } from './routes/admin/tickets'
+import { Route as AdminStorageRouteImport } from './routes/admin/storage'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
@@ -84,6 +85,11 @@ const AdminTicketsRoute = AdminTicketsRouteImport.update({
   path: '/tickets',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminStorageRoute = AdminStorageRouteImport.update({
+  id: '/storage',
+  path: '/storage',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminProductsRoute = AdminProductsRouteImport.update({
   id: '/products',
   path: '/products',
@@ -142,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
+  '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
+  '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/admin/monitoring': typeof AdminMonitoringRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
+  '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/vms': typeof AdminVmsRoute
@@ -208,6 +217,7 @@ export interface FileRouteTypes {
     | '/admin/monitoring'
     | '/admin/orders'
     | '/admin/products'
+    | '/admin/storage'
     | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/admin/monitoring'
     | '/admin/orders'
     | '/admin/products'
+    | '/admin/storage'
     | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/admin/monitoring'
     | '/admin/orders'
     | '/admin/products'
+    | '/admin/storage'
     | '/admin/tickets'
     | '/admin/users'
     | '/admin/vms'
@@ -345,6 +357,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTicketsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/storage': {
+      id: '/admin/storage'
+      path: '/storage'
+      fullPath: '/admin/storage'
+      preLoaderRoute: typeof AdminStorageRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/products': {
       id: '/admin/products'
       path: '/products'
@@ -413,6 +432,7 @@ interface AdminRouteChildren {
   AdminMonitoringRoute: typeof AdminMonitoringRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
+  AdminStorageRoute: typeof AdminStorageRoute
   AdminTicketsRoute: typeof AdminTicketsRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminVmsRoute: typeof AdminVmsRoute
@@ -427,6 +447,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminMonitoringRoute: AdminMonitoringRoute,
   AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,
+  AdminStorageRoute: AdminStorageRoute,
   AdminTicketsRoute: AdminTicketsRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminVmsRoute: AdminVmsRoute,
