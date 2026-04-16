@@ -2,6 +2,7 @@ package portal
 
 import (
 	"bufio"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -123,6 +124,20 @@ func (h *MetricsHandler) VMMetrics(w http.ResponseWriter, r *http.Request) {
 	if m, ok := allVMs[vmName]; ok {
 		writeJSON(w, http.StatusOK, map[string]any{"metrics": m})
 	} else {
+		// Fallback: try Incus instance state API
+		project := r.URL.Query().Get("project")
+		if project == "" { project = "customers" }
+		client, cOk := h.clusters.Get(clusterName)
+		if cOk {
+			stateData, err := client.GetInstanceState(r.Context(), project, vmName)
+			if err == nil && stateData != nil {
+				m := parseInstanceState(vmName, stateData)
+				if m != nil {
+					writeJSON(w, http.StatusOK, map[string]any{"metrics": m})
+					return
+				}
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"metrics": nil, "note": "no metrics for this VM"})
 	}
 }
@@ -275,4 +290,53 @@ func parseMetricLine(line string) (string, float64) {
 	valStr := strings.TrimSpace(line[lastSpace+1:])
 	val, _ := strconv.ParseFloat(valStr, 64)
 	return metricName, val
+}
+
+func parseInstanceState(name string, data json.RawMessage) *VMMetric {
+	var state struct {
+		CPU struct {
+			Usage int64 `json:"usage"`
+		} `json:"cpu"`
+		Memory struct {
+			Usage     int64 `json:"usage"`
+			UsagePeak int64 `json:"usage_peak"`
+			Total     int64 `json:"total"`
+		} `json:"memory"`
+		Disk map[string]struct {
+			Usage int64 `json:"usage"`
+			Total int64 `json:"total"`
+		} `json:"disk"`
+		Network map[string]struct {
+			Counters struct {
+				BytesReceived   int64 `json:"bytes_received"`
+				BytesSent       int64 `json:"bytes_sent"`
+			} `json:"counters"`
+		} `json:"network"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil
+	}
+
+	m := &VMMetric{Name: name}
+	m.MemTotalBytes = state.Memory.Total
+	m.MemUsedBytes = state.Memory.Usage
+	if m.MemTotalBytes > 0 {
+		m.MemUsedPct = float64(m.MemUsedBytes) / float64(m.MemTotalBytes) * 100
+	}
+
+	if root, ok := state.Disk["root"]; ok {
+		m.DiskTotalBytes = root.Total
+		m.DiskUsedBytes = root.Usage
+		if m.DiskTotalBytes > 0 {
+			m.DiskUsedPct = float64(m.DiskUsedBytes) / float64(m.DiskTotalBytes) * 100
+		}
+	}
+
+	for nic, data := range state.Network {
+		if nic == "lo" { continue }
+		m.NetRxBytes += data.Counters.BytesReceived
+		m.NetTxBytes += data.Counters.BytesSent
+	}
+
+	return m
 }
