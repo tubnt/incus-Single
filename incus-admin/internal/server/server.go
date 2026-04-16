@@ -74,6 +74,7 @@ type Handlers struct {
 	APITokens  RouteRegistrar
 	ClusterMgmt AdminRouteRegistrar
 	Ceph        AdminRouteRegistrar
+	NodeOps     AdminRouteRegistrar
 	Invoices  interface {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
@@ -168,6 +169,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Ceph != nil {
 				h.Ceph.AdminRoutes(r)
+			}
+			if h.NodeOps != nil {
+				h.NodeOps.AdminRoutes(r)
 			}
 		})
 

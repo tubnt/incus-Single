@@ -26,6 +26,7 @@ import { Route as AdminStorageRouteImport } from './routes/admin/storage'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminObservabilityRouteImport } from './routes/admin/observability'
+import { Route as AdminNodeOpsRouteImport } from './routes/admin/node-ops'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
 import { Route as AdminIpRegistryRouteImport } from './routes/admin/ip-registry'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
@@ -119,6 +120,11 @@ const AdminObservabilityRoute = AdminObservabilityRouteImport.update({
   path: '/observability',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminNodeOpsRoute = AdminNodeOpsRouteImport.update({
+  id: '/node-ops',
+  path: '/node-ops',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMonitoringRoute = AdminMonitoringRouteImport.update({
   id: '/monitoring',
   path: '/monitoring',
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -198,6 +205,7 @@ export interface FileRoutesByTo {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -225,6 +233,7 @@ export interface FileRoutesById {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
   '/admin/products': typeof AdminProductsRoute
@@ -253,6 +262,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-ops'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -279,6 +289,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-ops'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-ops'
     | '/admin/observability'
     | '/admin/orders'
     | '/admin/products'
@@ -448,6 +460,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminObservabilityRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/node-ops': {
+      id: '/admin/node-ops'
+      path: '/node-ops'
+      fullPath: '/admin/node-ops'
+      preLoaderRoute: typeof AdminNodeOpsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/monitoring': {
       id: '/admin/monitoring'
       path: '/monitoring'
@@ -508,6 +527,7 @@ interface AdminRouteChildren {
   AdminIpPoolsRoute: typeof AdminIpPoolsRoute
   AdminIpRegistryRoute: typeof AdminIpRegistryRoute
   AdminMonitoringRoute: typeof AdminMonitoringRoute
+  AdminNodeOpsRoute: typeof AdminNodeOpsRoute
   AdminObservabilityRoute: typeof AdminObservabilityRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
   AdminProductsRoute: typeof AdminProductsRoute
@@ -526,6 +546,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIpPoolsRoute: AdminIpPoolsRoute,
   AdminIpRegistryRoute: AdminIpRegistryRoute,
   AdminMonitoringRoute: AdminMonitoringRoute,
+  AdminNodeOpsRoute: AdminNodeOpsRoute,
   AdminObservabilityRoute: AdminObservabilityRoute,
   AdminOrdersRoute: AdminOrdersRoute,
   AdminProductsRoute: AdminProductsRoute,

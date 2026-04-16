@@ -128,6 +128,7 @@ func main() {
 		Invoices:    portal.NewInvoiceHandler(invoiceRepo),
 		ClusterMgmt: portal.NewClusterMgmtHandler(clusterMgr),
 		Ceph:        portal.NewCephHandler(cfg.Monitor.CephSSHHost, cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey),
+		NodeOps:     portal.NewNodeOpsHandler(cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey),
 	})
 
 	if err := srv.Run(); err != nil {

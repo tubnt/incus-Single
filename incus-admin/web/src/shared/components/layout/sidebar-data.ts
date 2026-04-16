@@ -42,6 +42,7 @@ export const sidebarGroups: NavGroup[] = [
       { key: "nav.orders", to: "/admin/orders", icon: "ShoppingCart", adminOnly: true },
       { key: "nav.adminTickets", to: "/admin/tickets", icon: "Ticket", adminOnly: true },
       { key: "nav.auditLogs", to: "/admin/audit-logs", icon: "FileText", adminOnly: true },
+      { key: "Node Ops", to: "/admin/node-ops", icon: "Terminal", adminOnly: true },
       { key: "Observability", to: "/admin/observability", icon: "BarChart3", adminOnly: true },
       { key: "nav.createVm", to: "/admin/create-vm", icon: "Plus", adminOnly: true },
     ],
