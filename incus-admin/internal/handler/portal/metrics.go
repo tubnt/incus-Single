@@ -154,10 +154,13 @@ func (h *MetricsHandler) ClusterOverview(w http.ResponseWriter, r *http.Request)
 	}
 
 	var results []clusterMetrics
+	var hasError bool
 	for _, ci := range h.clusters.List() {
 		vmMap, err := h.fetchVMs(r, ci.Name)
 		if err != nil {
 			slog.Error("fetch metrics failed", "cluster", ci.Name, "error", err)
+			hasError = true
+			results = append(results, clusterMetrics{Name: ci.Name, VMs: []*VMMetric{}})
 			continue
 		}
 		vms := make([]*VMMetric, 0, len(vmMap))
@@ -168,7 +171,11 @@ func (h *MetricsHandler) ClusterOverview(w http.ResponseWriter, r *http.Request)
 		results = append(results, clusterMetrics{Name: ci.Name, VMs: vms})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"clusters": results})
+	resp := map[string]any{"clusters": results}
+	if hasError {
+		resp["warning"] = "some clusters unreachable"
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type rawMetrics struct {

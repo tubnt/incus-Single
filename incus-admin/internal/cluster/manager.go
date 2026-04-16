@@ -146,7 +146,11 @@ func buildHTTPClient(cc config.ClusterConfig) (*http.Client, error) {
 		return nil, err
 	}
 	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsConfig},
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:     tlsConfig,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
 	}, nil
 }

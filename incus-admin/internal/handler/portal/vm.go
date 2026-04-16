@@ -457,6 +457,16 @@ func (h *AdminVMHandler) RestoreNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "restored", "node": nodeName})
 }
 
+var (
+	vmListCacheMu sync.RWMutex
+	vmListCache   map[string]vmListCacheEntry
+)
+
+type vmListCacheEntry struct {
+	vms     []json.RawMessage
+	updated time.Time
+}
+
 func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) {
 	clusterName := chi.URLParam(r, "name")
 	cc, ok := h.clusters.ConfigByName(clusterName)
@@ -465,22 +475,54 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var allInstances []json.RawMessage
+	projects := make([]string, 0, len(cc.Projects))
 	for _, proj := range cc.Projects {
-		instances, err := h.vmSvc.ListInstances(r.Context(), clusterName, proj.Name)
+		projects = append(projects, proj.Name)
+	}
+	if len(projects) == 0 {
+		projects = []string{"default"}
+	}
+
+	var allInstances []json.RawMessage
+	var fetchErr error
+	for _, proj := range projects {
+		instances, err := h.vmSvc.ListInstances(r.Context(), clusterName, proj)
 		if err != nil {
-			slog.Warn("list instances failed", "cluster", clusterName, "project", proj.Name, "error", err)
+			slog.Warn("list instances failed", "cluster", clusterName, "project", proj, "error", err)
+			fetchErr = err
 			continue
 		}
 		allInstances = append(allInstances, instances...)
 	}
-	if len(cc.Projects) == 0 {
-		instances, err := h.vmSvc.ListInstances(r.Context(), clusterName, "default")
-		if err != nil {
-			slog.Error("list instances failed", "cluster", clusterName, "error", err)
-		} else {
-			allInstances = append(allInstances, instances...)
+
+	// 如果成功获取到数据，更新缓存
+	if len(allInstances) > 0 || fetchErr == nil {
+		vmListCacheMu.Lock()
+		if vmListCache == nil {
+			vmListCache = make(map[string]vmListCacheEntry)
 		}
+		vmListCache[clusterName] = vmListCacheEntry{vms: allInstances, updated: time.Now()}
+		vmListCacheMu.Unlock()
+	}
+
+	// 如果完全失败且有缓存，使用缓存
+	if len(allInstances) == 0 && fetchErr != nil {
+		vmListCacheMu.RLock()
+		cached, hasCached := vmListCache[clusterName]
+		vmListCacheMu.RUnlock()
+		if hasCached {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"vms": cached.vms, "count": len(cached.vms),
+				"stale": true, "cached_at": cached.updated.Format(time.RFC3339),
+				"error": "cluster unreachable, showing cached data",
+			})
+			return
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error": "cluster unreachable: " + fetchErr.Error(),
+			"vms": []any{}, "count": 0,
+		})
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"vms": allInstances, "count": len(allInstances)})

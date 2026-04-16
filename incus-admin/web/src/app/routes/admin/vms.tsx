@@ -48,20 +48,52 @@ function AllVMsPage() {
   );
 }
 
+interface ClusterVMsResponse {
+  vms: IncusInstance[];
+  count: number;
+  stale?: boolean;
+  cached_at?: string;
+  error?: string;
+  warning?: string;
+}
+
 function ClusterVMs({ clusterName, displayName }: { clusterName: string; displayName: string }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["adminClusterVMs", clusterName],
-    queryFn: () => http.get<{ vms: IncusInstance[]; count: number }>(`/admin/clusters/${clusterName}/vms`),
-    refetchInterval: 10_000,
+    queryFn: () => http.get<ClusterVMsResponse>(`/admin/clusters/${clusterName}/vms`),
+    refetchInterval: 15_000,
+    retry: 1,
   });
 
   const vms = data?.vms ?? [];
+  const isStale = data?.stale;
 
   return (
     <div className="mb-8">
-      <h2 className="text-lg font-semibold mb-3">{displayName} ({data?.count ?? 0} VMs)</h2>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-lg font-semibold">{displayName} ({data?.count ?? 0} VMs)</h2>
+        {isStale && (
+          <span className="px-2 py-0.5 rounded text-xs bg-warning/20 text-warning">
+            缓存数据 · {data?.cached_at ? new Date(data.cached_at).toLocaleTimeString() : ""}
+          </span>
+        )}
+        {(data?.error || data?.warning) && !isStale && (
+          <span className="px-2 py-0.5 rounded text-xs bg-destructive/20 text-destructive">
+            {data?.error || data?.warning}
+          </span>
+        )}
+      </div>
+      {isError && (
+        <div className="border border-destructive/30 rounded-lg p-4 mb-3 text-sm text-destructive">
+          集群连接失败: {(error as Error)?.message ?? "未知错误"}
+        </div>
+      )}
       {isLoading ? (
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="border border-border rounded-lg p-4 space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+          ))}
+        </div>
       ) : vms.length === 0 ? (
         <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
           No VMs in this cluster.

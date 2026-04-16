@@ -40,12 +40,14 @@ function MonitoringPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["adminMetricsOverview"],
     queryFn: () =>
-      http.get<{ clusters: ClusterMetrics[] }>("/admin/metrics/overview"),
+      http.get<{ clusters: ClusterMetrics[]; warning?: string }>("/admin/metrics/overview"),
     refetchInterval: 30_000,
+    retry: 1,
   });
 
   const clusters = data?.clusters ?? [];
   const allVMs = clusters.flatMap((c) => c.vms ?? []);
+  const hasWarning = data?.warning;
 
   return (
     <div>
@@ -56,8 +58,21 @@ function MonitoringPage() {
         </span>
       </div>
 
+      {hasWarning && (
+        <div className="border border-warning/30 rounded-lg p-3 mb-4 text-sm text-warning">
+          ⚠ {hasWarning}
+        </div>
+      )}
+
       {isLoading ? (
-        <div className="text-muted-foreground">加载中...</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="border border-border rounded-lg bg-card p-4 space-y-2">
+              <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-24 animate-pulse rounded bg-muted" />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <div className="border border-destructive/30 rounded-lg p-4 text-destructive text-sm">
           获取监控数据失败: {(error as Error).message}
