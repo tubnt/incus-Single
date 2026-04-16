@@ -25,6 +25,70 @@ func (h *IPPoolHandler) AdminRoutes(r chi.Router) {
 	r.Get("/ip-pools", h.ListPools)
 	r.Post("/ip-pools", h.AddPool)
 	r.Delete("/ip-pools/{cluster}", h.RemovePool)
+	r.Get("/ip-registry", h.ListIPAddresses)
+}
+
+func (h *IPPoolHandler) ListIPAddresses(w http.ResponseWriter, r *http.Request) {
+	type ipEntry struct {
+		IP      string `json:"ip"`
+		VM      string `json:"vm"`
+		Cluster string `json:"cluster"`
+		Project string `json:"project"`
+		Node    string `json:"node"`
+		Status  string `json:"status"`
+	}
+
+	var entries []ipEntry
+	for _, client := range h.clusters.List() {
+		cc, ok := h.clusters.ConfigByName(client.Name)
+		if !ok {
+			continue
+		}
+		for _, proj := range cc.Projects {
+			instances, err := client.GetInstances(r.Context(), proj.Name)
+			if err != nil {
+				continue
+			}
+			for _, raw := range instances {
+				var inst struct {
+					Name     string `json:"name"`
+					Status   string `json:"status"`
+					Location string `json:"location"`
+					State    struct {
+						Network map[string]struct {
+							Addresses []struct {
+								Address string `json:"address"`
+								Family  string `json:"family"`
+								Scope   string `json:"scope"`
+							} `json:"addresses"`
+						} `json:"network"`
+					} `json:"state"`
+				}
+				json.Unmarshal(raw, &inst)
+				for nic, data := range inst.State.Network {
+					if nic == "lo" {
+						continue
+					}
+					for _, addr := range data.Addresses {
+						if addr.Family == "inet" && addr.Scope == "global" {
+							entries = append(entries, ipEntry{
+								IP:      addr.Address,
+								VM:      inst.Name,
+								Cluster: client.Name,
+								Project: proj.Name,
+								Node:    inst.Location,
+								Status:  inst.Status,
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+	if entries == nil {
+		entries = []ipEntry{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ips": entries, "count": len(entries)})
 }
 
 func (h *IPPoolHandler) AddPool(w http.ResponseWriter, r *http.Request) {
