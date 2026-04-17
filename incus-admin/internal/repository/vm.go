@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -76,6 +77,39 @@ func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) 
 		return nil, fmt.Errorf("get vm by name: %w", err)
 	}
 	return &vm, nil
+}
+
+// IPsByNames returns a name → ip map for the given VM names (non-deleted rows only).
+// Used by admin cluster listings to enrich Incus payloads with DB-recorded IPs.
+func (r *VMRepo) IPsByNames(ctx context.Context, names []string) (map[string]string, error) {
+	result := map[string]string{}
+	if len(names) == 0 {
+		return result, nil
+	}
+	placeholders := make([]string, len(names))
+	args := make([]any, len(names))
+	for i, n := range names {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = n
+	}
+	q := `SELECT name, host(ip)::text FROM vms
+	      WHERE name IN (` + strings.Join(placeholders, ",") + `)
+	        AND status != 'deleted' AND ip IS NOT NULL`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ips by names: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, ip string
+		if err := rows.Scan(&name, &ip); err != nil {
+			return nil, err
+		}
+		if ip != "" {
+			result[name] = ip
+		}
+	}
+	return result, rows.Err()
 }
 
 func (r *VMRepo) UpdateStatus(ctx context.Context, id int64, status string) error {

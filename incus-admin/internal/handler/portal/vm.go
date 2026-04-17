@@ -497,6 +497,10 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 		allInstances = append(allInstances, instances...)
 	}
 
+	// Inject DB-recorded IPs into each instance payload so the UI shows an IP
+	// even before Incus reports the `state.network` block.
+	allInstances = h.injectDBIPs(r.Context(), allInstances)
+
 	// 如果成功获取到数据，更新缓存
 	if len(allInstances) > 0 || fetchErr == nil {
 		vmListCacheMu.Lock()
@@ -528,6 +532,47 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"vms": allInstances, "count": len(allInstances)})
+}
+
+// injectDBIPs decodes each instance payload, looks up the DB-recorded IP by VM name,
+// and re-encodes with an `ip` field when a match is found. On any decode / lookup
+// failure we silently keep the original payload — the UI already falls back to the
+// Incus state.network block.
+func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMessage) []json.RawMessage {
+	if len(instances) == 0 || h.vmRepo == nil {
+		return instances
+	}
+	decoded := make([]map[string]any, 0, len(instances))
+	names := make([]string, 0, len(instances))
+	for _, raw := range instances {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return instances
+		}
+		decoded = append(decoded, m)
+		if n, ok := m["name"].(string); ok && n != "" {
+			names = append(names, n)
+		}
+	}
+	ipByName, err := h.vmRepo.IPsByNames(ctx, names)
+	if err != nil {
+		slog.Warn("lookup VM IPs from DB failed", "error", err)
+		return instances
+	}
+	out := make([]json.RawMessage, len(decoded))
+	for i, m := range decoded {
+		if n, ok := m["name"].(string); ok {
+			if ip, hit := ipByName[n]; hit {
+				m["ip"] = ip
+			}
+		}
+		buf, err := json.Marshal(m)
+		if err != nil {
+			return instances
+		}
+		out[i] = buf
+	}
+	return out
 }
 
 func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
@@ -685,8 +730,22 @@ func (h *AdminVMHandler) ChangeVMState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("vm state changed", "vm", vmName, "action", req.Action)
-	audit(r.Context(), r, "vm."+req.Action, "vm", 0, map[string]any{"name": vmName})
+	audit(r.Context(), r, "vm."+req.Action, "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "action": req.Action})
+}
+
+// vmIDByName returns the DB id for a VM name, or 0 if the VM is not in our DB
+// (e.g. legacy VMs created outside the portal). Used to populate audit.target_id
+// so the audit log can link back to the VM instead of always recording 0.
+func (h *AdminVMHandler) vmIDByName(ctx context.Context, name string) int64 {
+	if h.vmRepo == nil {
+		return 0
+	}
+	v, err := h.vmRepo.GetByName(ctx, name)
+	if err != nil || v == nil {
+		return 0
+	}
+	return v.ID
 }
 
 func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
@@ -716,12 +775,14 @@ func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var deletedID int64
 	if dbVM, _ := h.vmRepo.GetByName(r.Context(), vmName); dbVM != nil {
+		deletedID = dbVM.ID
 		h.vmRepo.Delete(r.Context(), dbVM.ID)
 	}
 
 	slog.Info("vm deleted", "vm", vmName)
-	audit(r.Context(), r, "vm.delete", "vm", 0, map[string]any{"name": vmName})
+	audit(r.Context(), r, "vm.delete", "vm", deletedID, map[string]any{"name": vmName})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
@@ -764,7 +825,7 @@ func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("vm reinstalled", "vm", vmName, "os", req.OSImage)
-	audit(r.Context(), r, "vm.reinstall", "vm", 0, map[string]any{"name": vmName, "os": req.OSImage})
+	audit(r.Context(), r, "vm.reinstall", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName, "os": req.OSImage})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "reinstalled",
 		"password": result.Password,
@@ -802,7 +863,7 @@ func (h *AdminVMHandler) ResetPasswordAdmin(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	audit(r.Context(), r, "vm.reset_password", "vm", 0, map[string]any{"name": vmName, "username": req.Username})
+	audit(r.Context(), r, "vm.reset_password", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName, "username": req.Username})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "password_reset",
 		"password": newPassword,
@@ -859,7 +920,7 @@ func (h *AdminVMHandler) MigrateVM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	audit(r.Context(), r, "vm.migrate", "vm", 0, map[string]any{
+	audit(r.Context(), r, "vm.migrate", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{
 		"name": vmName, "target": req.TargetNode, "cluster": req.Cluster,
 	})
 	slog.Info("vm migrated", "vm", vmName, "target", req.TargetNode)
