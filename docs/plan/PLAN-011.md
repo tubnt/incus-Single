@@ -698,8 +698,33 @@ Phase A.0 具体交付物清单：
     `useVMActionMutation`，Console / SnapshotPanel 同样走动态值
   - ✅ `routes/index.tsx` `vmsData.services` → `vmsData.vms`
   - ✅ `bunx tsc --noEmit` + `vite build` 通过
-  - 🟡 剩余 13 条路由 × ~78 处 `http.*` 直调待分批迁移到 feature
-    钩子；将按 route 拆 PR 推进。
+  - ✅ **Phase A 全量迁移完成 (2026-04-17)** — 所有 admin / portal 路由
+    不再直调 `http.*`，统一消费 feature 钩子：
+    - `features/clusters/api.ts` 扩展 `clusterKeys.all`、增加
+      `useEvacuateNodeMutation` / `useRestoreNodeMutation` /
+      `useAddClusterMutation`；
+    - `features/vms/api.ts` 增加 `ClusterVMsResponse` / `AdminCreateVMParams`
+      / `useMigrateVMMutation` / `useAdminCreateVMMutation` /
+      `useResetVMPasswordMutation`，`useClusterVMsQuery` 增 enabled 守卫；
+    - `features/monitoring/api.ts` 增 `monitoringKeys` + `useHealthQuery`；
+    - `features/billing/api.ts` 增 `AdminOrder` / `AdminInvoice` +
+      `useAdminOrdersQuery` / `useAdminInvoicesQuery`；
+    - `features/products/api.ts` 规范 `Product` / `ProductFormData` +
+      `useAdminProductsQuery` / `useCreate|UpdateProductMutation`；
+    - 新建 `features/ip-pools/api.ts`、`features/audit-logs/api.ts`、
+      `features/nodes/api.ts`、`features/storage/api.ts`，覆盖
+      IP Pools / IP Registry / Audit Logs / Nodes / HA / SSH /
+      Ceph status / OSD tree / Pools / OSD in-out；
+    - 涉及路由：`admin/{clusters, vms, vm-detail, create-vm, tickets,
+      orders, invoices, ip-pools, ip-registry, audit-logs, ha, nodes,
+      node-ops, node-join, products, storage, monitoring}` +
+      portal `{index, vm-detail}`；
+    - 顺便修复 `monitoring` `UsageBadge` 与 `storage` `HEALTH_WARN`
+      的颜色漂移 (`yellow-500/20 text-yellow-600` /
+      `text-yellow-500` → `bg-warning/20 text-warning` /
+      `text-warning`)；
+    - `bunx tsc --noEmit` + `bunx vite build` 通过；
+    - `rg "http\.(get|post|put|delete)" src/app/routes` 返回 0 条。
 
 ### 风险补遗
 

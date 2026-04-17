@@ -29,11 +29,21 @@ export interface IncusInstance {
   location: string;
   project: string;
   config: Record<string, string>;
+  ip?: string;
   state?: {
     network?: Record<string, {
       addresses: Array<{ address: string; family: string; scope: string }>;
     }>;
   };
+}
+
+export interface ClusterVMsResponse {
+  vms: IncusInstance[];
+  count: number;
+  stale?: boolean;
+  cached_at?: string;
+  error?: string;
+  warning?: string;
 }
 
 // Cache key prefix so list + detail invalidate together:
@@ -78,18 +88,13 @@ export function useCreateVMMutation() {
   });
 }
 
-export function useAdminClustersQuery() {
-  return useQuery({
-    queryKey: ["adminClusters"],
-    queryFn: () => http.get<{ clusters: Array<{ name: string; display_name: string }> }>("/admin/clusters"),
-  });
-}
-
-export function useClusterVMsQuery(clusterName: string) {
+export function useClusterVMsQuery(clusterName: string, refetchIntervalMs = 10_000) {
   return useQuery({
     queryKey: vmKeys.clusterList(clusterName),
-    queryFn: () => http.get<{ vms: IncusInstance[]; count: number }>(`/admin/clusters/${clusterName}/vms`),
-    refetchInterval: 10_000,
+    queryFn: () => http.get<ClusterVMsResponse>(`/admin/clusters/${clusterName}/vms`),
+    enabled: !!clusterName,
+    refetchInterval: refetchIntervalMs,
+    retry: 1,
   });
 }
 
@@ -109,6 +114,18 @@ export function useDeleteVMMutation() {
   });
 }
 
+export function useMigrateVMMutation() {
+  return useMutation({
+    mutationFn: (params: { name: string; cluster: string; project: string; target_node: string }) =>
+      http.post(`/admin/vms/${params.name}/migrate`, {
+        cluster: params.cluster,
+        project: params.project,
+        target_node: params.target_node,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
 export function useReinstallVMMutation() {
   return useMutation({
     mutationFn: (params: { name: string; cluster: string; project: string; os_image: string }) =>
@@ -117,11 +134,39 @@ export function useReinstallVMMutation() {
   });
 }
 
-export function useAdminCreateVMMutation() {
+export interface AdminCreateVMParams {
+  cpu: number;
+  memory_mb: number;
+  disk_gb: number;
+  os_image: string;
+  project: string;
+}
+
+export interface AdminCreateVMResult {
+  vm_name: string;
+  ip: string;
+  username: string;
+  password: string;
+}
+
+export function useAdminCreateVMMutation(clusterName: string) {
   return useMutation({
-    mutationFn: (params: { clusterName: string; data: Record<string, unknown> }) =>
-      http.post(`/admin/clusters/${params.clusterName}/vms`, params.data),
+    mutationFn: (params: AdminCreateVMParams) =>
+      http.post<AdminCreateVMResult>(`/admin/clusters/${clusterName}/vms`, params),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+export interface ResetPasswordResult {
+  password: string;
+  username: string;
+}
+
+export function useResetVMPasswordMutation(vmId: number) {
+  return useMutation({
+    mutationFn: () =>
+      http.post<ResetPasswordResult>(`/portal/services/${vmId}/reset-password`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) }),
   });
 }
 

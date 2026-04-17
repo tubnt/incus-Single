@@ -1,43 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { fmtBytes } from "@/shared/lib/utils";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  type ClusterInfo,
+  type NodeInfo,
+  useAddClusterMutation,
+  useClusterNodesQuery,
+  useClustersQuery,
+  useEvacuateNodeMutation,
+  useRestoreNodeMutation,
+} from "@/features/clusters/api";
 
 export const Route = createFileRoute("/admin/clusters")({
   component: ClustersPage,
 });
 
-interface ClusterInfo {
-  name: string;
-  display_name: string;
-  api_url: string;
-  nodes: number;
-  status: string;
-}
-
-interface NodeInfo {
-  server_name: string;
-  status: string;
-  message: string;
-  cpu_total: number;
-  mem_total: number;
-  mem_used: number;
-  mem_free: number;
-  free_ratio: number;
-}
-
 function ClustersPage() {
   const { t } = useTranslation();
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ["adminClusters"],
-    queryFn: () => http.get<{ clusters: ClusterInfo[] }>("/admin/clusters"),
-  });
-
+  const { data, isLoading } = useClustersQuery();
   const clusters = data?.clusters ?? [];
 
   const [showAdd, setShowAdd] = useState(false);
@@ -52,7 +35,7 @@ function ClustersPage() {
         </button>
       </div>
 
-      {showAdd && <AddClusterForm onDone={() => { setShowAdd(false); refetch(); }} />}
+      {showAdd && <AddClusterForm onDone={() => setShowAdd(false)} />}
 
       {isLoading ? (
         <div className="text-muted-foreground">{t("common.loading")}</div>
@@ -72,12 +55,7 @@ function ClustersPage() {
 }
 
 function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
-  const { data, refetch } = useQuery({
-    queryKey: ["adminNodes", cluster.name],
-    queryFn: () => http.get<{ nodes: NodeInfo[] }>(`/admin/clusters/${cluster.name}/nodes`),
-    refetchInterval: 30_000,
-  });
-
+  const { data } = useClusterNodesQuery(cluster.name, 30_000);
   const nodes = data?.nodes ?? [];
 
   return (
@@ -109,7 +87,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
             </thead>
             <tbody>
               {nodes.map((n) => (
-                <NodeRow key={n.server_name} node={n} clusterName={cluster.name} onDone={refetch} />
+                <NodeRow key={n.server_name} node={n} clusterName={cluster.name} />
               ))}
             </tbody>
           </table>
@@ -119,19 +97,11 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
   );
 }
 
-function NodeRow({ node: n, clusterName, onDone }: { node: NodeInfo; clusterName: string; onDone: () => void }) {
+function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const evacuateMutation = useMutation({
-    mutationFn: () => http.post(`/admin/clusters/${clusterName}/nodes/${n.server_name}/evacuate`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["adminNodes"] }); onDone(); },
-    onError: (err) => toast.error((err as Error).message),
-  });
-
-  const restoreMutation = useMutation({
-    mutationFn: () => http.post(`/admin/clusters/${clusterName}/nodes/${n.server_name}/restore`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["adminNodes"] }); onDone(); },
-  });
+  const evacuateMutation = useEvacuateNodeMutation(clusterName);
+  const restoreMutation = useRestoreNodeMutation(clusterName);
 
   const isOnline = n.status === "Online";
   const isEvacuated = n.status === "Evacuated" || n.message?.includes("evacuated");
@@ -141,7 +111,7 @@ function NodeRow({ node: n, clusterName, onDone }: { node: NodeInfo; clusterName
     <tr className="border-t border-border">
       <td className="px-4 py-2 font-mono">{n.server_name}</td>
       <td className="px-4 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${isOnline ? "bg-success/20 text-success" : isEvacuated ? "bg-yellow-500/20 text-yellow-600" : "bg-destructive/20 text-destructive"}`}>
+        <span className={`px-2 py-0.5 rounded text-xs font-medium ${isOnline ? "bg-success/20 text-success" : isEvacuated ? "bg-warning/20 text-warning" : "bg-destructive/20 text-destructive"}`}>
           {n.status}
         </span>
         {n.message && n.message !== "Fully operational" && (
@@ -168,21 +138,23 @@ function NodeRow({ node: n, clusterName, onDone }: { node: NodeInfo; clusterName
                   message: t("deleteConfirm.evacuateMessage", { node: n.server_name }),
                   destructive: true,
                 });
-                if (ok) evacuateMutation.mutate();
+                if (ok) evacuateMutation.mutate(n.server_name, {
+                  onError: (err) => toast.error((err as Error).message),
+                });
               }}
               disabled={acting}
-              className="px-2 py-1 text-xs bg-yellow-500/20 text-yellow-600 rounded hover:bg-yellow-500/30 disabled:opacity-50"
+              className="px-2 py-1 text-xs bg-warning/20 text-warning rounded hover:bg-warning/30 disabled:opacity-50"
             >
-              Evacuate
+              {t("cluster.evacuate", { defaultValue: "Evacuate" })}
             </button>
           )}
           {isEvacuated && (
             <button
-              onClick={() => restoreMutation.mutate()}
+              onClick={() => restoreMutation.mutate(n.server_name)}
               disabled={acting}
               className="px-2 py-1 text-xs bg-success/20 text-success rounded hover:bg-success/30 disabled:opacity-50"
             >
-              Restore
+              {t("cluster.restore", { defaultValue: "Restore" })}
             </button>
           )}
         </div>
@@ -210,21 +182,17 @@ function AddClusterForm({ onDone }: { onDone: () => void }) {
 
   const isValid = Object.keys(errors).length === 0;
 
-  const mutation = useMutation({
-    mutationFn: () => http.post("/admin/clusters/add", form),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusters"] });
-      onDone();
-    },
-    onError: (err) => toast.error((err as Error).message),
-  });
+  const mutation = useAddClusterMutation();
 
   const set = (k: string, v: string) => setForm({ ...form, [k]: v });
   const markTouched = (k: string) => setTouched((p) => ({ ...p, [k]: true }));
   const submit = () => {
     setTouched({ name: true, api_url: true });
     if (!isValid) return;
-    mutation.mutate();
+    mutation.mutate(form, {
+      onSuccess: onDone,
+      onError: (err) => toast.error((err as Error).message),
+    });
   };
 
   const fieldErr = (k: string) => (touched[k] ? errors[k] : undefined);

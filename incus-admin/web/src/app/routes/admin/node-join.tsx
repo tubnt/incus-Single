@@ -1,9 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { http } from "@/shared/lib/http";
 import { useTranslation } from "react-i18next";
+import { useExecSSHMutation, useTestSSHMutation } from "@/features/nodes/api";
 
 export const Route = createFileRoute("/admin/node-join")({
   component: NodeJoinWizard,
@@ -19,38 +18,36 @@ function NodeJoinWizard() {
   const [sshOutput, setSSHOutput] = useState("");
   const [joinToken, setJoinToken] = useState("");
 
-  const sshTestMutation = useMutation({
-    mutationFn: () =>
-      http.post<{ status: string; output: string; error?: string }>(
-        "/admin/nodes/test-ssh",
-        { host },
-      ),
-    onSuccess: (data) => {
-      setSSHOutput(data.output + (data.error ? `\nError: ${data.error}` : ""));
-      if (data.status === "ok") {
-        toast.success("SSH 连接成功");
-        setStep("join");
-      } else {
-        toast.error("SSH 连接失败");
-      }
-    },
-  });
+  const sshTestMutation = useTestSSHMutation();
+  const execMutation = useExecSSHMutation();
 
-  const generateTokenMutation = useMutation({
-    mutationFn: () =>
-      http.post<{ status: string; output: string }>(
-        "/admin/nodes/exec",
-        { host, command: `incus cluster add ${nodeName}` },
-      ),
-    onSuccess: (data) => {
-      if (data.output) {
-        setJoinToken(data.output.trim());
-        toast.success("Join token 已生成");
-        setStep("verify");
-      }
-    },
-    onError: () => toast.error("生成 token 失败"),
-  });
+  const runSSHTest = () =>
+    sshTestMutation.mutate(host, {
+      onSuccess: (data) => {
+        setSSHOutput(data.output + (data.error ? `\nError: ${data.error}` : ""));
+        if (data.status === "ok") {
+          toast.success("SSH 连接成功");
+          setStep("join");
+        } else {
+          toast.error("SSH 连接失败");
+        }
+      },
+    });
+
+  const runGenerateToken = () =>
+    execMutation.mutate(
+      { host, command: `incus cluster add ${nodeName}` },
+      {
+        onSuccess: (data) => {
+          if (data.output) {
+            setJoinToken(data.output.trim());
+            toast.success("Join token 已生成");
+            setStep("verify");
+          }
+        },
+        onError: () => toast.error("生成 token 失败"),
+      },
+    );
 
   return (
     <div>
@@ -151,7 +148,7 @@ function NodeJoinWizard() {
             连接
           </p>
           <button
-            onClick={() => sshTestMutation.mutate()}
+            onClick={runSSHTest}
             disabled={sshTestMutation.isPending}
             className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
           >
@@ -178,13 +175,11 @@ function NodeJoinWizard() {
           </p>
           <div className="flex gap-2">
             <button
-              onClick={() => generateTokenMutation.mutate()}
-              disabled={generateTokenMutation.isPending}
+              onClick={runGenerateToken}
+              disabled={execMutation.isPending}
               className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
             >
-              {generateTokenMutation.isPending
-                ? "生成中..."
-                : "通过 SSH 生成 Token"}
+              {execMutation.isPending ? "生成中..." : "通过 SSH 生成 Token"}
             </button>
             <span className="text-xs text-muted-foreground self-center">
               或手动粘贴 token:

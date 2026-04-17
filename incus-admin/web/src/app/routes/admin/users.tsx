@@ -1,38 +1,41 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
+import { useTranslation } from "react-i18next";
 import type { User } from "@/shared/lib/auth";
+import {
+  type Quota,
+  useAdminUsersQuery,
+  useTopUpBalanceMutation,
+  useUpdateUserQuotaMutation,
+  useUpdateUserRoleMutation,
+  useUserQuotaQuery,
+} from "@/features/users/api";
 
 export const Route = createFileRoute("/admin/users")({
   component: UsersPage,
 });
 
 function UsersPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["adminUsers"],
-    queryFn: () => http.get<{ users: User[] }>("/admin/users"),
-  });
-
+  const { t } = useTranslation();
+  const { data, isLoading } = useAdminUsersQuery();
   const users = data?.users ?? [];
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Users ({users.length})</h1>
+      <h1 className="text-2xl font-bold mb-6">{t("admin.users", { defaultValue: "Users" })} ({users.length})</h1>
       {isLoading ? (
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">{t("common.loading")}</div>
       ) : (
         <div className="border border-border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/30">
               <tr>
                 <th className="text-left px-4 py-3 font-medium">ID</th>
-                <th className="text-left px-4 py-3 font-medium">Email</th>
-                <th className="text-left px-4 py-3 font-medium">Role</th>
-                <th className="text-right px-4 py-3 font-medium">Balance</th>
-                <th className="text-right px-4 py-3 font-medium">Actions</th>
+                <th className="text-left px-4 py-3 font-medium">{t("admin.email", { defaultValue: "Email" })}</th>
+                <th className="text-left px-4 py-3 font-medium">{t("admin.role", { defaultValue: "Role" })}</th>
+                <th className="text-right px-4 py-3 font-medium">{t("common.balance", { defaultValue: "Balance" })}</th>
+                <th className="text-right px-4 py-3 font-medium">{t("vm.actions", { defaultValue: "Actions" })}</th>
               </tr>
             </thead>
             <tbody>
@@ -47,40 +50,21 @@ function UsersPage() {
   );
 }
 
-interface Quota {
-  max_vms: number;
-  max_vcpus: number;
-  max_ram_mb: number;
-  max_disk_gb: number;
-  max_ips: number;
-  max_snapshots: number;
-}
-
-interface QuotaUsage {
-  vms: number;
-  vcpus: number;
-  ram_mb: number;
-  disk_gb: number;
-}
-
 function UserRow({ user }: { user: User }) {
+  const { t } = useTranslation();
   const [showTopUp, setShowTopUp] = useState(false);
   const [showQuota, setShowQuota] = useState(false);
   const [amount, setAmount] = useState("");
 
-  const roleMutation = useMutation({
-    mutationFn: (role: string) => http.put(`/admin/users/${user.id}/role`, { role }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["adminUsers"] }),
-  });
+  const roleMutation = useUpdateUserRoleMutation(user.id);
+  const topUpMutation = useTopUpBalanceMutation(user.id);
 
-  const topUpMutation = useMutation({
-    mutationFn: (amt: number) => http.post(`/admin/users/${user.id}/balance`, { amount: amt, description: "Admin top-up" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminUsers"] });
-      setShowTopUp(false);
-      setAmount("");
-    },
-  });
+  const confirmTopUp = () => {
+    const amt = parseFloat(amount);
+    if (amt > 0) topUpMutation.mutate(amt, {
+      onSuccess: () => { setShowTopUp(false); setAmount(""); },
+    });
+  };
 
   return (
     <>
@@ -105,13 +89,13 @@ function UserRow({ user }: { user: User }) {
               onClick={() => { setShowQuota(!showQuota); setShowTopUp(false); }}
               className="px-2 py-1 rounded text-xs border border-border hover:bg-muted"
             >
-              配额
+              {t("admin.quota", { defaultValue: "配额" })}
             </button>
             <button
               onClick={() => { setShowTopUp(!showTopUp); setShowQuota(false); }}
               className="px-2 py-1 rounded text-xs bg-primary/20 text-primary hover:bg-primary/30"
             >
-              + Top Up
+              + {t("admin.topUp", { defaultValue: "Top Up" })}
             </button>
           </div>
         </td>
@@ -125,24 +109,21 @@ function UserRow({ user }: { user: User }) {
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="Amount"
+                placeholder={t("admin.amount", { defaultValue: "Amount" })}
                 className="flex-1 px-3 py-1.5 rounded border border-border bg-card text-sm"
               />
               <button
-                onClick={() => {
-                  const amt = parseFloat(amount);
-                  if (amt > 0) topUpMutation.mutate(amt);
-                }}
+                onClick={confirmTopUp}
                 disabled={topUpMutation.isPending || !amount}
                 className="px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground disabled:opacity-50"
               >
-                {topUpMutation.isPending ? "..." : "Confirm"}
+                {topUpMutation.isPending ? "..." : t("common.confirm", { defaultValue: "Confirm" })}
               </button>
               <button
                 onClick={() => setShowTopUp(false)}
                 className="px-3 py-1.5 rounded text-xs bg-muted text-muted-foreground"
               >
-                Cancel
+                {t("common.cancel", { defaultValue: "Cancel" })}
               </button>
             </div>
           </td>
@@ -160,59 +141,60 @@ function UserRow({ user }: { user: User }) {
 }
 
 function QuotaEditor({ userId, onClose }: { userId: number; onClose: () => void }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["userQuota", userId],
-    queryFn: () => http.get<{ quota: Quota | null; usage: QuotaUsage }>(`/admin/users/${userId}/quota`),
-  });
-
+  const { t } = useTranslation();
+  const { data, isLoading } = useUserQuotaQuery(userId);
   const [form, setForm] = useState<Quota | null>(null);
 
   const quota = data?.quota;
   const usage = data?.usage;
 
-  if (isLoading) return <div className="text-xs text-muted-foreground">加载中...</div>;
+  const saveMutation = useUpdateUserQuotaMutation(userId);
+
+  if (isLoading) return <div className="text-xs text-muted-foreground">{t("common.loading")}</div>;
 
   const current = form ?? quota ?? {
     max_vms: 5, max_vcpus: 16, max_ram_mb: 16384, max_disk_gb: 500, max_ips: 5, max_snapshots: 10,
   };
 
-  const saveMutation = useMutation({
-    mutationFn: () => http.put(`/admin/users/${userId}/quota`, current),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["userQuota", userId] });
-      toast.success("配额已更新");
-      onClose();
-    },
-    onError: () => toast.error("配额更新失败"),
-  });
-
   const set = (k: keyof Quota, v: number) => setForm({ ...current, [k]: v });
+
+  const save = () => {
+    saveMutation.mutate(current, {
+      onSuccess: () => {
+        toast.success(t("admin.quotaUpdated", { defaultValue: "配额已更新" }));
+        onClose();
+      },
+      onError: () => toast.error(t("admin.quotaUpdateFailed", { defaultValue: "配额更新失败" })),
+    });
+  };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold">用户配额 (ID: {userId})</h4>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">关闭</button>
+        <h4 className="text-sm font-semibold">{t("admin.userQuotaTitle", { defaultValue: "用户配额" })} (ID: {userId})</h4>
+        <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">
+          {t("common.close", { defaultValue: "关闭" })}
+        </button>
       </div>
       {usage && (
         <div className="text-xs text-muted-foreground mb-2">
-          当前使用: {usage.vms} VMs / {usage.vcpus} vCPUs / {(usage.ram_mb / 1024).toFixed(1)}G RAM / {usage.disk_gb}G Disk
+          {t("admin.currentUsage", { defaultValue: "当前使用" })}: {usage.vms} VMs / {usage.vcpus} vCPUs / {(usage.ram_mb / 1024).toFixed(1)}G RAM / {usage.disk_gb}G Disk
         </div>
       )}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3">
-        <QuotaField label="最大VM数" value={current.max_vms} onChange={(v) => set("max_vms", v)} />
-        <QuotaField label="最大vCPU" value={current.max_vcpus} onChange={(v) => set("max_vcpus", v)} />
-        <QuotaField label="最大RAM(MB)" value={current.max_ram_mb} onChange={(v) => set("max_ram_mb", v)} />
-        <QuotaField label="最大磁盘(GB)" value={current.max_disk_gb} onChange={(v) => set("max_disk_gb", v)} />
-        <QuotaField label="最大IP数" value={current.max_ips} onChange={(v) => set("max_ips", v)} />
-        <QuotaField label="最大快照" value={current.max_snapshots} onChange={(v) => set("max_snapshots", v)} />
+        <QuotaField label={t("admin.maxVms", { defaultValue: "最大VM数" })} value={current.max_vms} onChange={(v) => set("max_vms", v)} />
+        <QuotaField label={t("admin.maxVcpus", { defaultValue: "最大vCPU" })} value={current.max_vcpus} onChange={(v) => set("max_vcpus", v)} />
+        <QuotaField label={t("admin.maxRamMb", { defaultValue: "最大RAM(MB)" })} value={current.max_ram_mb} onChange={(v) => set("max_ram_mb", v)} />
+        <QuotaField label={t("admin.maxDiskGb", { defaultValue: "最大磁盘(GB)" })} value={current.max_disk_gb} onChange={(v) => set("max_disk_gb", v)} />
+        <QuotaField label={t("admin.maxIps", { defaultValue: "最大IP数" })} value={current.max_ips} onChange={(v) => set("max_ips", v)} />
+        <QuotaField label={t("admin.maxSnapshots", { defaultValue: "最大快照" })} value={current.max_snapshots} onChange={(v) => set("max_snapshots", v)} />
       </div>
       <button
-        onClick={() => saveMutation.mutate()}
+        onClick={save}
         disabled={saveMutation.isPending}
         className="px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground disabled:opacity-50"
       >
-        {saveMutation.isPending ? "保存中..." : "保存配额"}
+        {saveMutation.isPending ? t("admin.saving", { defaultValue: "保存中..." }) : t("admin.saveQuota", { defaultValue: "保存配额" })}
       </button>
     </div>
   );

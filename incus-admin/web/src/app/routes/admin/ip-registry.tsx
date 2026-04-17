@@ -1,29 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { http } from "@/shared/lib/http";
+import { useTranslation } from "react-i18next";
+import { useIPRegistryQuery } from "@/features/ip-pools/api";
 
 export const Route = createFileRoute("/admin/ip-registry")({
   component: IPRegistryPage,
 });
 
-interface IPEntry {
-  ip: string;
-  vm: string;
-  cluster: string;
-  project: string;
-  node: string;
-  status: string;
-}
-
 function IPRegistryPage() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["ipRegistry"],
-    queryFn: () => http.get<{ ips: IPEntry[]; count: number }>("/admin/ip-registry"),
-    refetchInterval: 30_000,
-  });
+  const { data, isLoading } = useIPRegistryQuery();
 
   const ips = data?.ips ?? [];
   const filtered = search
@@ -33,34 +20,36 @@ function IPRegistryPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">IP Registry</h1>
-        <span className="text-xs text-muted-foreground">{data?.count ?? 0} addresses assigned</span>
+        <h1 className="text-2xl font-bold">{t("admin.ipRegistry.title", { defaultValue: "IP Registry" })}</h1>
+        <span className="text-xs text-muted-foreground">
+          {t("admin.ipRegistry.assignedCount", { count: data?.count ?? 0, defaultValue: "{{count}} addresses assigned" })}
+        </span>
       </div>
 
       <input
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by IP or VM name..."
+        placeholder={t("admin.ipRegistry.searchPlaceholder", { defaultValue: "Search by IP or VM name..." })}
         className="w-full px-4 py-2 mb-4 rounded-lg border border-border bg-card text-sm"
       />
 
       {isLoading ? (
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">{t("common.loading")}</div>
       ) : filtered.length === 0 ? (
         <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          No IP addresses assigned.
+          {t("admin.ipRegistry.empty", { defaultValue: "No IP addresses assigned." })}
         </div>
       ) : (
         <div className="border border-border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/30">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">IP Address</th>
+                <th className="text-left px-4 py-2 font-medium">{t("admin.ipRegistry.ip", { defaultValue: "IP Address" })}</th>
                 <th className="text-left px-4 py-2 font-medium">VM</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">Node</th>
-                <th className="text-left px-4 py-2 font-medium">Cluster / Project</th>
+                <th className="text-left px-4 py-2 font-medium">{t("vm.status")}</th>
+                <th className="text-left px-4 py-2 font-medium">{t("vm.node")}</th>
+                <th className="text-left px-4 py-2 font-medium">{t("admin.ipRegistry.clusterProject", { defaultValue: "Cluster / Project" })}</th>
               </tr>
             </thead>
             <tbody>

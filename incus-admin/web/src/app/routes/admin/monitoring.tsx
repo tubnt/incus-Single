@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { http } from "@/shared/lib/http";
+import { type VMMetric, useMetricsOverviewQuery } from "@/features/monitoring/api";
 import {
   BarChart,
   Bar,
@@ -16,34 +15,8 @@ export const Route = createFileRoute("/admin/monitoring")({
   component: MonitoringPage,
 });
 
-interface VMMetric {
-  name: string;
-  cpu_user_pct: number;
-  cpu_system_pct: number;
-  cpu_idle_pct: number;
-  mem_total_bytes: number;
-  mem_used_bytes: number;
-  mem_used_pct: number;
-  disk_total_bytes: number;
-  disk_used_bytes: number;
-  disk_used_pct: number;
-  net_rx_bytes: number;
-  net_tx_bytes: number;
-}
-
-interface ClusterMetrics {
-  name: string;
-  vms: VMMetric[];
-}
-
 function MonitoringPage() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["adminMetricsOverview"],
-    queryFn: () =>
-      http.get<{ clusters: ClusterMetrics[]; warning?: string }>("/admin/metrics/overview"),
-    refetchInterval: 30_000,
-    retry: 1,
-  });
+  const { data, isLoading, error } = useMetricsOverviewQuery();
 
   const clusters = data?.clusters ?? [];
   const allVMs = clusters.flatMap((c) => c.vms ?? []);
@@ -325,7 +298,7 @@ function UsageBadge({ pct }: { pct: number }) {
     pct > 90
       ? "bg-destructive/20 text-destructive"
       : pct > 70
-        ? "bg-yellow-500/20 text-yellow-600"
+        ? "bg-warning/20 text-warning"
         : "bg-success/20 text-success";
   return (
     <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${color}`}>

@@ -1,46 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { fmtBytes } from "@/shared/lib/utils";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  type CephPool,
+  type OSDTreeNode,
+  useCephPoolsQuery,
+  useCephStatusQuery,
+  useCreateCephPoolMutation,
+  useDeleteCephPoolMutation,
+  useOSDInMutation,
+  useOSDOutMutation,
+  useOSDTreeQuery,
+} from "@/features/storage/api";
 
 export const Route = createFileRoute("/admin/storage")({
   component: StoragePage,
 });
-
-interface CephStatus {
-  health?: { status: string };
-  osdmap?: { num_osds: number; num_up_osds: number; num_in_osds: number };
-  pgmap?: {
-    num_pgs: number;
-    num_pools: number;
-    data_bytes: number;
-    bytes_used: number;
-    bytes_avail: number;
-    bytes_total: number;
-    read_bytes_sec: number;
-    write_bytes_sec: number;
-    read_op_per_sec: number;
-    write_op_per_sec: number;
-  };
-  error?: string;
-}
-
-interface OSDTree {
-  nodes?: Array<{
-    id: number;
-    name: string;
-    type: string;
-    status?: string;
-    crush_weight?: number;
-    children?: number[];
-  }>;
-  error?: string;
-}
 
 // Ceph pool type values can arrive as number or string.
 // Reference: Ceph OSD pool types — 1 = replicated, 3 = erasure-coded.
@@ -53,17 +31,8 @@ function poolTypeLabel(raw: unknown, t: (k: string) => string): string {
 
 function StoragePage() {
   const { t } = useTranslation();
-  const { data: cephStatus } = useQuery({
-    queryKey: ["cephStatus"],
-    queryFn: () => http.get<CephStatus>("/admin/ceph/status"),
-    refetchInterval: 30_000,
-  });
-
-  const { data: osdTree } = useQuery({
-    queryKey: ["cephOsdTree"],
-    queryFn: () => http.get<OSDTree>("/admin/ceph/osd-tree"),
-    refetchInterval: 60_000,
-  });
+  const { data: cephStatus } = useCephStatusQuery();
+  const { data: osdTree } = useOSDTreeQuery();
 
   const health = cephStatus?.health?.status ?? "UNKNOWN";
   const osdmap = cephStatus?.osdmap;
@@ -84,7 +53,7 @@ function StoragePage() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <StatCard label={t("storage.health")} value={health}
-              color={health === "HEALTH_OK" ? "text-success" : health === "HEALTH_WARN" ? "text-yellow-500" : "text-destructive"} />
+              color={health === "HEALTH_OK" ? "text-success" : health === "HEALTH_WARN" ? "text-warning" : "text-destructive"} />
             <StatCard label={t("storage.osds")} value={osdmap ? `${osdmap.num_up_osds}/${osdmap.num_osds} up` : "—"} />
             <StatCard label={t("storage.pools")} value={String(pgmap?.num_pools ?? "—")} />
             <StatCard label={t("storage.pgs")} value={String(pgmap?.num_pgs ?? "—")} />
@@ -165,46 +134,31 @@ function StoragePage() {
   );
 }
 
-interface CephPool {
-  pool_name: string;
-  pool_id: number;
-  type: string | number;
-  size: number;
-  pg_num: number;
-  application_metadata?: Record<string, Record<string, unknown>>;
-}
-
 function PoolSection() {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const [showCreate, setShowCreate] = useState(false);
   const [newPool, setNewPool] = useState({ name: "", pg_num: 128, type: "replicated" });
 
-  const { data: pools } = useQuery({
-    queryKey: ["cephPools"],
-    queryFn: () => http.get<CephPool[]>("/admin/ceph/pools"),
-    refetchInterval: 60_000,
-  });
+  const { data: pools } = useCephPoolsQuery();
+  const createMutation = useCreateCephPoolMutation();
+  const deleteMutation = useDeleteCephPoolMutation();
 
-  const createMutation = useMutation({
-    mutationFn: () => http.post("/admin/ceph/pools", newPool),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cephPools"] });
-      toast.success(t("storage.poolCreatedToast", { name: newPool.name }));
-      setShowCreate(false);
-      setNewPool({ name: "", pg_num: 128, type: "replicated" });
-    },
-    onError: () => toast.error(t("storage.poolCreateFailed")),
-  });
+  const onCreate = () =>
+    createMutation.mutate(newPool, {
+      onSuccess: () => {
+        toast.success(t("storage.poolCreatedToast", { name: newPool.name }));
+        setShowCreate(false);
+        setNewPool({ name: "", pg_num: 128, type: "replicated" });
+      },
+      onError: () => toast.error(t("storage.poolCreateFailed")),
+    });
 
-  const deleteMutation = useMutation({
-    mutationFn: (name: string) => http.delete(`/admin/ceph/pools/${name}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cephPools"] });
-      toast.success(t("storage.poolDeletedToast"));
-    },
-    onError: () => toast.error(t("storage.poolDeleteFailed")),
-  });
+  const onDelete = (name: string) =>
+    deleteMutation.mutate(name, {
+      onSuccess: () => toast.success(t("storage.poolDeletedToast")),
+      onError: () => toast.error(t("storage.poolDeleteFailed")),
+    });
 
   const poolList = Array.isArray(pools) ? pools : [];
 
@@ -253,7 +207,7 @@ function PoolSection() {
               </select>
             </div>
             <button
-              onClick={() => createMutation.mutate()}
+              onClick={onCreate}
               disabled={createMutation.isPending || !newPool.name}
               className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded disabled:opacity-50"
             >
@@ -276,7 +230,7 @@ function PoolSection() {
             </tr>
           </thead>
           <tbody>
-            {poolList.map((p) => (
+            {poolList.map((p: CephPool) => (
               <tr key={p.pool_id} className="border-t border-border">
                 <td className="px-4 py-1.5 font-mono text-xs">{p.pool_name}</td>
                 <td className="px-4 py-1.5 text-xs text-muted-foreground">{poolTypeLabel(p.type, t)}</td>
@@ -293,7 +247,7 @@ function PoolSection() {
                         message: t("deleteConfirm.poolMessage", { name: p.pool_name }),
                         destructive: true,
                       });
-                      if (ok) deleteMutation.mutate(p.pool_name);
+                      if (ok) onDelete(p.pool_name);
                     }}
                     disabled={deleteMutation.isPending}
                     className="px-2 py-0.5 text-xs border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
@@ -310,30 +264,25 @@ function PoolSection() {
   );
 }
 
-function OSDRow({ osd }: { osd: { id: number; name: string; status?: string; crush_weight?: number } }) {
+function OSDRow({ osd }: { osd: OSDTreeNode }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const osdNum = String(osd.id);
 
-  const outMutation = useMutation({
-    mutationFn: () => http.post(`/admin/ceph/osd/${osdNum}/out`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cephOsdTree"] });
-      queryClient.invalidateQueries({ queryKey: ["cephStatus"] });
-      toast.success(t("storage.osdOutToast", { id: osdNum }));
-    },
-    onError: () => toast.error(t("storage.osdOutFailed", { id: osdNum })),
-  });
+  const outMutation = useOSDOutMutation();
+  const inMutation = useOSDInMutation();
 
-  const inMutation = useMutation({
-    mutationFn: () => http.post(`/admin/ceph/osd/${osdNum}/in`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cephOsdTree"] });
-      queryClient.invalidateQueries({ queryKey: ["cephStatus"] });
-      toast.success(t("storage.osdInToast", { id: osdNum }));
-    },
-    onError: () => toast.error(t("storage.osdInFailed", { id: osdNum })),
-  });
+  const runOut = () =>
+    outMutation.mutate(osdNum, {
+      onSuccess: () => toast.success(t("storage.osdOutToast", { id: osdNum })),
+      onError: () => toast.error(t("storage.osdOutFailed", { id: osdNum })),
+    });
+
+  const runIn = () =>
+    inMutation.mutate(osdNum, {
+      onSuccess: () => toast.success(t("storage.osdInToast", { id: osdNum })),
+      onError: () => toast.error(t("storage.osdInFailed", { id: osdNum })),
+    });
 
   const isPending = outMutation.isPending || inMutation.isPending;
 
@@ -355,7 +304,7 @@ function OSDRow({ osd }: { osd: { id: number; name: string; status?: string; cru
                 message: t("deleteConfirm.osdOutMessage", { id: osdNum }),
                 destructive: true,
               });
-              if (ok) outMutation.mutate();
+              if (ok) runOut();
             }}
             disabled={isPending}
             className="px-2 py-0.5 text-xs border border-warning/30 text-warning rounded hover:bg-warning/10 disabled:opacity-50"
@@ -363,7 +312,7 @@ function OSDRow({ osd }: { osd: { id: number; name: string; status?: string; cru
             Out
           </button>
           <button
-            onClick={() => inMutation.mutate()}
+            onClick={runIn}
             disabled={isPending}
             className="px-2 py-0.5 text-xs border border-success/30 text-success rounded hover:bg-success/10 disabled:opacity-50"
           >

@@ -21,11 +21,28 @@ export interface ClusterMetrics {
   vms: VMMetric[];
 }
 
+export const monitoringKeys = {
+  all: ["monitoring"] as const,
+  overview: () => [...monitoringKeys.all, "overview"] as const,
+  health: () => [...monitoringKeys.all, "health"] as const,
+  vm: (name: string, base: string, cluster?: string) =>
+    [...monitoringKeys.all, "vm", name, base, cluster ?? ""] as const,
+};
+
+export function useHealthQuery() {
+  return useQuery({
+    queryKey: monitoringKeys.health(),
+    queryFn: () => http.get<{ status: string }>("/health"),
+  });
+}
+
 export function useMetricsOverviewQuery() {
   return useQuery({
-    queryKey: ["adminMetricsOverview"],
-    queryFn: () => http.get<{ clusters: ClusterMetrics[] }>("/admin/metrics/overview"),
+    queryKey: monitoringKeys.overview(),
+    queryFn: () =>
+      http.get<{ clusters: ClusterMetrics[]; warning?: string }>("/admin/metrics/overview"),
     refetchInterval: 30_000,
+    retry: 1,
   });
 }
 
@@ -34,11 +51,12 @@ export function useVMMetricsQuery(vmName: string, base: "/portal" | "/admin", cl
   if (cluster) params.cluster = cluster;
 
   return useQuery({
-    queryKey: ["vmMetrics", vmName, base, cluster],
-    queryFn: () => http.get<{ metrics: VMMetric | null }>(
-      `${base}/metrics/vm/${vmName}`,
-      Object.keys(params).length > 0 ? params : undefined,
-    ),
+    queryKey: monitoringKeys.vm(vmName, base, cluster),
+    queryFn: () =>
+      http.get<{ metrics: VMMetric | null }>(
+        `${base}/metrics/vm/${vmName}`,
+        Object.keys(params).length > 0 ? params : undefined,
+      ),
     refetchInterval: 30_000,
   });
 }

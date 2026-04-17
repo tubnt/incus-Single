@@ -1,49 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { toast } from "sonner";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
+import {
+  type Order,
+  type VMCredentials,
+  useCancelOrderMutation,
+  useCreateOrderMutation,
+  useMyInvoicesQuery,
+  useMyOrdersQuery,
+  usePayOrderMutation,
+} from "@/features/billing/api";
+import { type Product, useProductsQuery } from "@/features/products/api";
 
 export const Route = createFileRoute("/billing")({
   component: BillingPage,
 });
-
-interface Order {
-  id: number;
-  product_id: number;
-  status: string;
-  amount: number;
-  expires_at: string | null;
-  created_at: string;
-}
-
-interface Invoice {
-  id: number;
-  order_id: number;
-  amount: number;
-  status: string;
-  paid_at: string | null;
-  created_at: string;
-}
-
-interface Product {
-  id: number;
-  name: string;
-  slug: string;
-  cpu: number;
-  memory_mb: number;
-  disk_gb: number;
-  price_monthly: number;
-}
-
-interface VMCredentials {
-  vm_name: string;
-  ip: string;
-  username: string;
-  password: string;
-}
 
 const OS_IMAGES = [
   { value: "images:ubuntu/24.04/cloud", label: "Ubuntu 24.04 LTS" },
@@ -56,18 +28,9 @@ function BillingPage() {
   const { t } = useTranslation();
   const [credentials, setCredentials] = useState<VMCredentials | null>(null);
 
-  const { data: ordersData } = useQuery({
-    queryKey: ["myOrders"],
-    queryFn: () => http.get<{ orders: Order[] }>("/portal/orders"),
-  });
-  const { data: invoicesData } = useQuery({
-    queryKey: ["myInvoices"],
-    queryFn: () => http.get<{ invoices: Invoice[] }>("/portal/invoices"),
-  });
-  const { data: productsData } = useQuery({
-    queryKey: ["products"],
-    queryFn: () => http.get<{ products: Product[] }>("/portal/products"),
-  });
+  const { data: ordersData } = useMyOrdersQuery();
+  const { data: invoicesData } = useMyInvoicesQuery();
+  const { data: productsData } = useProductsQuery();
 
   const orders = ordersData?.orders ?? [];
   const invoices = invoicesData?.invoices ?? [];
@@ -79,14 +42,14 @@ function BillingPage() {
 
       {credentials && (
         <div className="border border-success/30 bg-success/10 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold mb-2">VM Created Successfully</h3>
+          <h3 className="font-semibold mb-2">{t("billing.vmCreatedTitle", { defaultValue: "VM Created Successfully" })}</h3>
           <div className="text-sm space-y-1 font-mono">
             <div>Name: {credentials.vm_name}</div>
-            <div>IP: {credentials.ip || "assigning..."}</div>
+            <div>IP: {credentials.ip || t("vm.assigning", { defaultValue: "assigning..." })}</div>
             <div>Username: {credentials.username}</div>
             <div>Password: {credentials.password}</div>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Save these credentials — the password will not be shown again.</p>
+          <p className="text-xs text-muted-foreground mt-2">{t("billing.saveCredentialsHint", { defaultValue: "Save these credentials — the password will not be shown again." })}</p>
           <button onClick={() => setCredentials(null)}
             className="mt-3 px-4 py-2 bg-primary text-primary-foreground rounded text-sm">
             OK
@@ -146,7 +109,7 @@ function BillingPage() {
                   <th className="text-left px-4 py-2 font-medium">{t("billing.orders")}</th>
                   <th className="text-right px-4 py-2 font-medium">{t("billing.amount")}</th>
                   <th className="text-left px-4 py-2 font-medium">{t("billing.status")}</th>
-                  <th className="text-left px-4 py-2 font-medium">Paid At</th>
+                  <th className="text-left px-4 py-2 font-medium">{t("billing.paidAt", { defaultValue: "Paid At" })}</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,31 +141,22 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
   const [vmName, setVmName] = useState("");
   const [expanded, setExpanded] = useState(false);
 
-  const orderMutation = useMutation({
-    mutationFn: () => http.post<{ order: Order }>("/portal/orders", {
-      product_id: p.id,
-      vm_name: vmName || undefined,
-      os_image: osImage,
-    }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["myOrders"] });
-      payMutation.mutate(data.order.id);
-    },
-  });
+  const payMutation = usePayOrderMutation();
+  const orderMutation = useCreateOrderMutation();
 
-  const payMutation = useMutation({
-    mutationFn: (orderId: number) => http.post<VMCredentials & { status: string }>(`/portal/orders/${orderId}/pay`, {
-      vm_name: vmName || undefined,
-      os_image: osImage,
-    }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["myOrders"] });
-      queryClient.invalidateQueries({ queryKey: ["myInvoices"] });
-      queryClient.invalidateQueries({ queryKey: ["myServices"] });
-      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      if (data.password) onCreated(data);
-    },
-  });
+  const submitOrder = () => {
+    orderMutation.mutate(
+      { product_id: p.id, vm_name: vmName || undefined, os_image: osImage },
+      {
+        onSuccess: (data) => {
+          payMutation.mutate(
+            { orderId: data.order.id, vm_name: vmName || undefined, os_image: osImage },
+            { onSuccess: (res) => { if (res.password) onCreated(res); } },
+          );
+        },
+      },
+    );
+  };
 
   const isPending = orderMutation.isPending || payMutation.isPending;
   const error = orderMutation.error || payMutation.error;
@@ -222,7 +176,7 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
             {OS_IMAGES.map((img) => <option key={img.value} value={img.value}>{img.label}</option>)}
           </select>
           <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)}
-            placeholder="VM name (optional)"
+            placeholder={t("billing.vmNamePlaceholder", { defaultValue: "VM name (optional)" })}
             className="w-full px-2 py-1.5 text-xs rounded border border-border bg-card" />
         </div>
       ) : null}
@@ -230,7 +184,7 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
       <button
         onClick={() => {
           if (!expanded) { setExpanded(true); return; }
-          orderMutation.mutate();
+          submitOrder();
         }}
         disabled={isPending}
         className="w-full py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
@@ -244,27 +198,11 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
 
 function OrderRow({ order: o, onProvisioned }: { order: Order; onProvisioned: (c: VMCredentials) => void }) {
   const { t } = useTranslation();
-  const payMutation = useMutation({
-    mutationFn: () => http.post<VMCredentials & { status: string }>(`/portal/orders/${o.id}/pay`),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["myOrders"] });
-      queryClient.invalidateQueries({ queryKey: ["myInvoices"] });
-      queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-      queryClient.invalidateQueries({ queryKey: ["myServices"] });
-      if (data.password) onProvisioned(data);
-    },
-  });
-  const cancelMutation = useMutation({
-    mutationFn: () => http.post(`/portal/orders/${o.id}/cancel`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["myOrders"] });
-      toast.success(t("billing.orderCancelled", "订单已取消"));
-    },
-    onError: () => toast.error(t("billing.cancelFailed", "取消失败")),
-  });
+  const payMutation = usePayOrderMutation();
+  const cancelMutation = useCancelOrderMutation();
 
   const colors: Record<string, string> = {
-    pending: "bg-yellow-500/20 text-yellow-600",
+    pending: "bg-warning/20 text-warning",
     paid: "bg-success/20 text-success",
     active: "bg-success/20 text-success",
     provisioned: "bg-success/20 text-success",
@@ -285,18 +223,24 @@ function OrderRow({ order: o, onProvisioned }: { order: Order; onProvisioned: (c
         {o.status === "pending" && (
           <div className="flex justify-end gap-1">
             <button
-              onClick={() => payMutation.mutate()}
+              onClick={() => payMutation.mutate(
+                { orderId: o.id },
+                { onSuccess: (data) => { if (data.password) onProvisioned(data); } },
+              )}
               disabled={payMutation.isPending}
               className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded disabled:opacity-50"
             >
               {payMutation.isPending ? "..." : t("billing.pay")}
             </button>
             <button
-              onClick={() => cancelMutation.mutate()}
+              onClick={() => cancelMutation.mutate(o.id, {
+                onSuccess: () => toast.success(t("billing.orderCancelled", { defaultValue: "订单已取消" })),
+                onError: () => toast.error(t("billing.cancelFailed", { defaultValue: "取消失败" })),
+              })}
               disabled={cancelMutation.isPending}
               className="px-3 py-1 text-xs border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
             >
-              {cancelMutation.isPending ? "..." : t("billing.cancel", "取消")}
+              {cancelMutation.isPending ? "..." : t("billing.cancel", { defaultValue: "取消" })}
             </button>
           </div>
         )}

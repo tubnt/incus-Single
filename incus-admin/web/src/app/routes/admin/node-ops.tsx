@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
+import { useExecSSHMutation, useTestSSHMutation } from "@/features/nodes/api";
 
 export const Route = createFileRoute("/admin/node-ops")({
   component: NodeOpsPage,
@@ -25,15 +24,19 @@ function NodeOpsPage() {
   const [hostTouched, setHostTouched] = useState(false);
   const [output, setOutput] = useState("");
 
-  const testMutation = useMutation({
-    mutationFn: () => http.post<{ status: string; output: string; error?: string }>("/admin/nodes/test-ssh", { host }),
-    onSuccess: (data) => setOutput(data.output + (data.error ? `\nError: ${data.error}` : "")),
-  });
+  const testMutation = useTestSSHMutation();
+  const execMutation = useExecSSHMutation();
 
-  const execMutation = useMutation({
-    mutationFn: (cmd: string) => http.post<{ status: string; output: string; error?: string }>("/admin/nodes/exec", { host, command: cmd }),
-    onSuccess: (data) => setOutput(data.output + (data.error ? `\nError: ${data.error}` : "")),
-  });
+  const runTest = () =>
+    testMutation.mutate(host, {
+      onSuccess: (data) => setOutput(data.output + (data.error ? `\nError: ${data.error}` : "")),
+    });
+
+  const runExec = (cmd: string) =>
+    execMutation.mutate(
+      { host, command: cmd },
+      { onSuccess: (data) => setOutput(data.output + (data.error ? `\nError: ${data.error}` : "")) },
+    );
 
   const quickCommands = [
     { label: "System Info", cmd: "hostname && uname -r && cat /etc/os-release | head -3" },
@@ -60,7 +63,7 @@ function NodeOpsPage() {
             onBlur={() => setHostTouched(true)}
             placeholder={t("admin.hostPlaceholder")}
             className={`flex-1 px-3 py-2 rounded border bg-card text-sm font-mono ${hostInvalid ? "border-destructive" : "border-border"}`} />
-          <button onClick={() => testMutation.mutate()}
+          <button onClick={runTest}
             disabled={testMutation.isPending || !canAct}
             className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50">
             {testMutation.isPending ? t("admin.sshTesting") : t("admin.sshTest")}
@@ -73,7 +76,7 @@ function NodeOpsPage() {
         {canAct && (
           <div className="flex flex-wrap gap-2 mt-3">
             {quickCommands.map((qc) => (
-              <button key={qc.label} onClick={() => execMutation.mutate(qc.cmd)}
+              <button key={qc.label} onClick={() => runExec(qc.cmd)}
                 disabled={execMutation.isPending}
                 className="px-3 py-1.5 text-xs bg-muted/50 text-muted-foreground rounded hover:bg-muted disabled:opacity-50">
                 {qc.label}

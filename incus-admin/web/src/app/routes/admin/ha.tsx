@@ -1,28 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
 import { useClustersQuery } from "@/features/clusters/api";
-import { queryClient } from "@/shared/lib/query-client";
+import {
+  type HANodeInfo,
+  useHAStatusQuery,
+  useHAEvacuateMutation,
+} from "@/features/nodes/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/admin/ha")({
   component: HAPage,
 });
-
-interface HAStatus {
-  cluster: string;
-  healing_threshold: number;
-  storage: string;
-  ha_enabled: boolean;
-  nodes: Array<{
-    server_name: string;
-    url: string;
-    status: string;
-    message: string;
-    roles: string;
-  }>;
-}
 
 function HAPage() {
   const { t } = useTranslation();
@@ -30,12 +18,8 @@ function HAPage() {
   const clusters = clustersData?.clusters ?? [];
   const clusterName = clusters[0]?.name ?? "";
 
-  const { data: ha, isLoading } = useQuery({
-    queryKey: ["haStatus", clusterName],
-    queryFn: () => http.get<HAStatus>(`/admin/clusters/${clusterName}/ha`),
-    enabled: !!clusterName,
-    refetchInterval: 15_000,
-  });
+  const { data: ha, isLoading } = useHAStatusQuery(clusterName);
+  const evacuateMutation = useHAEvacuateMutation(clusterName);
 
   return (
     <div>
@@ -87,7 +71,12 @@ function HAPage() {
               </thead>
               <tbody>
                 {ha.nodes.map((node) => (
-                  <NodeRow key={node.server_name} node={node} clusterName={clusterName} />
+                  <NodeRow
+                    key={node.server_name}
+                    node={node}
+                    onEvacuate={() => evacuateMutation.mutate(node.server_name)}
+                    pending={evacuateMutation.isPending}
+                  />
                 ))}
               </tbody>
             </table>
@@ -98,13 +87,17 @@ function HAPage() {
   );
 }
 
-function NodeRow({ node, clusterName }: { node: HAStatus["nodes"][0]; clusterName: string }) {
+function NodeRow({
+  node,
+  onEvacuate,
+  pending,
+}: {
+  node: HANodeInfo;
+  onEvacuate: () => void;
+  pending: boolean;
+}) {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const evacuateMutation = useMutation({
-    mutationFn: () => http.post(`/admin/clusters/${clusterName}/nodes/${node.server_name}/evacuate`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["haStatus"] }),
-  });
 
   const isOnline = node.status === "Online" || node.status === "ONLINE";
 
@@ -126,12 +119,12 @@ function NodeRow({ node, clusterName }: { node: HAStatus["nodes"][0]; clusterNam
                 message: t("deleteConfirm.evacuateMessage", { node: node.server_name }),
                 destructive: true,
               });
-              if (ok) evacuateMutation.mutate();
+              if (ok) onEvacuate();
             }}
-            disabled={evacuateMutation.isPending}
+            disabled={pending}
             className="px-3 py-1 text-xs bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
           >
-            {evacuateMutation.isPending ? t("admin.evacuating") : t("admin.evacuate")}
+            {pending ? t("admin.evacuating") : t("admin.evacuate")}
           </button>
         )}
       </td>

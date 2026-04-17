@@ -21,16 +21,23 @@ export interface TicketMessage {
   created_at: string;
 }
 
+export const ticketKeys = {
+  all: ["ticket"] as const,
+  myList: () => [...ticketKeys.all, "list", "my"] as const,
+  adminList: () => [...ticketKeys.all, "list", "admin"] as const,
+  detail: (id: number) => [...ticketKeys.all, "detail", id] as const,
+};
+
 export function useMyTicketsQuery() {
   return useQuery({
-    queryKey: ["myTickets"],
+    queryKey: ticketKeys.myList(),
     queryFn: () => http.get<{ tickets: Ticket[] }>("/portal/tickets"),
   });
 }
 
 export function useAdminTicketsQuery() {
   return useQuery({
-    queryKey: ["adminTickets"],
+    queryKey: ticketKeys.adminList(),
     queryFn: () => http.get<{ tickets: Ticket[] }>("/admin/tickets"),
     refetchInterval: 15_000,
   });
@@ -38,7 +45,7 @@ export function useAdminTicketsQuery() {
 
 export function useTicketDetailQuery(id: number, base: "/portal" | "/admin") {
   return useQuery({
-    queryKey: ["ticketDetail", id],
+    queryKey: ticketKeys.detail(id),
     queryFn: () => http.get<{ ticket: Ticket; messages: TicketMessage[] }>(`${base}/tickets/${id}`),
   });
 }
@@ -47,23 +54,20 @@ export function useCreateTicketMutation() {
   return useMutation({
     mutationFn: (params: { subject: string; body: string; priority: string }) =>
       http.post("/portal/tickets", params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myTickets"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ticketKeys.all }),
   });
 }
 
 export function useReplyTicketMutation(ticketId: number, base: "/portal" | "/admin") {
   return useMutation({
     mutationFn: (body: string) => http.post(`${base}/tickets/${ticketId}/messages`, { body }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ticketDetail", ticketId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ticketKeys.detail(ticketId) }),
   });
 }
 
 export function useUpdateTicketStatusMutation(ticketId: number) {
   return useMutation({
     mutationFn: (status: string) => http.put(`/admin/tickets/${ticketId}/status`, { status }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminTickets"] });
-      queryClient.invalidateQueries({ queryKey: ["ticketDetail", ticketId] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ticketKeys.all }),
   });
 }

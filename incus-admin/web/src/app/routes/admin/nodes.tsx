@@ -1,43 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { useTranslation } from "react-i18next";
+import { queryClient } from "@/shared/lib/query-client";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  type ClusterNode,
+  nodeKeys,
+  useAdminNodesQuery,
+  useAdminNodeDetailQuery,
+  useNodeEvacuateMutation,
+  useNodeRestoreMutation,
+} from "@/features/nodes/api";
 
 export const Route = createFileRoute("/admin/nodes")({
   component: NodesPage,
 });
-
-interface ClusterNode {
-  cluster: string;
-  server_name: string;
-  url: string;
-  status: string;
-  message: string;
-  architecture: string;
-  roles: string[];
-  description: string;
-}
-
-interface NodeInstance {
-  name: string;
-  status: string;
-  type: string;
-  location: string;
-}
 
 function NodesPage() {
   const { t } = useTranslation();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedCluster, setSelectedCluster] = useState<string>("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["adminNodes"],
-    queryFn: () => http.get<{ nodes: ClusterNode[] }>("/admin/nodes"),
-    refetchInterval: 15000,
-  });
+  const { data, isLoading } = useAdminNodesQuery();
 
   const nodes = data?.nodes ?? [];
 
@@ -54,7 +38,7 @@ function NodesPage() {
           </a>
           <button
             onClick={() =>
-              queryClient.invalidateQueries({ queryKey: ["adminNodes"] })
+              queryClient.invalidateQueries({ queryKey: nodeKeys.all })
             }
             className="px-3 py-1.5 text-sm border border-border rounded hover:bg-muted"
           >
@@ -178,35 +162,10 @@ function NodeDetail({
   const { t } = useTranslation();
   const confirm = useConfirm();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["adminNodeDetail", clusterName, nodeName],
-    queryFn: () =>
-      http.get<{ node: Record<string, unknown>; instances: NodeInstance[] }>(
-        `/admin/nodes/${nodeName}?cluster=${clusterName}`,
-      ),
-  });
+  const { data, isLoading } = useAdminNodeDetailQuery(clusterName, nodeName);
 
-  const evacuateMutation = useMutation({
-    mutationFn: () =>
-      http.post(`/admin/nodes/${nodeName}/evacuate?cluster=${clusterName}`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminNodes"] });
-      queryClient.invalidateQueries({
-        queryKey: ["adminNodeDetail", clusterName, nodeName],
-      });
-    },
-  });
-
-  const restoreMutation = useMutation({
-    mutationFn: () =>
-      http.post(`/admin/nodes/${nodeName}/restore?cluster=${clusterName}`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminNodes"] });
-      queryClient.invalidateQueries({
-        queryKey: ["adminNodeDetail", clusterName, nodeName],
-      });
-    },
-  });
+  const evacuateMutation = useNodeEvacuateMutation(clusterName, nodeName);
+  const restoreMutation = useNodeRestoreMutation(clusterName, nodeName);
 
   const instances = data?.instances ?? [];
   const nodeInfo = data?.node as Record<string, unknown> | undefined;

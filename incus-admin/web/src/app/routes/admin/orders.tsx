@@ -1,31 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
+import { useAdminOrdersQuery } from "@/features/billing/api";
 
 export const Route = createFileRoute("/admin/orders")({
   component: AdminOrdersPage,
 });
 
-interface Order {
-  id: number;
-  user_id: number;
-  product_id: number;
-  cluster_id: number;
-  status: string;
-  amount: number;
-  expires_at: string | null;
-  created_at: string;
-}
-
 function AdminOrdersPage() {
   const { t } = useTranslation();
-  const { data, isLoading } = useQuery({
-    queryKey: ["adminOrders"],
-    queryFn: () => http.get<{ orders: Order[] }>("/admin/orders"),
-    refetchInterval: 15_000,
-  });
-
+  const { data, isLoading } = useAdminOrdersQuery();
   const orders = data?.orders ?? [];
 
   return (
@@ -80,7 +63,7 @@ function AdminOrdersPage() {
 
 function OrderStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    pending: "bg-yellow-500/20 text-yellow-600",
+    pending: "bg-warning/20 text-warning",
     paid: "bg-primary/20 text-primary",
     active: "bg-success/20 text-success",
     expired: "bg-muted text-muted-foreground",

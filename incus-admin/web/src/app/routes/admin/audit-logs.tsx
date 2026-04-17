@@ -1,25 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
+import { type AuditLog, useAuditLogsQuery } from "@/features/audit-logs/api";
 
 export const Route = createFileRoute("/admin/audit-logs")({
   component: AuditLogsPage,
 });
 
-interface AuditLog {
-  id: number;
-  user_id: number | null;
-  action: string;
-  target_type: string;
-  target_id: number;
-  details: string;
-  ip_address: string;
-  created_at: string;
-}
-
-// Falls back to details["name"] when target_id is 0 (e.g. admin ops where we didn't persist the id).
 function targetLabel(log: AuditLog): string {
   if (log.target_id && log.target_id > 0) return `${log.target_type} #${log.target_id}`;
   try {
@@ -37,15 +24,7 @@ function AuditLogsPage() {
   const [offset, setOffset] = useState(0);
   const limit = 50;
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["auditLogs", offset],
-    queryFn: () =>
-      http.get<{ logs: AuditLog[]; total: number }>(
-        "/admin/audit-logs",
-        { limit: String(limit), offset: String(offset) },
-      ),
-    refetchInterval: 15_000,
-  });
+  const { data, isLoading } = useAuditLogsQuery(offset, limit);
 
   const logs = data?.logs ?? [];
   const total = data?.total ?? 0;

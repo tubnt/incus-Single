@@ -1,45 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { useTranslation } from "react-i18next";
+import {
+  type Product,
+  type ProductFormData,
+  useAdminProductsQuery,
+  useCreateProductMutation,
+  useUpdateProductMutation,
+} from "@/features/products/api";
 
 export const Route = createFileRoute("/admin/products")({
   component: ProductsPage,
 });
-
-interface Product {
-  id: number;
-  name: string;
-  slug: string;
-  cpu: number;
-  memory_mb: number;
-  disk_gb: number;
-  bandwidth_tb: number;
-  price_monthly: number;
-  access: string;
-  active: boolean;
-  sort_order: number;
-}
 
 function ProductsPage() {
   const { t } = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["adminProducts"],
-    queryFn: () => http.get<{ products: Product[] }>("/admin/products"),
-  });
-
-  const toggleMutation = useMutation({
-    mutationFn: (p: Product) =>
-      http.put(`/admin/products/${p.id}`, { ...p, active: !p.active }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["adminProducts"] }),
-  });
-
+  const { data, isLoading } = useAdminProductsQuery();
   const products = data?.products ?? [];
 
   return (
@@ -57,11 +36,7 @@ function ProductsPage() {
         </button>
       </div>
 
-      {showCreate && (
-        <ProductForm
-          onDone={() => setShowCreate(false)}
-        />
-      )}
+      {showCreate && <ProductForm onDone={() => setShowCreate(false)} />}
 
       {editingProduct && (
         <ProductForm
@@ -91,61 +66,72 @@ function ProductsPage() {
             </thead>
             <tbody>
               {products.map((p) => (
-                <tr key={p.id} className="border-t border-border">
-                  <td className="px-4 py-2">
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">{p.slug}</div>
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {p.cpu}C / {(p.memory_mb / 1024).toFixed(0)}G RAM / {p.disk_gb}G SSD
-                    {p.bandwidth_tb > 0 && ` / ${p.bandwidth_tb}TB`}
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono">
-                    ${p.price_monthly.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${p.active ? "bg-success/20 text-success" : "bg-muted text-muted-foreground"}`}
-                    >
-                      {p.active
-                        ? t("admin.products.active", "上架")
-                        : t("admin.products.inactive", "下架")}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">{p.access}</td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => {
-                          setEditingProduct(p);
-                          setShowCreate(false);
-                        }}
-                        className="px-2 py-1 text-xs rounded border border-border hover:bg-muted"
-                      >
-                        {t("common.edit", "编辑")}
-                      </button>
-                      <button
-                        onClick={() => toggleMutation.mutate(p)}
-                        disabled={toggleMutation.isPending}
-                        className={`px-2 py-1 text-xs rounded border ${
-                          p.active
-                            ? "border-destructive/30 text-destructive hover:bg-destructive/10"
-                            : "border-success/30 text-success hover:bg-success/10"
-                        }`}
-                      >
-                        {p.active
-                          ? t("admin.products.deactivate", "下架")
-                          : t("admin.products.activate", "上架")}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <ProductRow
+                  key={p.id}
+                  product={p}
+                  onEdit={() => {
+                    setEditingProduct(p);
+                    setShowCreate(false);
+                  }}
+                />
               ))}
             </tbody>
           </table>
         </div>
       )}
     </div>
+  );
+}
+
+function ProductRow({ product, onEdit }: { product: Product; onEdit: () => void }) {
+  const { t } = useTranslation();
+  const toggleMutation = useUpdateProductMutation(product.id);
+
+  return (
+    <tr className="border-t border-border">
+      <td className="px-4 py-2">
+        <div className="font-medium">{product.name}</div>
+        <div className="text-xs text-muted-foreground">{product.slug}</div>
+      </td>
+      <td className="px-4 py-2 text-muted-foreground">
+        {product.cpu}C / {(product.memory_mb / 1024).toFixed(0)}G RAM / {product.disk_gb}G SSD
+        {product.bandwidth_tb > 0 && ` / ${product.bandwidth_tb}TB`}
+      </td>
+      <td className="px-4 py-2 text-right font-mono">${product.price_monthly.toFixed(2)}</td>
+      <td className="px-4 py-2">
+        <span
+          className={`px-2 py-0.5 rounded text-xs font-medium ${product.active ? "bg-success/20 text-success" : "bg-muted text-muted-foreground"}`}
+        >
+          {product.active
+            ? t("admin.products.active", "上架")
+            : t("admin.products.inactive", "下架")}
+        </span>
+      </td>
+      <td className="px-4 py-2 text-xs text-muted-foreground">{product.access}</td>
+      <td className="px-4 py-2 text-right">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onEdit}
+            className="px-2 py-1 text-xs rounded border border-border hover:bg-muted"
+          >
+            {t("common.edit", "编辑")}
+          </button>
+          <button
+            onClick={() => toggleMutation.mutate({ ...product, active: !product.active })}
+            disabled={toggleMutation.isPending}
+            className={`px-2 py-1 text-xs rounded border ${
+              product.active
+                ? "border-destructive/30 text-destructive hover:bg-destructive/10"
+                : "border-success/30 text-success hover:bg-success/10"
+            }`}
+          >
+            {product.active
+              ? t("admin.products.deactivate", "下架")
+              : t("admin.products.activate", "上架")}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -159,7 +145,7 @@ function ProductForm({
   const { t } = useTranslation();
   const isEdit = !!product;
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ProductFormData>({
     name: product?.name ?? "",
     slug: product?.slug ?? "",
     cpu: product?.cpu ?? 1,
@@ -172,18 +158,13 @@ function ProductForm({
     sort_order: product?.sort_order ?? 0,
   });
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      isEdit
-        ? http.put(`/admin/products/${product!.id}`, form)
-        : http.post("/admin/products", form),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminProducts"] });
-      onDone();
-    },
-  });
+  const createMutation = useCreateProductMutation();
+  const updateMutation = useUpdateProductMutation(product?.id ?? 0);
+  const mutation = isEdit ? updateMutation : createMutation;
 
-  const set = (k: string, v: string | number | boolean) =>
+  const onSubmit = () => mutation.mutate(form, { onSuccess: onDone });
+
+  const set = (k: keyof ProductFormData, v: string | number | boolean) =>
     setForm({ ...form, [k]: v });
 
   return (
@@ -268,7 +249,7 @@ function ProductForm({
         </div>
       )}
       <button
-        onClick={() => mutation.mutate()}
+        onClick={onSubmit}
         disabled={mutation.isPending || !form.name}
         className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
       >

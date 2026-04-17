@@ -1,14 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
-import { useMyVMDetailQuery, useVMActionMutation, vmKeys } from "@/features/vms/api";
+import {
+  useMyVMDetailQuery,
+  useResetVMPasswordMutation,
+  useVMActionMutation,
+} from "@/features/vms/api";
 
 export const Route = createFileRoute("/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -29,14 +30,15 @@ function UserVMDetailPage() {
 
   const actionMutation = useVMActionMutation(id);
 
-  const resetPwdMutation = useMutation({
-    mutationFn: () => http.post<{ password: string; username: string }>(`/portal/services/${id}/reset-password`, {}),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(id) });
-      toast.success(t("vm.passwordResetToast", { password: data.password }), { duration: 15000 });
-    },
-    onError: () => toast.error(t("vm.passwordResetFailed")),
-  });
+  const resetPwdMutation = useResetVMPasswordMutation(id);
+  const runResetPwd = () =>
+    resetPwdMutation.mutate(undefined, {
+      onSuccess: (data) =>
+        toast.success(t("vm.passwordResetToast", { password: data.password }), {
+          duration: 15000,
+        }),
+      onError: () => toast.error(t("vm.passwordResetFailed")),
+    });
 
   if (id > 0 && isLoading) {
     return <div className="text-muted-foreground p-8">{t("common.loading")}</div>;
@@ -84,7 +86,7 @@ function UserVMDetailPage() {
                     title: t("deleteConfirm.resetPwdTitle"),
                     message: t("deleteConfirm.resetPwdMessage"),
                   });
-                  if (ok) resetPwdMutation.mutate();
+                  if (ok) runResetPwd();
                 }}
                 disabled={resetPwdMutation.isPending}
                 className="px-3 py-1.5 rounded text-xs font-medium bg-warning/20 text-warning hover:bg-warning/30 disabled:opacity-50"

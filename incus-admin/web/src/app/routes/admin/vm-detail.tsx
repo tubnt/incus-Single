@@ -1,13 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  useClusterVMsQuery,
+  useDeleteVMMutation,
+  useMigrateVMMutation,
+  useVMStateMutation,
+} from "@/features/vms/api";
 
 export const Route = createFileRoute("/admin/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -18,11 +21,6 @@ export const Route = createFileRoute("/admin/vm-detail")({
   component: VMDetailPage,
 });
 
-interface ClusterVMsResponse {
-  vms: Array<{ name: string; status: string; project?: string }>;
-  count: number;
-}
-
 function VMDetailPage() {
   const { t } = useTranslation();
   const { name, cluster, project } = Route.useSearch();
@@ -32,40 +30,40 @@ function VMDetailPage() {
   const [migrateTarget, setMigrateTarget] = useState("");
   const [showMigrate, setShowMigrate] = useState(false);
 
-  const { data: vmsData, isLoading: vmsLoading } = useQuery({
-    queryKey: ["adminClusterVMs", cluster],
-    queryFn: () => http.get<ClusterVMsResponse>(`/admin/clusters/${cluster}/vms`),
-    enabled: !!cluster,
-  });
-
+  const { data: vmsData, isLoading: vmsLoading } = useClusterVMsQuery(cluster, 15_000);
   const exists = !vmsLoading && !!vmsData?.vms?.some((v) => v.name === name);
 
-  const stateMutation = useMutation({
-    mutationFn: (action: string) =>
-      http.put(`/admin/vms/${name}/state`, { action, cluster, project }),
-    onSuccess: (_data, action) => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      toast.success(`${name}: ${action} submitted`);
-    },
-    onError: (_err, action) => toast.error(`${name}: ${action} failed`),
-  });
+  const stateMutation = useVMStateMutation();
+  const migrateMutation = useMigrateVMMutation();
+  const deleteMutation = useDeleteVMMutation();
 
-  const migrateMutation = useMutation({
-    mutationFn: (targetNode: string) =>
-      http.post(`/admin/vms/${name}/migrate`, { cluster, project, target_node: targetNode }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      toast.success(`${name} migrated`);
-      setShowMigrate(false);
-      setMigrateTarget("");
-    },
-    onError: () => toast.error(`${name} migration failed`),
-  });
+  const runAction = (action: string) =>
+    stateMutation.mutate(
+      { name, action, cluster, project },
+      {
+        onSuccess: () => toast.success(`${name}: ${action} ${t("vm.actionSubmitted")}`),
+        onError: () => toast.error(`${name}: ${action} ${t("vm.actionFailed")}`),
+      },
+    );
 
-  const deleteMutation = useMutation({
-    mutationFn: () => http.delete(`/admin/vms/${name}`, { cluster, project }),
-    onSuccess: () => navigate({ to: "/admin/vms" }),
-  });
+  const runMigrate = (target: string) =>
+    migrateMutation.mutate(
+      { name, cluster, project, target_node: target },
+      {
+        onSuccess: () => {
+          toast.success(`${name} ${t("admin.migrated", { defaultValue: "migrated" })}`);
+          setShowMigrate(false);
+          setMigrateTarget("");
+        },
+        onError: () => toast.error(`${name} ${t("admin.migrateFailed", { defaultValue: "migration failed" })}`),
+      },
+    );
+
+  const runDelete = () =>
+    deleteMutation.mutate(
+      { name, cluster, project },
+      { onSuccess: () => navigate({ to: "/admin/vms" }) },
+    );
 
   if (!name || !cluster) {
     return <div className="text-muted-foreground p-8">Missing vm name or cluster.</div>;
@@ -100,16 +98,16 @@ function VMDetailPage() {
         <div className="flex gap-2">
           <a href={`/console?vm=${name}&cluster=${cluster}&project=${project}`}
             className="px-3 py-1.5 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30">
-            Console
+            {t("vm.console")}
           </a>
-          <ActionBtn label={t("vm.start")} onClick={() => stateMutation.mutate("start")} disabled={stateMutation.isPending} />
-          <ActionBtn label={t("vm.stop")} onClick={() => stateMutation.mutate("stop")} disabled={stateMutation.isPending} />
-          <ActionBtn label={t("vm.restart")} onClick={() => stateMutation.mutate("restart")} disabled={stateMutation.isPending} />
+          <ActionBtn label={t("vm.start")} onClick={() => runAction("start")} disabled={stateMutation.isPending} />
+          <ActionBtn label={t("vm.stop")} onClick={() => runAction("stop")} disabled={stateMutation.isPending} />
+          <ActionBtn label={t("vm.restart")} onClick={() => runAction("restart")} disabled={stateMutation.isPending} />
           <button
             onClick={() => setShowMigrate(!showMigrate)}
             className="px-3 py-1.5 rounded text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20"
           >
-            {t("admin.migrate", "Migrate")}
+            {t("admin.migrate", { defaultValue: "Migrate" })}
           </button>
           <button
             onClick={async () => {
@@ -118,7 +116,7 @@ function VMDetailPage() {
                 message: t("deleteConfirm.vmMessage", { name }),
                 destructive: true,
               });
-              if (ok) deleteMutation.mutate();
+              if (ok) runDelete();
             }}
             disabled={deleteMutation.isPending}
             className="px-3 py-1.5 rounded text-xs font-medium bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
@@ -130,11 +128,11 @@ function VMDetailPage() {
 
       {showMigrate && (
         <div className="border border-border rounded-lg bg-card p-4 mb-4">
-          <h3 className="font-semibold text-sm mb-2">{t("admin.migrateTitle", "Migrate to target node")}</h3>
+          <h3 className="font-semibold text-sm mb-2">{t("admin.migrateTitle", { defaultValue: "Migrate to target node" })}</h3>
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder={t("admin.targetNode", "Target node name")}
+              placeholder={t("admin.targetNode", { defaultValue: "Target node name" })}
               value={migrateTarget}
               onChange={(e) => setMigrateTarget(e.target.value)}
               className="flex-1 px-3 py-2 rounded border border-border bg-card text-sm font-mono"
@@ -146,12 +144,12 @@ function VMDetailPage() {
                   title: t("deleteConfirm.migrateTitle"),
                   message: t("deleteConfirm.migrateMessage", { name, target: migrateTarget }),
                 });
-                if (ok) migrateMutation.mutate(migrateTarget);
+                if (ok) runMigrate(migrateTarget);
               }}
               disabled={migrateMutation.isPending || !migrateTarget}
               className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
             >
-              {migrateMutation.isPending ? "..." : t("admin.migrateRun", "Migrate")}
+              {migrateMutation.isPending ? "..." : t("admin.migrateRun", { defaultValue: "Migrate" })}
             </button>
           </div>
         </div>
@@ -161,7 +159,11 @@ function VMDetailPage() {
         {(["overview", "console", "snapshots"] as const).map((tKey) => (
           <button key={tKey} onClick={() => setTab(tKey)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === tKey ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-            {tKey === "overview" ? "Overview" : tKey === "console" ? "Console" : "Snapshots"}
+            {tKey === "overview"
+              ? t("vm.tabOverview", { defaultValue: "Overview" })
+              : tKey === "console"
+              ? t("vm.console")
+              : t("vm.snapshots")}
           </button>
         ))}
       </div>

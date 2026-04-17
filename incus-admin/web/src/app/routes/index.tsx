@@ -2,10 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
-import { useMyVMsQuery } from "@/features/vms/api";
+import { useClusterVMsQuery, useMyVMsQuery } from "@/features/vms/api";
 import { useMyTicketsQuery } from "@/features/tickets/api";
 import { useClustersQuery } from "@/features/clusters/api";
-import { http } from "@/shared/lib/http";
+import { useHealthQuery } from "@/features/monitoring/api";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
@@ -50,20 +50,13 @@ function StatCard({ title, value }: { title: string; value: string }) {
 
 function AdminSection() {
   const { t } = useTranslation();
-  const { data: healthData } = useQuery({
-    queryKey: ["adminHealth"],
-    queryFn: () => http.get<{ status: string }>("/health"),
-  });
+  const { data: healthData } = useHealthQuery();
 
   const { data: clustersData } = useClustersQuery();
   const clusters = clustersData?.clusters ?? [];
   const totalNodes = clusters.reduce((sum, c) => sum + (c.nodes || 0), 0);
 
-  const { data: vmsData } = useQuery({
-    queryKey: ["adminClusterVMs", clusters[0]?.name],
-    queryFn: () => clusters[0] ? http.get<{ count: number }>(`/admin/clusters/${clusters[0].name}/vms`) : Promise.resolve({ count: 0 }),
-    enabled: clusters.length > 0,
-  });
+  const { data: vmsData } = useClusterVMsQuery(clusters[0]?.name ?? "");
 
   return (
     <div className="mt-8">

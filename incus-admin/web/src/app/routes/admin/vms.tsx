@@ -1,40 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { useClustersQuery } from "@/features/clusters/api";
+import {
+  type IncusInstance,
+  extractIP,
+  useClusterVMsQuery,
+  useDeleteVMMutation,
+  useReinstallVMMutation,
+  useVMStateMutation,
+} from "@/features/vms/api";
 
 export const Route = createFileRoute("/admin/vms")({
   component: AllVMsPage,
 });
 
-interface IncusInstance {
-  name: string;
-  status: string;
-  type: string;
-  location: string;
-  project: string;
-  config: Record<string, string>;
-  ip?: string;
-  state?: {
-    network?: Record<string, {
-      addresses: Array<{ address: string; family: string; scope: string }>;
-    }>;
-  };
-}
-
 function AllVMsPage() {
   const { t } = useTranslation();
-  const { data: clustersData } = useQuery({
-    queryKey: ["adminClusters"],
-    queryFn: () => http.get<{ clusters: Array<{ name: string; display_name: string }> }>("/admin/clusters"),
-  });
-
+  const { data: clustersData } = useClustersQuery();
   const clusters = clustersData?.clusters ?? [];
 
   return (
@@ -52,23 +39,9 @@ function AllVMsPage() {
   );
 }
 
-interface ClusterVMsResponse {
-  vms: IncusInstance[];
-  count: number;
-  stale?: boolean;
-  cached_at?: string;
-  error?: string;
-  warning?: string;
-}
-
 function ClusterVMs({ clusterName, displayName }: { clusterName: string; displayName: string }) {
   const { t } = useTranslation();
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["adminClusterVMs", clusterName],
-    queryFn: () => http.get<ClusterVMsResponse>(`/admin/clusters/${clusterName}/vms`),
-    refetchInterval: 15_000,
-    retry: 1,
-  });
+  const { data, isLoading, isError, error } = useClusterVMsQuery(clusterName, 15_000);
 
   const vms = data?.vms ?? [];
   const isStale = data?.stale;
@@ -141,34 +114,33 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
   const [showSnaps, setShowSnaps] = useState(false);
   const [showMetrics, setShowMetrics] = useState(false);
   const [showReinstall, setShowReinstall] = useState(false);
-  const ip = extractIP(vm);
+  const ip = vm.ip || extractIP(vm);
   const project = vm.project || "customers";
 
-  const stateMutation = useMutation({
-    mutationFn: (action: string) =>
-      http.put(`/admin/vms/${vm.name}/state`, { action, cluster: clusterName, project }),
-    onSuccess: (_data, action) => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      toast.success(`${vm.name}: ${action} ${t("vm.actionSubmitted")}`);
-    },
-    onError: (_err, action) => {
-      toast.error(`${vm.name}: ${action} ${t("vm.actionFailed")}`);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () =>
-      http.delete(`/admin/vms/${vm.name}`, { cluster: clusterName, project }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      toast.success(`${vm.name} ${t("vm.deleted")}`);
-    },
-    onError: () => {
-      toast.error(`${vm.name} ${t("vm.deleteFailed")}`);
-    },
-  });
+  const stateMutation = useVMStateMutation();
+  const deleteMutation = useDeleteVMMutation();
 
   const isActing = stateMutation.isPending || deleteMutation.isPending;
+
+  const runAction = (action: string) => {
+    stateMutation.mutate(
+      { name: vm.name, action, cluster: clusterName, project },
+      {
+        onSuccess: () => toast.success(`${vm.name}: ${action} ${t("vm.actionSubmitted")}`),
+        onError: () => toast.error(`${vm.name}: ${action} ${t("vm.actionFailed")}`),
+      },
+    );
+  };
+
+  const runDelete = () => {
+    deleteMutation.mutate(
+      { name: vm.name, cluster: clusterName, project },
+      {
+        onSuccess: () => toast.success(`${vm.name} ${t("vm.deleted")}`),
+        onError: () => toast.error(`${vm.name} ${t("vm.deleteFailed")}`),
+      },
+    );
+  };
 
   return (
     <>
@@ -189,7 +161,7 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
         <div className="flex gap-1 justify-end">
           {vm.status === "Stopped" && (
             <ActionBtn label={t("vm.start")} color="success" disabled={isActing}
-              onClick={() => stateMutation.mutate("start")} />
+              onClick={() => runAction("start")} />
           )}
           {vm.status === "Running" && (
             <>
@@ -200,9 +172,9 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
                 {t("vm.console")}
               </a>
               <ActionBtn label={t("vm.stop")} color="muted" disabled={isActing}
-                onClick={() => stateMutation.mutate("stop")} />
+                onClick={() => runAction("stop")} />
               <ActionBtn label={t("vm.restart")} color="muted" disabled={isActing}
-                onClick={() => stateMutation.mutate("restart")} />
+                onClick={() => runAction("restart")} />
             </>
           )}
           {vm.status === "Running" && (
@@ -220,7 +192,7 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
                 message: t("deleteConfirm.vmMessage", { name: vm.name }),
                 destructive: true,
               });
-              if (ok) deleteMutation.mutate();
+              if (ok) runDelete();
             }} />
         </div>
       </td>
@@ -257,20 +229,20 @@ function ReinstallPanel({ vmName, cluster, project, onDone }: {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const [os, setOs] = useState(OS_IMAGES[0]!.value);
+  const mutation = useReinstallVMMutation();
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      http.post<{ status: string; password: string; username: string }>(
-        `/admin/vms/${vmName}/reinstall`,
-        { cluster, project, os_image: os },
-      ),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] });
-      toast.success(t("vm.reinstallDone", { username: data.username, password: data.password }), { duration: 20_000 });
-      onDone();
-    },
-    onError: (err) => toast.error((err as Error).message),
-  });
+  const run = () => {
+    mutation.mutate(
+      { name: vmName, cluster, project, os_image: os },
+      {
+        onSuccess: (data) => {
+          toast.success(t("vm.reinstallDone", { username: data.username, password: data.password }), { duration: 20_000 });
+          onDone();
+        },
+        onError: (err) => toast.error((err as Error).message),
+      },
+    );
+  };
 
   return (
     <div className="p-4 bg-card/50 border-t border-border">
@@ -295,7 +267,7 @@ function ReinstallPanel({ vmName, cluster, project, onDone }: {
               message: t("deleteConfirm.reinstallMessage", { name: vmName }),
               destructive: true,
             });
-            if (ok) mutation.mutate();
+            if (ok) run();
           }}
           disabled={mutation.isPending}
           className="px-3 py-1 text-xs bg-destructive text-destructive-foreground rounded disabled:opacity-50"
@@ -330,20 +302,6 @@ function ActionBtn({ label, color, disabled, onClick }: {
       {label}
     </button>
   );
-}
-
-function extractIP(vm: IncusInstance): string {
-  if (vm.ip) return vm.ip;
-  if (!vm.state?.network) return "";
-  for (const [nic, data] of Object.entries(vm.state.network)) {
-    if (nic === "lo") continue;
-    for (const addr of data.addresses) {
-      if (addr.family === "inet" && addr.scope === "global") {
-        return addr.address;
-      }
-    }
-  }
-  return "";
 }
 
 function StatusBadge({ status }: { status: string }) {
