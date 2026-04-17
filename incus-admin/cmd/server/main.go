@@ -51,6 +51,7 @@ func main() {
 	slog.Info("database connected")
 
 	userRepo := repository.NewUserRepo(db)
+	clusterRepo := repository.NewClusterRepo(db)
 
 	var clusterMgr *cluster.Manager
 	var scheduler *cluster.Scheduler
@@ -61,6 +62,15 @@ func main() {
 		if err != nil {
 			slog.Warn("cluster manager init failed, running without clusters", "error", err)
 		} else {
+			// Seed DB clusters table from config and populate ID↔Name maps.
+			for _, cc := range cfg.Clusters {
+				id, upErr := clusterRepo.Upsert(context.Background(), cc.Name, cc.DisplayName, cc.APIURL)
+				if upErr != nil {
+					slog.Error("cluster upsert failed", "name", cc.Name, "error", upErr)
+					continue
+				}
+				clusterMgr.SetID(cc.Name, id)
+			}
 			scheduler = cluster.NewScheduler(clusterMgr)
 			vmSvc = service.NewVMService(clusterMgr)
 			slog.Info("cluster manager ready", "clusters", len(clusterMgr.List()))

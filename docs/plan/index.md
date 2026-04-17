@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-04-16
+> Updated: 2026-04-17
 
 ## Usage
 
@@ -39,3 +39,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [ ] [**PLAN-008 QA fixes + three-persona user journey gaps**](PLAN-008.md) `2026-04-16`
 - [x] [**PLAN-009 Code review follow-up — PLAN-008 findings**](PLAN-009.md) `2026-04-16`
 - [x] [**PLAN-010 Production QA bug fixes (post-PLAN-009)**](PLAN-010.md) `2026-04-16`
+- [-] [**PLAN-011 Frontend pma-web compliance cleanup**](PLAN-011.md) `2026-04-17`

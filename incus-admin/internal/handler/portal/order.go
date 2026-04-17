@@ -188,7 +188,7 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 
 	vm := &model.VM{
 		Name:      result.VMName,
-		ClusterID: 1,
+		ClusterID: h.clusters.IDByName(client.Name),
 		UserID:    userID,
 		OrderID:   &orderID,
 		Status:    model.VMStatusRunning,

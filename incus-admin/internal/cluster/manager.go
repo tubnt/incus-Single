@@ -17,12 +17,16 @@ type Manager struct {
 	mu       sync.RWMutex
 	clients  map[string]*Client
 	configs  []config.ClusterConfig
+	idByName map[string]int64
+	nameByID map[int64]string
 }
 
 func NewManager(clusters []config.ClusterConfig) (*Manager, error) {
 	m := &Manager{
-		clients: make(map[string]*Client),
-		configs: clusters,
+		clients:  make(map[string]*Client),
+		configs:  clusters,
+		idByName: make(map[string]int64),
+		nameByID: make(map[int64]string),
 	}
 
 	for _, cc := range clusters {
@@ -40,6 +44,55 @@ func NewManager(clusters []config.ClusterConfig) (*Manager, error) {
 	}
 
 	return m, nil
+}
+
+// NewTestManager builds a manager without instantiating HTTP clients; used from
+// unit tests that need cluster metadata (names, configs) without real TLS.
+func NewTestManager(clusters []config.ClusterConfig) *Manager {
+	return &Manager{
+		clients:  make(map[string]*Client),
+		configs:  clusters,
+		idByName: make(map[string]int64),
+		nameByID: make(map[int64]string),
+	}
+}
+
+// SetID associates the DB-side cluster row ID with the config cluster name.
+// Call once after repository-level upsert at startup.
+func (m *Manager) SetID(name string, id int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.idByName[name] = id
+	m.nameByID[id] = name
+}
+
+// IDByName returns the DB cluster id for a configured cluster name, 0 if unknown.
+func (m *Manager) IDByName(name string) int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.idByName[name]
+}
+
+// NameByID returns the configured cluster name for a DB id, empty if unknown.
+func (m *Manager) NameByID(id int64) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.nameByID[id]
+}
+
+// DisplayNameByName looks up display_name from the in-memory config map.
+func (m *Manager) DisplayNameByName(name string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, cc := range m.configs {
+		if cc.Name == name {
+			if cc.DisplayName != "" {
+				return cc.DisplayName
+			}
+			return cc.Name
+		}
+	}
+	return name
 }
 
 func (m *Manager) Get(name string) (*Client, bool) {

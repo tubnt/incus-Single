@@ -1,9 +1,10 @@
 # REFACTOR-001 Refactor frontend to pma-web standards
 
-- **status**: pending
+- **status**: in progress
 - **priority**: P1
-- **owner**: (unassigned)
+- **owner**: claude
 - **createdAt**: 2026-04-15 17:40
+- **startedAt**: 2026-04-17 02:35
 
 ## Description
 

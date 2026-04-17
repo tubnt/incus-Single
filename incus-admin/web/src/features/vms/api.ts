@@ -2,9 +2,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
 
+// VMService mirrors the backend VMServiceDTO. The password field is
+// intentionally absent — credentials are only returned in create/reset
+// responses, never from list/detail endpoints.
 export interface VMService {
   id: number;
   name: string;
+  cluster: string;
+  cluster_display_name: string;
+  project: string;
   ip: string | null;
   status: string;
   cpu: number;
@@ -12,8 +18,8 @@ export interface VMService {
   disk_gb: number;
   os_image: string;
   node: string;
-  password: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface IncusInstance {
@@ -30,18 +36,37 @@ export interface IncusInstance {
   };
 }
 
+// Cache key prefix so list + detail invalidate together:
+//   ["vm", "list", "my"]      portal list
+//   ["vm", "detail", id]      portal detail
+//   ["vm", "list", "cluster", name]  admin cluster list
+export const vmKeys = {
+  all: ["vm"] as const,
+  myList: () => [...vmKeys.all, "list", "my"] as const,
+  myDetail: (id: number) => [...vmKeys.all, "detail", id] as const,
+  clusterList: (clusterName: string) => [...vmKeys.all, "list", "cluster", clusterName] as const,
+};
+
 export function useMyVMsQuery() {
   return useQuery({
-    queryKey: ["myServices"],
-    queryFn: () => http.get<{ services: VMService[] }>("/portal/services"),
+    queryKey: vmKeys.myList(),
+    queryFn: () => http.get<{ vms: VMService[] }>("/portal/services"),
     refetchInterval: 15_000,
+  });
+}
+
+export function useMyVMDetailQuery(id: number) {
+  return useQuery({
+    queryKey: vmKeys.myDetail(id),
+    queryFn: () => http.get<{ vm: VMService }>(`/portal/services/${id}`),
+    enabled: id > 0,
   });
 }
 
 export function useVMActionMutation(vmId: number) {
   return useMutation({
     mutationFn: (action: string) => http.post(`/portal/services/${vmId}/actions/${action}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myServices"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 
@@ -49,7 +74,7 @@ export function useCreateVMMutation() {
   return useMutation({
     mutationFn: (params: { name?: string; cpu: number; memory_mb: number; disk_gb: number; os_image: string }) =>
       http.post("/portal/services", params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myServices"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 
@@ -62,7 +87,7 @@ export function useAdminClustersQuery() {
 
 export function useClusterVMsQuery(clusterName: string) {
   return useQuery({
-    queryKey: ["adminClusterVMs", clusterName],
+    queryKey: vmKeys.clusterList(clusterName),
     queryFn: () => http.get<{ vms: IncusInstance[]; count: number }>(`/admin/clusters/${clusterName}/vms`),
     refetchInterval: 10_000,
   });
@@ -72,7 +97,7 @@ export function useVMStateMutation() {
   return useMutation({
     mutationFn: (params: { name: string; action: string; cluster: string; project: string }) =>
       http.put(`/admin/vms/${params.name}/state`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 
@@ -80,7 +105,7 @@ export function useDeleteVMMutation() {
   return useMutation({
     mutationFn: (params: { name: string; cluster: string; project: string }) =>
       http.delete(`/admin/vms/${params.name}`, { cluster: params.cluster, project: params.project }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 
@@ -88,7 +113,7 @@ export function useReinstallVMMutation() {
   return useMutation({
     mutationFn: (params: { name: string; cluster: string; project: string; os_image: string }) =>
       http.post<{ status: string; password: string; username: string }>(`/admin/vms/${params.name}/reinstall`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["adminClusterVMs"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 
@@ -96,6 +121,7 @@ export function useAdminCreateVMMutation() {
   return useMutation({
     mutationFn: (params: { clusterName: string; data: Record<string, unknown> }) =>
       http.post(`/admin/clusters/${params.clusterName}/vms`, params.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 

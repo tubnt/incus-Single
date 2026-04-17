@@ -21,7 +21,7 @@ function Dashboard() {
   const { data: vmsData } = useMyVMsQuery();
   const { data: ticketsData } = useMyTicketsQuery();
 
-  const myVmCount = vmsData?.services?.length ?? 0;
+  const myVmCount = vmsData?.vms?.length ?? 0;
   const openTickets = ticketsData?.tickets?.filter((t) => t.status === "open").length ?? 0;
 
   return (

@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -8,6 +8,7 @@ import { queryClient } from "@/shared/lib/query-client";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { useMyVMDetailQuery, useVMActionMutation, vmKeys } from "@/features/vms/api";
 
 export const Route = createFileRoute("/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -16,20 +17,6 @@ export const Route = createFileRoute("/vm-detail")({
   component: UserVMDetailPage,
 });
 
-interface VMService {
-  id: number;
-  name: string;
-  ip: string | null;
-  status: string;
-  cpu: number;
-  memory_mb: number;
-  disk_gb: number;
-  os_image: string;
-  node: string;
-  password: string;
-  created_at: string;
-}
-
 function UserVMDetailPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
@@ -37,23 +24,15 @@ function UserVMDetailPage() {
   const { id } = Route.useSearch();
   const [tab, setTab] = useState<"overview" | "snapshots">("overview");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["myService", id],
-    queryFn: () => http.get<{ vm: VMService }>(`/portal/services/${id}`),
-    enabled: id > 0,
-  });
-
+  const { data, isLoading } = useMyVMDetailQuery(id);
   const vm = data?.vm;
 
-  const actionMutation = useMutation({
-    mutationFn: (action: string) => http.post(`/portal/services/${id}/actions/${action}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["myService", id] }),
-  });
+  const actionMutation = useVMActionMutation(id);
 
   const resetPwdMutation = useMutation({
     mutationFn: () => http.post<{ password: string; username: string }>(`/portal/services/${id}/reset-password`, {}),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["myService", id] });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(id) });
       toast.success(t("vm.passwordResetToast", { password: data.password }), { duration: 15000 });
     },
     onError: () => toast.error(t("vm.passwordResetFailed")),
@@ -93,7 +72,7 @@ function UserVMDetailPage() {
         <div className="flex gap-2">
           {vm.status === "running" && (
             <>
-              <a href={`/console?vm=${vm.name}&cluster=cn-sz-01&project=customers`}
+              <a href={`/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}`}
                 className="px-3 py-1.5 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30">
                 Console
               </a>
@@ -141,7 +120,7 @@ function UserVMDetailPage() {
       )}
 
       {tab === "snapshots" && (
-        <SnapshotPanel vmName={vm.name} cluster="cn-sz-01" project="customers" apiBase="/portal" />
+        <SnapshotPanel vmName={vm.name} cluster={vm.cluster} project={vm.project} apiBase="/portal" />
       )}
     </div>
   );

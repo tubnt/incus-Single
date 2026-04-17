@@ -127,7 +127,7 @@ func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to list VMs"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"services": vms})
+	writeJSON(w, http.StatusOK, map[string]any{"vms": NewVMServiceDTOList(vms, h.clusters, defaultProjectForMgr(h.clusters))})
 }
 
 func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"service": vm})
+	writeJSON(w, http.StatusOK, map[string]any{"vm": NewVMServiceDTO(*vm, h.clusters, defaultProjectForMgr(h.clusters))})
 }
 
 func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +262,7 @@ func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 
 	vm := &model.VM{
 		Name:      result.VMName,
-		ClusterID: 1,
+		ClusterID: h.clusters.IDByName(client.Name),
 		UserID:    userID,
 		Status:    model.VMStatusRunning,
 		CPU:       req.CPU,
@@ -285,10 +285,33 @@ func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, result)
 }
 
-func findClusterName(mgr *cluster.Manager, _ int64) string {
-	clients := mgr.List()
-	if len(clients) > 0 {
+// findClusterName resolves the DB cluster_id to its config name via the manager map.
+// Falls back to the first available cluster for legacy rows where the id predates seeding.
+func findClusterName(mgr *cluster.Manager, clusterID int64) string {
+	if mgr == nil {
+		return ""
+	}
+	if name := mgr.NameByID(clusterID); name != "" {
+		return name
+	}
+	if clients := mgr.List(); len(clients) > 0 {
 		return clients[0].Name
+	}
+	return ""
+}
+
+// defaultProjectForMgr returns the default project of the first configured cluster.
+// Used by DTO builders so single-cluster deployments keep their project hint.
+func defaultProjectForMgr(mgr *cluster.Manager) string {
+	if mgr == nil {
+		return ""
+	}
+	clients := mgr.List()
+	if len(clients) == 0 {
+		return ""
+	}
+	if cc, ok := mgr.ConfigByName(clients[0].Name); ok {
+		return cc.DefaultProject
 	}
 	return ""
 }
@@ -648,7 +671,7 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 
 	vm := &model.VM{
 		Name:      result.VMName,
-		ClusterID: 1,
+		ClusterID: h.clusters.IDByName(clusterName),
 		UserID:    userID,
 		Status:    model.VMStatusRunning,
 		CPU:       req.CPU,
