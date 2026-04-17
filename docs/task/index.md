@@ -39,3 +39,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**QA-001 Fix 6 QA bugs from browser testing**](QA-001.md) `P2`
 - [ ] [**UX-001 UI/UX completeness per PLAN-007**](UX-001.md) `P1`
 - [x] [**QA-002 Code review follow-up — fix PLAN-008 review findings**](QA-002.md) `P0`
+- [x] [**QA-003 Fix 15 QA bugs from 2026-04-16 production browser testing**](QA-003.md) `P1`
