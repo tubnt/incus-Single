@@ -36,6 +36,15 @@ function UserVMDetailPage() {
       onSuccess: (data) =>
         toast.success(t("vm.passwordResetToast", { password: data.password }), {
           duration: 15000,
+          action: {
+            label: t("vm.passwordCopy", { defaultValue: "复制" }),
+            onClick: () => {
+              navigator.clipboard
+                .writeText(data.password)
+                .then(() => toast.success(t("vm.passwordCopied", { defaultValue: "已复制到剪贴板" })))
+                .catch(() => toast.error(t("vm.passwordCopyFailed", { defaultValue: "复制失败，请手动复制" })));
+            },
+          },
         }),
       onError: () => toast.error(t("vm.passwordResetFailed")),
     });
@@ -74,7 +83,7 @@ function UserVMDetailPage() {
         <div className="flex gap-2">
           {vm.status === "running" && (
             <>
-              <a href={`/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}`}
+              <a href={`/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}&from=portal`}
                 className="px-3 py-1.5 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30">
                 Console
               </a>

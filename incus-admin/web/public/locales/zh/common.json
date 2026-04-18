@@ -37,6 +37,15 @@
       "userOps": "用户 & 工单"
     }
   },
+  "topbar": {
+    "language": "切换语言",
+    "logout": "退出登录",
+    "theme": {
+      "dark": "深色模式",
+      "light": "浅色模式",
+      "system": "跟随系统"
+    }
+  },
   "common": {
     "loading": "加载中...",
     "save": "保存",
@@ -130,6 +139,9 @@
     "passwordResetting": "重置中...",
     "passwordResetToast": "密码已重置: {{password}}",
     "passwordResetFailed": "密码重置失败",
+    "passwordCopy": "复制",
+    "passwordCopied": "已复制到剪贴板",
+    "passwordCopyFailed": "复制失败，请手动复制",
     "cluster": "集群",
     "size": "规格",
     "osImage": "操作系统镜像",
@@ -213,7 +225,8 @@
   },
   "apiToken": {
     "title": "API Token",
-    "create": "+ 创建 Token",
+    "create": "创建 Token",
+    "createdSaveNow": "Token 创建成功！请立即保存，此后不再显示：",
     "createTitle": "创建 API Token",
     "namePlaceholder": "Token 名称",
     "submit": "创建",

@@ -37,6 +37,15 @@
       "userOps": "Users & Tickets"
     }
   },
+  "topbar": {
+    "language": "Switch language",
+    "logout": "Sign out",
+    "theme": {
+      "dark": "Dark",
+      "light": "Light",
+      "system": "System"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "save": "Save",
@@ -130,6 +139,9 @@
     "passwordResetting": "Resetting...",
     "passwordResetToast": "Password reset: {{password}}",
     "passwordResetFailed": "Password reset failed",
+    "passwordCopy": "Copy",
+    "passwordCopied": "Copied to clipboard",
+    "passwordCopyFailed": "Copy failed; please copy manually",
     "cluster": "Cluster",
     "size": "Size",
     "osImage": "OS Image",
@@ -213,7 +225,8 @@
   },
   "apiToken": {
     "title": "API Tokens",
-    "create": "+ Create Token",
+    "create": "Create Token",
+    "createdSaveNow": "Token created. Copy now — it will not be shown again:",
     "createTitle": "Create API Token",
     "namePlaceholder": "Token name",
     "submit": "Create",

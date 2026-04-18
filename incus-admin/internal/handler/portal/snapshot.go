@@ -138,11 +138,19 @@ func (h *SnapshotHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := fmt.Sprintf("/1.0/instances/%s/snapshots/%s?project=%s", vmName, snapName, project)
-	_, err := client.APIDelete(r.Context(), path)
+	resp, err := client.APIDelete(r.Context(), path)
 	if err != nil {
 		slog.Error("delete snapshot failed", "vm", vmName, "snap", snapName, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
+	}
+
+	if resp != nil && resp.Type == "async" {
+		var op struct{ ID string }
+		json.Unmarshal(resp.Metadata, &op)
+		if op.ID != "" {
+			client.WaitForOperation(r.Context(), op.ID)
+		}
 	}
 
 	slog.Info("snapshot deleted", "vm", vmName, "snap", snapName)

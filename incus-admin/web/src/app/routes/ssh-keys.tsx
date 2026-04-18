@@ -102,7 +102,7 @@ function KeyCard({ sshKey }: { sshKey: SSHKey }) {
           {sshKey.fingerprint}
         </div>
         <div className="text-xs text-muted-foreground mt-1">
-          {t("sshKey.addedAt", { defaultValue: "添加于" })} {new Date(sshKey.created_at).toLocaleDateString()}
+          {t("sshKey.createdAt", { defaultValue: "添加时间" })} {new Date(sshKey.created_at).toLocaleDateString()}
         </div>
       </div>
       <button

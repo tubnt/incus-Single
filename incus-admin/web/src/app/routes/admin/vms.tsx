@@ -182,7 +182,7 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
           {vm.status === "Running" && (
             <>
               <a
-                href={`/console?vm=${vm.name}&cluster=${clusterName}&project=${project}`}
+                href={`/console?vm=${vm.name}&cluster=${clusterName}&project=${project}&from=admin`}
                 className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30"
               >
                 {t("vm.console")}

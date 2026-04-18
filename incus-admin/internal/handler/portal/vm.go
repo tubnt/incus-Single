@@ -178,6 +178,20 @@ func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
+		// Sync DB status so the portal detail view reflects the new state
+		// immediately; otherwise GetService returns the stale row.
+		newStatus := ""
+		switch action {
+		case "start", "restart":
+			newStatus = model.VMStatusRunning
+		case "stop":
+			newStatus = model.VMStatusStopped
+		}
+		if newStatus != "" {
+			if uerr := h.vmRepo.UpdateStatus(r.Context(), vm.ID, newStatus); uerr != nil {
+				slog.Warn("vm status db sync failed", "vm", vm.Name, "action", action, "error", uerr)
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "action": action})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown action"})
@@ -753,6 +767,21 @@ func (h *AdminVMHandler) ChangeVMState(w http.ResponseWriter, r *http.Request) {
 		slog.Error("vm state change failed", "vm", vmName, "action", req.Action, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
+	}
+	// Sync DB status so portal list/detail reflects the action immediately.
+	if dbVM, _ := h.vmRepo.GetByName(r.Context(), vmName); dbVM != nil {
+		newStatus := ""
+		switch req.Action {
+		case "start", "restart":
+			newStatus = model.VMStatusRunning
+		case "stop":
+			newStatus = model.VMStatusStopped
+		}
+		if newStatus != "" {
+			if uerr := h.vmRepo.UpdateStatus(r.Context(), dbVM.ID, newStatus); uerr != nil {
+				slog.Warn("vm status db sync failed", "vm", vmName, "action", req.Action, "error", uerr)
+			}
+		}
 	}
 	slog.Info("vm state changed", "vm", vmName, "action", req.Action)
 	audit(r.Context(), r, "vm."+req.Action, "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName})

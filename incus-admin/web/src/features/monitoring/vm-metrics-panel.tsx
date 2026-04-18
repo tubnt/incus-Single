@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { http } from "@/shared/lib/http";
 
 interface VMMetricData {
@@ -22,6 +23,7 @@ interface VMMetricsPanelProps {
 }
 
 export function VMMetricsPanel({ vmName, apiBase, cluster }: VMMetricsPanelProps) {
+  const { t } = useTranslation();
   const params: Record<string, string> = {};
   if (cluster) params.cluster = cluster;
 
@@ -40,32 +42,32 @@ export function VMMetricsPanel({ vmName, apiBase, cluster }: VMMetricsPanelProps
   return (
     <div className="border-t border-border bg-card/50 p-4">
       {isLoading ? (
-        <div className="text-xs text-muted-foreground">加载监控数据...</div>
+        <div className="text-xs text-muted-foreground">{t("monitoring.loading", { defaultValue: "Loading metrics..." })}</div>
       ) : error ? (
         <div className="text-xs text-destructive">
-          获取数据失败: {(error as Error).message}
+          {t("monitoring.loadFailed", { defaultValue: "Load failed" })}: {(error as Error).message}
         </div>
       ) : !m ? (
-        <div className="text-xs text-muted-foreground">暂无监控数据</div>
+        <div className="text-xs text-muted-foreground">{t("monitoring.noData", { defaultValue: "No metrics available" })}</div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <MetricGauge
-            label="CPU"
+            label={t("vm.cpu", { defaultValue: "CPU" })}
             pct={m.cpu_user_pct + m.cpu_system_pct}
             detail={`user ${m.cpu_user_pct.toFixed(1)}% / sys ${m.cpu_system_pct.toFixed(1)}%`}
           />
           <MetricGauge
-            label="内存"
+            label={t("vm.memory", { defaultValue: "Memory" })}
             pct={m.mem_used_pct}
             detail={`${fmtBytes(m.mem_used_bytes)} / ${fmtBytes(m.mem_total_bytes)}`}
           />
           <MetricGauge
-            label="磁盘"
+            label={t("vm.disk", { defaultValue: "Disk" })}
             pct={m.disk_used_pct}
             detail={`${fmtBytes(m.disk_used_bytes)} / ${fmtBytes(m.disk_total_bytes)}`}
           />
           <div className="rounded-lg border border-border p-3">
-            <div className="text-xs text-muted-foreground mb-1">网络</div>
+            <div className="text-xs text-muted-foreground mb-1">{t("vm.network", { defaultValue: "Network" })}</div>
             <div className="text-sm font-medium">
               ↓ {fmtBytes(m.net_rx_bytes)}
             </div>

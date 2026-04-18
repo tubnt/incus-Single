@@ -59,7 +59,7 @@ function VMCard({ vm }: { vm: VMService }) {
     });
   };
 
-  const consoleHref = `/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}`;
+  const consoleHref = `/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}&from=portal`;
 
   return (
     <div className="border border-border rounded-lg bg-card overflow-hidden">

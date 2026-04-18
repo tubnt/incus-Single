@@ -11,7 +11,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ email, balance, sidebarCollapsed, onMenuClick }: AppHeaderProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
 
   const nextTheme = () => {
@@ -40,17 +40,17 @@ export function AppHeader({ email, balance, sidebarCollapsed, onMenuClick }: App
         <Menu size={18} />
       </button>
       <div className="flex-1" />
-      <button onClick={toggleLang} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title="Language">
+      <button onClick={toggleLang} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title={t("topbar.language", { defaultValue: "Language" })}>
         <Globe size={16} />
       </button>
-      <button onClick={nextTheme} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title={theme}>
+      <button onClick={nextTheme} className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title={t(`topbar.theme.${theme}`, { defaultValue: theme })}>
         <ThemeIcon size={16} />
       </button>
       {balance !== undefined && (
         <span className="text-xs font-mono text-muted-foreground">${balance.toFixed(2)}</span>
       )}
       <span className="hidden sm:inline text-sm text-muted-foreground truncate max-w-[180px]">{email}</span>
-      <a href="/oauth2/sign_out?rd=/" className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title="Logout">
+      <a href="/oauth2/sign_out?rd=/" className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground" title={t("topbar.logout", { defaultValue: "Logout" })}>
         <LogOut size={16} />
       </a>
     </header>

@@ -8,14 +8,22 @@ export const Route = createFileRoute("/console")({
     vm: (search.vm as string) || "",
     project: (search.project as string) || "customers",
     cluster: (search.cluster as string) || "",
+    from: (search.from as string) || "",
   }),
   component: ConsolePage,
 });
 
 function ConsolePage() {
-  const { vm, project, cluster } = Route.useSearch();
+  const { vm, project, cluster, from } = Route.useSearch();
   const { data: user } = useQuery({ queryKey: ["currentUser"], queryFn: fetchCurrentUser });
-  const backUrl = user && isAdmin(user) ? "/admin/vms" : "/vms";
+  const backUrl =
+    from === "admin"
+      ? "/admin/vms"
+      : from === "portal"
+        ? "/vms"
+        : user && isAdmin(user)
+          ? "/admin/vms"
+          : "/vms";
 
   if (!vm || !cluster) {
     const missing: string[] = [];

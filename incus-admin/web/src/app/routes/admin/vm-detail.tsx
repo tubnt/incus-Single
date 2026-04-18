@@ -106,7 +106,7 @@ function VMDetailPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <a href={`/console?vm=${name}&cluster=${cluster}&project=${project}`}
+          <a href={`/console?vm=${name}&cluster=${cluster}&project=${project}&from=admin`}
             className="px-3 py-1.5 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30">
             {t("vm.console")}
           </a>
