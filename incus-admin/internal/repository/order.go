@@ -109,6 +109,24 @@ func (r *OrderRepo) UpdateStatus(ctx context.Context, id int64, status string) e
 	return err
 }
 
+// CancelIfPending 以条件 UPDATE 将订单置 cancelled，仅当当前 status=pending 且属于 userID 时生效。
+// 返回 (是否改动, err)。与 PayWithBalance 的 FOR UPDATE 行锁天然互斥：Pay 持锁期间本语句会阻塞，
+// Pay 提交后 status 已变为 paid，WHERE 条件不成立 → rows affected = 0，避免「扣款 + 订单取消」双写。
+func (r *OrderRepo) CancelIfPending(ctx context.Context, orderID, userID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3 AND user_id = $4 AND status = $5`,
+		model.OrderCancelled, time.Now(), orderID, userID, model.OrderPending,
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
 func (r *OrderRepo) PayWithBalance(ctx context.Context, orderID int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

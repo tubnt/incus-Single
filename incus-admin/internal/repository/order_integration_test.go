@@ -127,6 +127,124 @@ func TestPayWithBalance_OrderNotPending(t *testing.T) {
 	}
 }
 
+func TestCancelIfPending_HappyPath(t *testing.T) {
+	db := testhelper.NewTestDB(t, "")
+	repo := repository.NewOrderRepo(db)
+	userID, orderID := seedPayable(t, db, 100, 50)
+
+	changed, err := repo.CancelIfPending(context.Background(), orderID, userID)
+	if err != nil {
+		t.Fatalf("CancelIfPending: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true on pending order")
+	}
+
+	var status string
+	_ = db.QueryRow(`SELECT status FROM orders WHERE id=$1`, orderID).Scan(&status)
+	if status != model.OrderCancelled {
+		t.Fatalf("status want cancelled got %s", status)
+	}
+}
+
+func TestCancelIfPending_WrongOwner(t *testing.T) {
+	db := testhelper.NewTestDB(t, "")
+	repo := repository.NewOrderRepo(db)
+	_, orderID := seedPayable(t, db, 100, 50)
+
+	changed, err := repo.CancelIfPending(context.Background(), orderID, 9999)
+	if err != nil {
+		t.Fatalf("CancelIfPending: %v", err)
+	}
+	if changed {
+		t.Fatal("wrong owner must not be able to cancel")
+	}
+
+	var status string
+	_ = db.QueryRow(`SELECT status FROM orders WHERE id=$1`, orderID).Scan(&status)
+	if status != model.OrderPending {
+		t.Fatalf("status must remain pending, got %s", status)
+	}
+}
+
+func TestCancelIfPending_NotPending(t *testing.T) {
+	db := testhelper.NewTestDB(t, "")
+	repo := repository.NewOrderRepo(db)
+	userID, orderID := seedPayable(t, db, 100, 50)
+	if _, err := db.Exec(`UPDATE orders SET status='paid' WHERE id=$1`, orderID); err != nil {
+		t.Fatalf("seed paid: %v", err)
+	}
+
+	changed, err := repo.CancelIfPending(context.Background(), orderID, userID)
+	if err != nil {
+		t.Fatalf("CancelIfPending: %v", err)
+	}
+	if changed {
+		t.Fatal("paid order must not be cancellable")
+	}
+}
+
+// TestCancelIfPending_VsPay 并发 Pay + Cancel，验证 PostgreSQL 行锁串行化：
+// 要么 Pay 成功且 Cancel 无效，要么 Cancel 成功且 Pay 失败，但绝不能同时成功（即不出现
+// "余额扣 + 订单 cancelled + 发票已生成" 的双写脏状态）。
+func TestCancelIfPending_VsPay(t *testing.T) {
+	db := testhelper.NewTestDB(t, "")
+	repo := repository.NewOrderRepo(db)
+	userID, orderID := seedPayable(t, db, 100, 50)
+
+	var wg sync.WaitGroup
+	var payErr error
+	var cancelChanged bool
+	var cancelErr error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		payErr = repo.PayWithBalance(context.Background(), orderID)
+	}()
+	go func() {
+		defer wg.Done()
+		cancelChanged, cancelErr = repo.CancelIfPending(context.Background(), orderID, userID)
+	}()
+	wg.Wait()
+
+	if cancelErr != nil {
+		t.Fatalf("unexpected cancel err: %v", cancelErr)
+	}
+
+	var status string
+	var balance float64
+	var invoiceCnt, txnCnt int
+	_ = db.QueryRow(`SELECT status FROM orders WHERE id=$1`, orderID).Scan(&status)
+	_ = db.QueryRow(`SELECT balance FROM users WHERE id=$1`, userID).Scan(&balance)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM invoices WHERE order_id=$1`, orderID).Scan(&invoiceCnt)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM transactions WHERE user_id=$1`, userID).Scan(&txnCnt)
+
+	switch status {
+	case model.OrderPaid:
+		if payErr != nil {
+			t.Fatalf("status=paid but payErr=%v", payErr)
+		}
+		if cancelChanged {
+			t.Fatal("cancel must not succeed when pay won")
+		}
+		if balance != 50 || invoiceCnt != 1 || txnCnt != 1 {
+			t.Fatalf("pay-win invariant broken: balance=%v inv=%d txn=%d", balance, invoiceCnt, txnCnt)
+		}
+	case model.OrderCancelled:
+		if !cancelChanged {
+			t.Fatal("status=cancelled but cancelChanged=false")
+		}
+		if payErr == nil {
+			t.Fatal("pay must fail when cancel won")
+		}
+		if balance != 100 || invoiceCnt != 0 || txnCnt != 0 {
+			t.Fatalf("cancel-win invariant broken: balance=%v inv=%d txn=%d", balance, invoiceCnt, txnCnt)
+		}
+	default:
+		t.Fatalf("unexpected terminal status %s", status)
+	}
+}
+
 // TestPayWithBalance_ConcurrentPay 并发两次对同一订单发起支付，验证 FOR UPDATE
 // 串行化：恰好一次成功、一次失败，balance 只被扣除一次。
 func TestPayWithBalance_ConcurrentPay(t *testing.T) {

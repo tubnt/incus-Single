@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import {
+  type Invoice,
   type Order,
   type VMCredentials,
   useCancelOrderMutation,
@@ -11,8 +13,10 @@ import {
   useMyOrdersQuery,
   usePayOrderMutation,
 } from "@/features/billing/api";
+import { InvoiceDetailDialog } from "@/features/billing/invoice-detail-dialog";
 import { type Product, useProductsQuery } from "@/features/products/api";
 import { DEFAULT_OS_IMAGE, OsImagePicker } from "@/features/vms/os-image-picker";
+import { fetchCurrentUser } from "@/shared/lib/auth";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/billing")({
@@ -22,7 +26,9 @@ export const Route = createFileRoute("/billing")({
 function BillingPage() {
   const { t } = useTranslation();
   const [credentials, setCredentials] = useState<VMCredentials | null>(null);
+  const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
 
+  const { data: user } = useQuery({ queryKey: ["currentUser"], queryFn: fetchCurrentUser });
   const { data: ordersData } = useMyOrdersQuery();
   const { data: invoicesData } = useMyInvoicesQuery();
   const { data: productsData } = useProductsQuery();
@@ -34,6 +40,15 @@ function BillingPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">{t("billing.title")}</h1>
+
+      <BalanceCard balance={user?.balance ?? 0} />
+
+      <InvoiceDetailDialog
+        invoice={detailInvoice}
+        orders={orders}
+        products={products}
+        onClose={() => setDetailInvoice(null)}
+      />
 
       {credentials && (
         <div className="border border-success/30 bg-success/10 rounded-lg p-4 mb-6">
@@ -105,6 +120,7 @@ function BillingPage() {
                   <th className="text-right px-4 py-2 font-medium">{t("billing.amount")}</th>
                   <th className="text-left px-4 py-2 font-medium">{t("billing.status")}</th>
                   <th className="text-left px-4 py-2 font-medium">{t("billing.paidAt", { defaultValue: "Paid At" })}</th>
+                  <th className="text-right px-4 py-2 font-medium">{t("vm.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,6 +135,15 @@ function BillingPage() {
                     <td className="px-4 py-2 text-xs text-muted-foreground">
                       {inv.paid_at ? new Date(inv.paid_at).toLocaleString() : "—"}
                     </td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setDetailInvoice(inv)}
+                        className="px-2 py-1 text-xs border border-border rounded hover:bg-muted/50"
+                      >
+                        {t("invoice.detail", { defaultValue: "详情" })}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -126,6 +151,29 @@ function BillingPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function BalanceCard({ balance }: { balance: number }) {
+  const { t } = useTranslation();
+  return (
+    <div className="mb-6 border border-border rounded-lg bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <div className="text-sm text-muted-foreground">{t("billing.balance", { defaultValue: "账户余额" })}</div>
+        <div className="text-2xl font-bold font-mono mt-1">${balance.toFixed(2)}</div>
+        <div className="text-xs text-muted-foreground mt-1">
+          {t("billing.topupHint", {
+            defaultValue: "当前尚未开放自助充值。如需充值请提交工单联系管理员。",
+          })}
+        </div>
+      </div>
+      <a
+        href="/tickets?subject=topup"
+        className="self-start md:self-auto px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
+      >
+        {t("billing.topupViaTicket", { defaultValue: "提工单充值" })}
+      </a>
     </div>
   );
 }

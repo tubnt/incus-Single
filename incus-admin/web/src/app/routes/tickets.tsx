@@ -1,22 +1,35 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import {
   type Ticket,
+  useCloseTicketMutation,
   useCreateTicketMutation,
   useMyTicketsQuery,
   useReplyTicketMutation,
   useTicketDetailQuery,
 } from "@/features/tickets/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
+// TanStack Router 严格路由需要声明 search schema；此处支持可选 ?subject=topup 预填新建工单。
 export const Route = createFileRoute("/tickets")({
   component: TicketsPage,
+  validateSearch: (search: Record<string, unknown>): { subject?: string } => ({
+    subject: typeof search.subject === "string" ? search.subject : undefined,
+  }),
 });
 
 function TicketsPage() {
   const { t } = useTranslation();
-  const [showCreate, setShowCreate] = useState(false);
+  const search = useSearch({ from: "/tickets" });
+  const prefill = resolvePrefill(search.subject, t);
+  const [showCreate, setShowCreate] = useState(Boolean(prefill));
   const [selected, setSelected] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (prefill) setShowCreate(true);
+  }, [prefill]);
 
   const { data, isLoading } = useMyTicketsQuery();
   const tickets = data?.tickets ?? [];
@@ -33,7 +46,7 @@ function TicketsPage() {
         </button>
       </div>
 
-      {showCreate && <CreateTicketForm onDone={() => setShowCreate(false)} />}
+      {showCreate && <CreateTicketForm prefill={prefill} onDone={() => setShowCreate(false)} />}
 
       {isLoading ? (
         <div className="text-muted-foreground">{t("common.loading")}</div>
@@ -67,10 +80,27 @@ function TicketsPage() {
   );
 }
 
-function CreateTicketForm({ onDone }: { onDone: () => void }) {
+interface Prefill {
+  subject: string;
+  body: string;
+}
+
+function resolvePrefill(key: string | undefined, t: (k: string, o?: Record<string, unknown>) => string): Prefill | null {
+  if (key === "topup") {
+    return {
+      subject: t("ticket.topupPrefillSubject", { defaultValue: "充值申请" }),
+      body: t("ticket.topupPrefillBody", {
+        defaultValue: "请管理员协助为我的账户充值。\n\n金额（USD）：\n充值方式：\n",
+      }),
+    };
+  }
+  return null;
+}
+
+function CreateTicketForm({ prefill, onDone }: { prefill: Prefill | null; onDone: () => void }) {
   const { t } = useTranslation();
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [subject, setSubject] = useState(prefill?.subject ?? "");
+  const [body, setBody] = useState(prefill?.body ?? "");
   const [priority, setPriority] = useState("normal");
 
   const mutation = useCreateTicketMutation();
@@ -171,14 +201,33 @@ function TicketRow({ ticket: tk, isOpen, onToggle }: { ticket: Ticket; isOpen: b
 function TicketDetail({ ticketId }: { ticketId: number }) {
   const { t } = useTranslation();
   const [reply, setReply] = useState("");
+  const confirm = useConfirm();
 
   const { data } = useTicketDetailQuery(ticketId, "/portal");
   const replyMutation = useReplyTicketMutation(ticketId, "/portal");
+  const closeMutation = useCloseTicketMutation();
   const messages = data?.messages ?? [];
+  const ticketStatus = data?.ticket?.status;
+  const canClose = ticketStatus && ticketStatus !== "closed";
 
   const submitReply = () => {
     if (!reply.trim()) return;
     replyMutation.mutate(reply, { onSuccess: () => setReply("") });
+  };
+
+  const submitClose = async () => {
+    const ok = await confirm({
+      title: t("ticket.closeConfirmTitle", { defaultValue: "关闭工单" }),
+      message: t("ticket.closeConfirmMessage", {
+        defaultValue: "关闭后将无法继续回复,但管理员仍可重新打开。确认关闭?",
+      }),
+      destructive: true,
+    });
+    if (!ok) return;
+    closeMutation.mutate(ticketId, {
+      onSuccess: () => toast.success(t("ticket.closed", { defaultValue: "工单已关闭" })),
+      onError: (e) => toast.error((e as Error).message || t("ticket.closeFailed", { defaultValue: "关闭失败" })),
+    });
   };
 
   return (
@@ -197,25 +246,36 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
           </div>
         ))}
       </div>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          placeholder={t("ticket.replyPlaceholder", { defaultValue: "回复..." })}
-          className="flex-1 px-3 py-2 rounded border border-border bg-card text-sm"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submitReply();
-          }}
-        />
-        <button
-          onClick={submitReply}
-          disabled={replyMutation.isPending || !reply.trim()}
-          className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded disabled:opacity-50"
-        >
-          {t("ticket.send", { defaultValue: "发送" })}
-        </button>
-      </div>
+      {canClose ? (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder={t("ticket.replyPlaceholder", { defaultValue: "回复..." })}
+            className="flex-1 px-3 py-2 rounded border border-border bg-card text-sm"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitReply();
+            }}
+          />
+          <button
+            onClick={submitReply}
+            disabled={replyMutation.isPending || !reply.trim()}
+            className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded disabled:opacity-50"
+          >
+            {t("ticket.send", { defaultValue: "发送" })}
+          </button>
+          <button
+            onClick={submitClose}
+            disabled={closeMutation.isPending}
+            className="px-4 py-2 text-sm border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
+          >
+            {closeMutation.isPending ? "..." : t("ticket.close", { defaultValue: "关闭" })}
+          </button>
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground">{t("ticket.alreadyClosed", { defaultValue: "工单已关闭,无法继续回复" })}</div>
+      )}
     </div>
   );
 }

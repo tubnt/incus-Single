@@ -281,8 +281,14 @@ func (h *OrderHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.orders.UpdateStatus(r.Context(), orderID, model.OrderCancelled); err != nil {
+	changed, err := h.orders.CancelIfPending(r.Context(), orderID, userID)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if !changed {
+		// 条件 UPDATE 未生效：Pay 已在并发中抢先提交，订单已非 pending。
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "order was modified by another operation"})
 		return
 	}
 

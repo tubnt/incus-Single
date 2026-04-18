@@ -80,7 +80,10 @@
   "dashboard": {
     "myVmsCard": "我的云主机",
     "balanceCard": "余额",
-    "ticketsCard": "工单"
+    "ticketsCard": "工单",
+    "quickCreateVm": "新建云主机",
+    "quickTopup": "充值",
+    "quickCreateTicket": "提工单"
   },
   "adminOverview": {
     "title": "管理员概览",
@@ -180,7 +183,24 @@
     "cancel": "取消",
     "orderCancelled": "订单已取消",
     "cancelFailed": "取消失败",
-    "perMonth": "/月"
+    "perMonth": "/月",
+    "balance": "账户余额",
+    "topupHint": "当前尚未开放自助充值。如需充值请提交工单联系管理员。",
+    "topupViaTicket": "提工单充值"
+  },
+  "invoice": {
+    "detail": "详情",
+    "detailTitle": "发票详情",
+    "sectionInvoice": "发票信息",
+    "sectionOrder": "关联订单",
+    "sectionProduct": "产品规格",
+    "orderMissing": "关联订单记录已清除",
+    "productMissing": "产品记录不存在（可能已下架）"
+  },
+  "product": {
+    "name": "名称",
+    "spec": "规格",
+    "priceMonthly": "月价"
   },
   "ticket": {
     "title": "工单",
@@ -207,7 +227,14 @@
     "view": "查看",
     "noMessages": "暂无消息",
     "empty": "暂无工单。如需帮助请提交工单。",
-    "noTickets": "暂无工单。如需帮助请提交工单。"
+    "noTickets": "暂无工单。如需帮助请提交工单。",
+    "closed": "工单已关闭",
+    "closeFailed": "关闭失败",
+    "closeConfirmTitle": "关闭工单",
+    "closeConfirmMessage": "关闭后将无法继续回复,但管理员仍可重新打开。确认关闭?",
+    "alreadyClosed": "工单已关闭,无法继续回复",
+    "topupPrefillSubject": "充值申请",
+    "topupPrefillBody": "请管理员协助为我的账户充值。\n\n金额（USD）：\n充值方式："
   },
   "sshKey": {
     "title": "SSH 密钥",

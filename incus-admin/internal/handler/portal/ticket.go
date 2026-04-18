@@ -34,6 +34,7 @@ func (h *TicketHandler) PortalRoutes(r chi.Router) {
 	r.Post("/tickets", h.Create)
 	r.Get("/tickets/{id}", h.GetDetail)
 	r.Post("/tickets/{id}/messages", h.Reply)
+	r.Post("/tickets/{id}/close", h.CloseMine)
 }
 
 func (h *TicketHandler) AdminRoutes(r chi.Router) {
@@ -174,6 +175,31 @@ func (h *TicketHandler) AdminReply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{"message": msg})
+}
+
+func (h *TicketHandler) CloseMine(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	ticketID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+
+	ticket, err := h.repo.GetByID(r.Context(), ticketID)
+	if err != nil || ticket == nil || ticket.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "ticket not found"})
+		return
+	}
+
+	// 幂等：已 closed 时直接返回 200，不报错。
+	if ticket.Status == "closed" {
+		writeJSON(w, http.StatusOK, map[string]any{"status": "closed"})
+		return
+	}
+
+	if _, err := h.repo.CloseByOwner(r.Context(), ticketID, userID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	audit(r.Context(), r, "ticket.close", "ticket", ticketID, nil)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "closed"})
 }
 
 func (h *TicketHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {

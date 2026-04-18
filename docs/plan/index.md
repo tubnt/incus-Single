@@ -46,3 +46,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-015 QA-004 后续修复 —— N1-N15 清单**](PLAN-015.md) `2026-04-18`
 - [x] [**PLAN-016 后台菜单重组 + 用户/管理员视角分离**](PLAN-016.md) `2026-04-18`
 - [x] [**PLAN-017 QA-006 用户端 E2E N1-N11 修复**](PLAN-017.md) `2026-04-18`
+- [x] [**PLAN-018 用户端功能缺口填补(G1-G5)**](PLAN-018.md) `2026-04-18`

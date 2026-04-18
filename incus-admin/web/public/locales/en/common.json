@@ -80,7 +80,10 @@
   "dashboard": {
     "myVmsCard": "My VMs",
     "balanceCard": "Balance",
-    "ticketsCard": "Tickets"
+    "ticketsCard": "Tickets",
+    "quickCreateVm": "Create VM",
+    "quickTopup": "Top up",
+    "quickCreateTicket": "New Ticket"
   },
   "adminOverview": {
     "title": "Admin Overview",
@@ -180,7 +183,24 @@
     "cancel": "Cancel",
     "orderCancelled": "Order cancelled",
     "cancelFailed": "Cancel failed",
-    "perMonth": "/mo"
+    "perMonth": "/mo",
+    "balance": "Account Balance",
+    "topupHint": "Self-serve top-up is not available yet. Submit a ticket to request a top-up.",
+    "topupViaTicket": "Top up via ticket"
+  },
+  "invoice": {
+    "detail": "Details",
+    "detailTitle": "Invoice Detail",
+    "sectionInvoice": "Invoice",
+    "sectionOrder": "Linked Order",
+    "sectionProduct": "Product",
+    "orderMissing": "Linked order record unavailable",
+    "productMissing": "Product record missing (may be deprecated)"
+  },
+  "product": {
+    "name": "Name",
+    "spec": "Spec",
+    "priceMonthly": "Monthly"
   },
   "ticket": {
     "title": "Tickets",
@@ -207,7 +227,14 @@
     "view": "View",
     "noMessages": "No messages yet",
     "empty": "No tickets yet. Submit one if you need help.",
-    "noTickets": "No tickets yet. Submit one if you need help."
+    "noTickets": "No tickets yet. Submit one if you need help.",
+    "closed": "Ticket closed",
+    "closeFailed": "Close failed",
+    "closeConfirmTitle": "Close ticket",
+    "closeConfirmMessage": "Once closed, you can no longer reply, but an admin can reopen it. Continue?",
+    "alreadyClosed": "This ticket is closed and cannot accept replies.",
+    "topupPrefillSubject": "Top-up request",
+    "topupPrefillBody": "Please top up my account.\n\nAmount (USD):\nPayment method:"
   },
   "sshKey": {
     "title": "SSH Keys",

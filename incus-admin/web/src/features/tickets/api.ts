@@ -76,3 +76,10 @@ export function useUpdateTicketStatusMutation(ticketId: number) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ticketKeys.all }),
   });
 }
+
+export function useCloseTicketMutation() {
+  return useMutation({
+    mutationFn: (ticketId: number) => http.post(`/portal/tickets/${ticketId}/close`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ticketKeys.all }),
+  });
+}

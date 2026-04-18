@@ -1,5 +1,17 @@
 # IncusAdmin Changelog
 
+## 2026-04-18 23:40 [completed]
+
+UX-003 / PLAN-018 用户端功能缺口 G1-G5 全量落地 —— 按用户决策方案 A 执行(隐藏自助充值,跳工单;仪表盘彻底分离):
+
+- **G1 = 方案 A**:`billing.tsx` 顶部新增 `BalanceCard`(只读余额 + 提示 + 跳「提交充值工单」),后端零改动;`tickets.tsx` 加 `validateSearch` 识别 `?subject=topup` 自动预填主题 + 模板 body
+- **G2 Cancel 并发竞态**:`repository/order.go` 新增 `CancelIfPending` 单语句条件性 UPDATE `WHERE id=? AND user_id=? AND status='pending'` 以检查影响行数取代事务 + FOR UPDATE(Pay 已持 FOR UPDATE 锁,Cancel 被阻塞后 status 已变 paid,条件不满足→影响行数=0→409);`handler/portal/order.go` Cancel 改用该接口;集成测试 `order_integration_test.go` 新增 4 条(Happy/WrongOwner/NotPending/VsPay 并发),断言 status=paid ↔ balance=50,invoiceCnt=1,cancelChanged=false;status=cancelled ↔ balance=100,invoiceCnt=0,payErr≠nil
+- **G3 发票详情**:新组件 `features/billing/invoice-detail-dialog.tsx` 用 `Dialog` primitive 展开 invoice + order + product(CPU/RAM/Disk/OSImage/Hours/Price),从页面已加载数组解析,零新请求;`billing.tsx` 发票表格新增「操作」列 + 「详情」按钮
+- **G4 工单关闭**:后端 `repository/ticket.go` 加 `CloseByOwner` 条件性 UPDATE,`handler/portal/ticket.go` 新增 `POST /portal/tickets/{id}/close`(owner 检查 + 幂等 + audit log);前端 `features/tickets/api.ts` 加 `useCloseTicketMutation`,`tickets.tsx` `TicketDetail` 非 closed 态显示「关闭」按钮 + confirm,closed 态显示「工单已关闭」提示
+- **G5 Dashboard 彻底分离**:`app/routes/index.tsx` 重写为 `UserDashboard` —— 移除 `AdminSection` 内联块(admin 走 `/admin/monitoring` 独立路由),顶部加 `QuickActions` 3 按钮(Create VM → `/billing`、Top-up → `/tickets?subject=topup`、New Ticket → `/tickets`),`myVmCount === 0` 时 Create VM 实心高亮;openTickets 计数统一到 `status !== 'closed'`
+- **i18n**:zh/en `common.json` 补 `billing.balance|topupHint|topupViaTicket`、`invoice.*`(detail/section*/*Missing)、`ticket.close|closeConfirm*|alreadyClosed|topupPrefill*`、`dashboard.quickCreateVm|quickTopup|quickCreateTicket`,全部双语对齐
+- **CI 门**:`bun run typecheck` + `bun run build`(dist 1378 kB) + `go build/vet` + `go test ./...` + 集成测试 `TestCancelIfPending*`(`ok ./internal/repository 165.968s`)全过
+
 ## 2026-04-18 21:10 [completed]
 
 UX-002 / PLAN-016 后台菜单重组 + 用户/管理员视角分离 —— 全量落地 + 目视回归通过:

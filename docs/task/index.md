@@ -48,3 +48,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [ ] [**INFRA-006 VM state reverse-sync worker**](INFRA-006.md) `P1`
 - [x] [**UX-002 后台菜单重组 + 用户/管理员视角分离**](UX-002.md) `P2`
 - [x] [**QA-006 全量用户端 E2E + N1-N11 bug 修复**](QA-006.md) `P1`
+- [x] [**UX-003 用户端功能缺口填补(G1-G5)**](UX-003.md) `P2`

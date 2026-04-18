@@ -108,6 +108,23 @@ func (r *TicketRepo) UpdateStatus(ctx context.Context, id int64, status string) 
 	return err
 }
 
+// CloseByOwner 将工单置 closed，仅当工单属于 userID 且当前 status != 'closed' 时生效。
+// 返回 (是否改动, err)。若返回 false 且工单确实存在且属于用户，说明工单已是 closed（幂等）。
+func (r *TicketRepo) CloseByOwner(ctx context.Context, ticketID, userID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tickets SET status = 'closed', updated_at = $1 WHERE id = $2 AND user_id = $3 AND status <> 'closed'`,
+		time.Now(), ticketID, userID,
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
 func (r *TicketRepo) ListMessages(ctx context.Context, ticketID int64) ([]model.TicketMessage, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, ticket_id, user_id, body, is_staff, created_at FROM ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC`,
