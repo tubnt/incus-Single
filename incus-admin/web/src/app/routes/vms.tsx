@@ -6,6 +6,7 @@ import { CardSkeleton } from "@/shared/components/ui/skeleton";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { useMyVMsQuery, useVMActionMutation, type VMService } from "@/features/vms/api";
+import { defaultUserForImage } from "@/features/vms/default-user";
 
 export const Route = createFileRoute("/vms")({
   component: MyVMs,
@@ -74,7 +75,7 @@ function VMCard({ vm }: { vm: VMService }) {
           </div>
           <div className="text-sm mt-2 space-y-0.5">
             <div>IP: <span className="font-mono">{vm.ip || t("vm.assigning", { defaultValue: "assigning..." })}</span></div>
-            <div>{t("vm.username", { defaultValue: "Username" })}: <span className="font-mono">ubuntu</span></div>
+            <div>{t("vm.username", { defaultValue: "Username" })}: <span className="font-mono">{defaultUserForImage(vm.os_image)}</span></div>
             <div>Node: {vm.node} · {t("vm.created", { defaultValue: "Created" })}: {new Date(vm.created_at).toLocaleDateString()}</div>
           </div>
         </div>

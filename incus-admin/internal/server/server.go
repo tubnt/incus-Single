@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -221,6 +222,17 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 
 	// SPA static files (catch-all, must be last)
 	r.NotFound(staticHandler().ServeHTTP)
+
+	// Uniform JSON 405 for API paths; everything else delegates to the SPA
+	// fallback. chi's default writes a plain-text body, which the browser
+	// confuses with JSON.
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		if strings.HasPrefix(req.URL.Path, "/api/") {
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	})
 
 	return &Server{cfg: cfg, router: r}
 }

@@ -1,24 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type AuditLog, useAuditLogsQuery } from "@/features/audit-logs/api";
+import { useAuditLogsQuery } from "@/features/audit-logs/api";
+import { stripCidrSuffix, targetLabel } from "@/features/audit-logs/helpers";
 import { Pagination } from "@/shared/components/ui/pagination";
 
 export const Route = createFileRoute("/admin/audit-logs")({
   component: AuditLogsPage,
 });
-
-function targetLabel(log: AuditLog): string {
-  if (log.target_id && log.target_id > 0) return `${log.target_type} #${log.target_id}`;
-  try {
-    const d = JSON.parse(log.details || "{}");
-    const name = d?.name || d?.target || d?.vm || d?.vm_name;
-    if (typeof name === "string" && name) return `${log.target_type} ${name}`;
-  } catch {
-    // details is not JSON — fall through
-  }
-  return log.target_type || "—";
-}
 
 function AuditLogsPage() {
   const { t } = useTranslation();
@@ -45,7 +34,7 @@ function AuditLogsPage() {
         </div>
       ) : (
         <>
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/30">
                 <tr>
@@ -72,7 +61,7 @@ function AuditLogsPage() {
                     <td className="px-4 py-2 text-xs">
                       {targetLabel(log)}
                     </td>
-                    <td className="px-4 py-2 text-xs font-mono">{log.ip_address || "—"}</td>
+                    <td className="px-4 py-2 text-xs font-mono">{stripCidrSuffix(log.ip_address)}</td>
                     <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate">
                       {log.details}
                     </td>

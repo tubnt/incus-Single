@@ -23,17 +23,28 @@
     "storage": "存储",
     "ipRegistry": "IP 登记",
     "nodeOps": "节点操作",
-    "observability": "可观测性"
+    "observability": "可观测性",
+    "admin": "管理员"
   },
   "common": {
     "loading": "加载中...",
     "save": "保存",
+    "saving": "保存中...",
+    "submit": "提交",
+    "submitting": "提交中...",
     "cancel": "取消",
+    "close": "关闭",
     "delete": "删除",
     "confirm": "确认",
     "create": "创建",
+    "creating": "创建中...",
     "edit": "编辑",
     "search": "搜索",
+    "refresh": "刷新",
+    "retry": "重试",
+    "send": "发送",
+    "copy": "复制",
+    "view": "查看",
     "noData": "暂无数据",
     "balance": "余额",
     "signIn": "SSO 登录",
@@ -42,7 +53,14 @@
     "clear": "清空",
     "output": "输出",
     "actions": "操作",
-    "empty": "空"
+    "empty": "空",
+    "yes": "是",
+    "no": "否"
+  },
+  "dashboard": {
+    "myVmsCard": "我的云主机",
+    "balanceCard": "余额",
+    "ticketsCard": "工单"
   },
   "adminOverview": {
     "title": "管理员概览",
@@ -50,11 +68,14 @@
     "nodes": "节点",
     "totalVms": "云主机总数",
     "apiStatus": "API 状态",
-    "healthy": "正常"
+    "healthy": "正常",
+    "unhealthy": "异常"
   },
   "vm": {
     "title": "我的云主机",
+    "myVms": "我的云主机",
     "create": "创建云主机",
+    "createVm": "创建云主机",
     "start": "启动",
     "stop": "关机",
     "restart": "重启",
@@ -63,12 +84,21 @@
     "snapshots": "快照",
     "reinstall": "重装",
     "delete": "删除",
+    "migrate": "迁移",
     "name": "名称",
     "status": "状态",
     "node": "节点",
     "config": "配置",
     "ip": "IP",
+    "username": "用户名",
+    "created": "创建时间",
+    "cpu": "CPU",
+    "memory": "内存",
+    "disk": "磁盘",
+    "network": "网络",
     "actions": "操作",
+    "assigning": "分配中...",
+    "noneYet": "暂无云主机。立即创建第一台虚拟机。",
     "notFoundTitle": "云主机不存在",
     "notFoundHint": "该云主机不存在或已被删除。",
     "backToList": "返回云主机列表",
@@ -92,14 +122,26 @@
     "cluster": "集群",
     "size": "规格",
     "osImage": "操作系统镜像",
-    "project": "项目"
+    "project": "项目",
+    "tabOverview": "概览",
+    "tabConsole": "控制台",
+    "tabSnapshots": "快照",
+    "missingParams": "缺少 VM 名称或集群参数。"
   },
   "snapshot": {
     "restore": "恢复",
     "restoreTitle": "恢复快照",
     "restoreMessage": "恢复 {{vm}} 到快照 \"{{name}}\"？当前状态将丢失。",
     "deleteTitle": "删除快照",
-    "deleteMessage": "确认删除快照 \"{{name}}\"？"
+    "deleteMessage": "确认删除快照 \"{{name}}\"？",
+    "count": "快照 ({{count}})",
+    "empty": "暂无快照。",
+    "create": "+ 快照",
+    "creating": "创建中...",
+    "name": "名称",
+    "created": "创建时间",
+    "actions": "操作",
+    "delete": "删除"
   },
   "billing": {
     "title": "账单中心",
@@ -111,29 +153,67 @@
     "amount": "金额",
     "status": "状态",
     "expires": "到期",
+    "paidAt": "支付时间",
     "cancel": "取消",
     "orderCancelled": "订单已取消",
-    "cancelFailed": "取消失败"
+    "cancelFailed": "取消失败",
+    "perMonth": "/月"
   },
   "ticket": {
     "title": "工单",
-    "create": "提交工单",
+    "create": "新建工单",
+    "createTitle": "提交新工单",
+    "submit": "提交工单",
+    "submitting": "提交中...",
     "subject": "主题",
+    "bodyPlaceholder": "详细描述你的问题...",
+    "priority": "优先级",
+    "priorityLow": "低",
+    "priorityNormal": "普通",
+    "priorityHigh": "高",
+    "priorityUrgent": "紧急",
+    "status": "状态",
+    "updatedAt": "更新时间",
     "reply": "回复",
+    "replyPlaceholder": "回复...",
+    "send": "发送",
+    "staff": "客服",
+    "me": "我",
     "close": "关闭",
     "reopen": "重开",
+    "view": "查看",
+    "noMessages": "暂无消息",
+    "empty": "暂无工单。如需帮助请提交工单。",
     "noTickets": "暂无工单。如需帮助请提交工单。"
   },
   "sshKey": {
     "title": "SSH 密钥",
     "add": "添加密钥",
+    "addTitle": "添加 SSH 密钥",
+    "namePlaceholder": "密钥名称（如 laptop-work）",
+    "publicKeyPlaceholder": "粘贴你的 OpenSSH 公钥",
+    "submit": "添加",
+    "submitting": "添加中...",
+    "empty": "暂无 SSH 密钥。添加后将自动注入新建云主机。",
     "noKeys": "暂无 SSH 密钥。添加后将自动注入新建云主机。",
     "deleteTitle": "删除 SSH 密钥",
-    "deleteMessage": "确认删除密钥 \"{{name}}\"？"
+    "deleteMessage": "确认删除密钥 \"{{name}}\"？",
+    "createdAt": "添加时间"
   },
   "apiToken": {
+    "title": "API Token",
+    "create": "+ 创建 Token",
+    "createTitle": "创建 API Token",
+    "namePlaceholder": "Token 名称",
+    "submit": "创建",
+    "submitting": "创建中...",
+    "empty": "暂无 API Token。",
+    "createdAt": "创建于",
+    "lastUsedAt": "最后使用",
+    "never": "从未使用",
     "deleteTitle": "删除 API Token",
-    "deleteMessage": "确认删除 Token \"{{name}}\"？"
+    "deleteMessage": "确认删除 Token \"{{name}}\"？",
+    "copyHint": "请立即复制 — 该密钥不会再次显示。"
   },
   "monitoring": {
     "title": "集群监控",
@@ -150,6 +230,7 @@
     "networkColumn": "网络 (RX/TX)",
     "fetchFailed": "获取监控数据失败: {{error}}",
     "noData": "暂无云主机监控数据。请确认 Incus metrics 已启用。",
+    "noDataDrift": "Metrics 显示 0 台云主机，但 DB 记录有 {{count}} 台处于 running 状态，反向同步正在推进 —— 详见 INFRA-006。",
     "noNetworkData": "暂无网络数据",
     "sortCpu": "CPU",
     "sortMem": "内存",
@@ -165,12 +246,91 @@
   "settings": {
     "title": "设置",
     "language": "语言",
+    "zh": "中文",
+    "en": "English",
     "theme": "主题",
     "system": "跟随系统",
     "light": "浅色",
     "dark": "深色"
   },
   "admin": {
+    "products": {
+      "title": "产品套餐",
+      "add": "+ 添加套餐",
+      "empty": "暂无产品套餐。添加后用户可以选择购买。",
+      "name": "名称",
+      "namePlaceholder": "名称",
+      "specs": "配置",
+      "price": "月价",
+      "status": "状态",
+      "access": "访问",
+      "actions": "操作",
+      "active": "上架",
+      "inactive": "下架",
+      "activate": "上架",
+      "deactivate": "下架",
+      "editTitle": "编辑产品套餐",
+      "createTitle": "添加产品套餐",
+      "create": "创建套餐",
+      "memoryMB": "内存MB",
+      "diskGB": "磁盘GB",
+      "monthlyPrice": "月价",
+      "bandwidthTB": "带宽TB",
+      "sortOrder": "排序"
+    },
+    "nodes": {
+      "title": "集群节点",
+      "joinWizard": "+ 加入节点",
+      "empty": "未发现集群节点。请先添加集群连接。",
+      "arch": "架构",
+      "status": "状态",
+      "message": "消息",
+      "roles": "角色",
+      "restore": "恢复节点",
+      "restoring": "恢复中...",
+      "instances": "节点实例",
+      "noInstances": "该节点暂无实例",
+      "instanceName": "实例名",
+      "instanceType": "类型",
+      "instanceStatus": "状态",
+      "roleDatabaseLeader": "数据库主",
+      "roleDatabase": "数据库",
+      "roleDatabaseStandby": "数据库备"
+    },
+    "tickets": {
+      "title": "工单管理",
+      "colUser": "用户",
+      "colSubject": "主题",
+      "colStatus": "状态",
+      "colPriority": "优先级",
+      "colUpdatedAt": "更新时间",
+      "view": "查看"
+    },
+    "users": {
+      "title": "用户",
+      "totalCount": "用户 ({{count}})",
+      "colId": "ID",
+      "colEmail": "邮箱",
+      "colRole": "角色",
+      "colBalance": "余额",
+      "colActions": "操作",
+      "quota": "配额",
+      "topUp": "+ 充值",
+      "role": {
+        "customer": "客户",
+        "admin": "管理员"
+      },
+      "topUpTitle": "充值余额",
+      "topUpAmount": "金额",
+      "topUpSubmit": "充值",
+      "topUpSubmitting": "充值中..."
+    },
+    "vmDetail": {
+      "memory": "内存",
+      "disk": "磁盘",
+      "network": "网络"
+    },
+    "monitoringTitle": "集群监控",
     "nodeOpsQuick": {
       "systemInfo": "系统信息",
       "memory": "内存",
@@ -308,6 +468,30 @@
     "evacuate": "疏散",
     "restore": "恢复"
   },
+  "ipPools": {
+    "title": "IP 池",
+    "addPool": "+ 添加 IP 池",
+    "available": "可用",
+    "used": "已用",
+    "usedOf": "{{used}} / {{total}} 已用",
+    "range": "地址段",
+    "empty": "暂无 IP 池。添加后可为云主机分配 IP。"
+  },
+  "ipRegistry": {
+    "title": "IP 登记",
+    "assigned": "已分配 {{count}} 个地址",
+    "empty": "暂无已分配的 IP 地址。"
+  },
+  "ha": {
+    "title": "HA 故障切换",
+    "threshold": "healing_threshold: {{seconds}}s",
+    "haStatus": "HA 状态",
+    "enabled": "启用",
+    "disabled": "禁用",
+    "storage": "存储",
+    "nodes": "节点",
+    "fullyOperational": "运行正常"
+  },
   "confirmDialog": {
     "defaultTitle": "请确认",
     "confirm": "确认",
@@ -362,6 +546,8 @@
     "osdOutFailed": "OSD {{id}} out 操作失败",
     "osdInFailed": "OSD {{id}} in 操作失败",
     "weight": "权重",
+    "out": "Out",
+    "in": "In",
     "warnOver90": "存储使用率超过 90%，请立即扩容或清理！",
     "warnOver80": "存储使用率超过 80%，建议关注容量",
     "currentUsage": "当前使用率",
@@ -371,6 +557,14 @@
       "replicated": "replicated",
       "erasure": "erasure"
     }
+  },
+  "console": {
+    "missingParams": "缺少参数: vm",
+    "usageHint": "/console?vm=NAME&cluster=CLUSTER&project=PROJECT",
+    "backToVms": "← 返回云主机",
+    "connecting": "正在连接到 {{vm}}...",
+    "connected": "已连接。",
+    "disconnected": "已断开。"
   },
   "pagination": {
     "range": "{{from}}-{{to}} / {{total}}",

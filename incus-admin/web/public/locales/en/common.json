@@ -23,17 +23,28 @@
     "storage": "Storage",
     "ipRegistry": "IP Registry",
     "nodeOps": "Node Ops",
-    "observability": "Observability"
+    "observability": "Observability",
+    "admin": "Admin"
   },
   "common": {
     "loading": "Loading...",
     "save": "Save",
+    "saving": "Saving...",
+    "submit": "Submit",
+    "submitting": "Submitting...",
     "cancel": "Cancel",
+    "close": "Close",
     "delete": "Delete",
     "confirm": "Confirm",
     "create": "Create",
+    "creating": "Creating...",
     "edit": "Edit",
     "search": "Search",
+    "refresh": "Refresh",
+    "retry": "Retry",
+    "send": "Send",
+    "copy": "Copy",
+    "view": "View",
     "noData": "No data",
     "balance": "Balance",
     "signIn": "Sign in with SSO",
@@ -42,7 +53,14 @@
     "clear": "Clear",
     "output": "Output",
     "actions": "Actions",
-    "empty": "Empty"
+    "empty": "Empty",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "dashboard": {
+    "myVmsCard": "My VMs",
+    "balanceCard": "Balance",
+    "ticketsCard": "Tickets"
   },
   "adminOverview": {
     "title": "Admin Overview",
@@ -50,11 +68,14 @@
     "nodes": "Nodes",
     "totalVms": "Total VMs",
     "apiStatus": "API Status",
-    "healthy": "Healthy"
+    "healthy": "Healthy",
+    "unhealthy": "Unhealthy"
   },
   "vm": {
     "title": "My VMs",
+    "myVms": "My VMs",
     "create": "Create VM",
+    "createVm": "Create VM",
     "start": "Start",
     "stop": "Stop",
     "restart": "Restart",
@@ -63,12 +84,21 @@
     "snapshots": "Snapshots",
     "reinstall": "Reinstall",
     "delete": "Delete",
+    "migrate": "Migrate",
     "name": "Name",
     "status": "Status",
     "node": "Node",
     "config": "Config",
     "ip": "IP",
+    "username": "Username",
+    "created": "Created",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "disk": "Disk",
+    "network": "Network",
     "actions": "Actions",
+    "assigning": "assigning...",
+    "noneYet": "No VMs yet. Create your first virtual machine.",
     "notFoundTitle": "VM not found",
     "notFoundHint": "The VM does not exist or has been deleted.",
     "backToList": "Back to VM list",
@@ -92,14 +122,26 @@
     "cluster": "Cluster",
     "size": "Size",
     "osImage": "OS Image",
-    "project": "Project"
+    "project": "Project",
+    "tabOverview": "Overview",
+    "tabConsole": "Console",
+    "tabSnapshots": "Snapshots",
+    "missingParams": "Missing vm name or cluster."
   },
   "snapshot": {
     "restore": "Restore",
     "restoreTitle": "Restore snapshot",
     "restoreMessage": "Restore {{vm}} to snapshot \"{{name}}\"? Current state will be lost.",
     "deleteTitle": "Delete snapshot",
-    "deleteMessage": "Delete snapshot \"{{name}}\"?"
+    "deleteMessage": "Delete snapshot \"{{name}}\"?",
+    "count": "Snapshots ({{count}})",
+    "empty": "No snapshots yet.",
+    "create": "+ Snapshot",
+    "creating": "Creating...",
+    "name": "Name",
+    "created": "Created",
+    "actions": "Actions",
+    "delete": "Delete"
   },
   "billing": {
     "title": "Billing",
@@ -111,29 +153,67 @@
     "amount": "Amount",
     "status": "Status",
     "expires": "Expires",
+    "paidAt": "Paid At",
     "cancel": "Cancel",
     "orderCancelled": "Order cancelled",
-    "cancelFailed": "Cancel failed"
+    "cancelFailed": "Cancel failed",
+    "perMonth": "/mo"
   },
   "ticket": {
     "title": "Tickets",
     "create": "New Ticket",
+    "createTitle": "New Ticket",
+    "submit": "Submit Ticket",
+    "submitting": "Submitting...",
     "subject": "Subject",
+    "bodyPlaceholder": "Describe your issue in detail...",
+    "priority": "Priority",
+    "priorityLow": "Low",
+    "priorityNormal": "Normal",
+    "priorityHigh": "High",
+    "priorityUrgent": "Urgent",
+    "status": "Status",
+    "updatedAt": "Updated",
     "reply": "Reply",
+    "replyPlaceholder": "Reply...",
+    "send": "Send",
+    "staff": "Staff",
+    "me": "Me",
     "close": "Close",
     "reopen": "Reopen",
+    "view": "View",
+    "noMessages": "No messages yet",
+    "empty": "No tickets yet. Submit one if you need help.",
     "noTickets": "No tickets yet. Submit one if you need help."
   },
   "sshKey": {
     "title": "SSH Keys",
     "add": "Add Key",
-    "noKeys": "No SSH keys. Keys will be injected into new VMs.",
+    "addTitle": "Add SSH Key",
+    "namePlaceholder": "Key name (e.g. laptop-work)",
+    "publicKeyPlaceholder": "Paste your OpenSSH public key",
+    "submit": "Add",
+    "submitting": "Adding...",
+    "empty": "No SSH keys. Keys will be auto-injected when creating VMs.",
+    "noKeys": "No SSH keys. Keys will be auto-injected when creating VMs.",
     "deleteTitle": "Delete SSH key",
-    "deleteMessage": "Delete key \"{{name}}\"?"
+    "deleteMessage": "Delete key \"{{name}}\"?",
+    "createdAt": "Added"
   },
   "apiToken": {
+    "title": "API Tokens",
+    "create": "+ Create Token",
+    "createTitle": "Create API Token",
+    "namePlaceholder": "Token name",
+    "submit": "Create",
+    "submitting": "Creating...",
+    "empty": "No API tokens yet.",
+    "createdAt": "Created",
+    "lastUsedAt": "Last used",
+    "never": "Never",
     "deleteTitle": "Delete API token",
-    "deleteMessage": "Delete token \"{{name}}\"?"
+    "deleteMessage": "Delete token \"{{name}}\"?",
+    "copyHint": "Copy now — the secret will not be shown again."
   },
   "monitoring": {
     "title": "Cluster Monitoring",
@@ -150,6 +230,7 @@
     "networkColumn": "Network (RX/TX)",
     "fetchFailed": "Failed to fetch metrics: {{error}}",
     "noData": "No VM metrics. Verify Incus metrics is enabled.",
+    "noDataDrift": "Metrics show 0 VMs, but DB lists {{count}} as running. A reverse-sync is pending — see INFRA-006.",
     "noNetworkData": "No network data",
     "sortCpu": "CPU",
     "sortMem": "Memory",
@@ -165,12 +246,91 @@
   "settings": {
     "title": "Settings",
     "language": "Language",
+    "zh": "Chinese",
+    "en": "English",
     "theme": "Theme",
     "system": "System",
     "light": "Light",
     "dark": "Dark"
   },
   "admin": {
+    "products": {
+      "title": "Plans & Products",
+      "add": "+ Add Plan",
+      "empty": "No plans yet. Add one so users can buy.",
+      "name": "Name",
+      "namePlaceholder": "Name",
+      "specs": "Specs",
+      "price": "Price / mo",
+      "status": "Status",
+      "access": "Access",
+      "actions": "Actions",
+      "active": "Active",
+      "inactive": "Inactive",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "editTitle": "Edit plan",
+      "createTitle": "New plan",
+      "create": "Create plan",
+      "memoryMB": "Memory MB",
+      "diskGB": "Disk GB",
+      "monthlyPrice": "Price / mo",
+      "bandwidthTB": "Bandwidth TB",
+      "sortOrder": "Sort"
+    },
+    "nodes": {
+      "title": "Cluster Nodes",
+      "joinWizard": "+ Join node",
+      "empty": "No cluster nodes found. Add a cluster connection first.",
+      "arch": "Architecture",
+      "status": "Status",
+      "message": "Message",
+      "roles": "Roles",
+      "restore": "Restore node",
+      "restoring": "Restoring...",
+      "instances": "Instances",
+      "noInstances": "No instances on this node",
+      "instanceName": "Instance",
+      "instanceType": "Type",
+      "instanceStatus": "Status",
+      "roleDatabaseLeader": "database-leader",
+      "roleDatabase": "database",
+      "roleDatabaseStandby": "database-standby"
+    },
+    "tickets": {
+      "title": "Ticket Management",
+      "colUser": "User",
+      "colSubject": "Subject",
+      "colStatus": "Status",
+      "colPriority": "Priority",
+      "colUpdatedAt": "Updated",
+      "view": "View"
+    },
+    "users": {
+      "title": "Users",
+      "totalCount": "Users ({{count}})",
+      "colId": "ID",
+      "colEmail": "Email",
+      "colRole": "Role",
+      "colBalance": "Balance",
+      "colActions": "Actions",
+      "quota": "Quota",
+      "topUp": "+ Top Up",
+      "role": {
+        "customer": "customer",
+        "admin": "admin"
+      },
+      "topUpTitle": "Top up balance",
+      "topUpAmount": "Amount",
+      "topUpSubmit": "Top up",
+      "topUpSubmitting": "Topping up..."
+    },
+    "vmDetail": {
+      "memory": "Memory",
+      "disk": "Disk",
+      "network": "Network"
+    },
+    "monitoringTitle": "Cluster Monitoring",
     "nodeOpsQuick": {
       "systemInfo": "System Info",
       "memory": "Memory",
@@ -308,6 +468,30 @@
     "evacuate": "Evacuate",
     "restore": "Restore"
   },
+  "ipPools": {
+    "title": "IP Pools",
+    "addPool": "+ Add Pool",
+    "available": "available",
+    "used": "used",
+    "usedOf": "{{used}} / {{total}} used",
+    "range": "Range",
+    "empty": "No IP pools yet. Add one to allocate IPs to VMs."
+  },
+  "ipRegistry": {
+    "title": "IP Registry",
+    "assigned": "{{count}} addresses assigned",
+    "empty": "No IP addresses assigned."
+  },
+  "ha": {
+    "title": "HA Failover",
+    "threshold": "healing_threshold: {{seconds}}s",
+    "haStatus": "HA Status",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "storage": "Storage",
+    "nodes": "Nodes",
+    "fullyOperational": "Fully operational"
+  },
   "confirmDialog": {
     "defaultTitle": "Please confirm",
     "confirm": "Confirm",
@@ -362,6 +546,8 @@
     "osdOutFailed": "OSD {{id}} out failed",
     "osdInFailed": "OSD {{id}} in failed",
     "weight": "Weight",
+    "out": "Out",
+    "in": "In",
     "warnOver90": "Storage usage above 90% — scale or clean up immediately!",
     "warnOver80": "Storage usage above 80% — watch capacity",
     "currentUsage": "Current usage",
@@ -371,6 +557,14 @@
       "replicated": "replicated",
       "erasure": "erasure"
     }
+  },
+  "console": {
+    "missingParams": "Missing parameter: vm",
+    "usageHint": "/console?vm=NAME&cluster=CLUSTER&project=PROJECT",
+    "backToVms": "← Back to VMs",
+    "connecting": "Connecting to {{vm}}...",
+    "connected": "Connected.",
+    "disconnected": "Disconnected."
   },
   "pagination": {
     "range": "{{from}}-{{to}} / {{total}}",

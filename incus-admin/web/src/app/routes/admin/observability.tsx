@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export const Route = createFileRoute("/admin/observability")({
   component: ObservabilityPage,
@@ -23,11 +24,12 @@ const DASHBOARDS: Dashboard[] = [
 ];
 
 function ObservabilityPage() {
+  const { t } = useTranslation();
   const [active, setActive] = useState<string | null>(null);
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Observability</h1>
+      <h1 className="text-2xl font-bold mb-6">{t("admin.observability.title")}</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         {DASHBOARDS.map((d) => (
@@ -38,12 +40,12 @@ function ObservabilityPage() {
                 {d.embeddable && (
                   <button onClick={() => setActive(active === d.id ? null : d.id)}
                     className="px-3 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30">
-                    {active === d.id ? "Close" : "Embed"}
+                    {active === d.id ? t("admin.observability.close") : t("admin.observability.embed")}
                   </button>
                 )}
                 <a href={d.url} target="_blank" rel="noopener noreferrer"
                   className="px-3 py-1 text-xs bg-muted/50 text-muted-foreground rounded hover:bg-muted">
-                  Open →
+                  {t("admin.observability.open")}
                 </a>
               </div>
             </div>
@@ -75,12 +77,9 @@ function ObservabilityPage() {
       <EventStream />
 
       <div className="mt-6 border border-border rounded-lg bg-card p-4">
-        <h3 className="font-semibold mb-2">Access Note</h3>
+        <h3 className="font-semibold mb-2">{t("admin.observability.accessNoteTitle")}</h3>
         <p className="text-sm text-muted-foreground">
-          仪表盘运行在集群内网 (10.0.20.0/24)，访问需 WireGuard VPN 或 SSH 隧道。
-          Grafana / Prometheus / Alertmanager 目前以 HTTP 暴露，浏览器同源与 Mixed-Content 策略会阻断 HTTPS 页面内 iframe 嵌入，因此仅开放"新窗口打开"。
-          Ceph Dashboard 已是 HTTPS，可内嵌（自签证书首次需手动信任）。
-          后续若在反代层上 HTTPS（Caddy subpath + grafana sub_path / prometheus web.external-url），可恢复三者的嵌入体验。
+          {t("admin.observability.accessNoteBody")}
         </p>
       </div>
     </div>
@@ -96,6 +95,7 @@ interface IncusEvent {
 }
 
 function EventStream() {
+  const { t } = useTranslation();
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<IncusEvent[]>([]);
   const [paused, setPaused] = useState(false);
@@ -165,10 +165,10 @@ function EventStream() {
     <div className="mt-6 border border-border rounded-lg overflow-hidden">
       <div className="px-4 py-3 bg-muted/30 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h3 className="font-semibold text-sm">实时事件流</h3>
+          <h3 className="font-semibold text-sm">{t("admin.observability.eventStream")}</h3>
           <span className={`inline-flex items-center gap-1 text-xs ${connected ? "text-success" : "text-destructive"}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${connected ? "bg-success" : "bg-destructive"}`} />
-            {connected ? "已连接" : "断开"}
+            {connected ? t("admin.observability.connected") : t("admin.observability.disconnected")}
           </span>
         </div>
         <div className="flex gap-2">
@@ -176,20 +176,20 @@ function EventStream() {
             onClick={() => setPaused(!paused)}
             className="px-2 py-1 text-xs border border-border rounded hover:bg-muted"
           >
-            {paused ? "▶ 继续" : "⏸ 暂停"}
+            {paused ? t("admin.observability.resume") : t("admin.observability.pause")}
           </button>
           <button
             onClick={() => setEvents([])}
             className="px-2 py-1 text-xs border border-border rounded hover:bg-muted"
           >
-            清空
+            {t("admin.observability.clear")}
           </button>
         </div>
       </div>
       <div className="max-h-80 overflow-y-auto bg-black/90 p-2">
         {events.length === 0 ? (
           <div className="text-center text-xs text-muted-foreground py-4">
-            {connected ? "等待事件..." : "正在连接..."}
+            {connected ? t("admin.observability.waitingEvents") : t("admin.observability.connecting")}
           </div>
         ) : (
           events.map((ev, i) => (

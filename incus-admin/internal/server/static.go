@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -45,8 +46,14 @@ func staticHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// API and auth paths are handled by other handlers
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/auth/") {
+		// API and auth paths are handled by other handlers. When we fall through
+		// to here, the specific API route was not matched — return structured
+		// JSON 404 so frontend error handling can parse it uniformly.
+		if strings.HasPrefix(path, "/api/") {
+			writeJSONError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if strings.HasPrefix(path, "/auth/") {
 			http.NotFound(w, r)
 			return
 		}
@@ -61,4 +68,12 @@ func staticHandler() http.Handler {
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// writeJSONError writes a uniform `{"error": "<msg>"}` response so the
+// frontend can parse API errors without checking content-type.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

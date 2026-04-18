@@ -25,8 +25,27 @@ func (h *ProductHandler) PortalRoutes(r chi.Router) {
 
 func (h *ProductHandler) AdminRoutes(r chi.Router) {
 	r.Get("/products", h.ListAll)
+	r.Get("/products/{id}", h.AdminGetByID)
 	r.Post("/products", h.Create)
 	r.Put("/products/{id}", h.Update)
+}
+
+func (h *ProductHandler) AdminGetByID(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid product id"})
+		return
+	}
+	product, err := h.repo.GetByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if product == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "product not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, product)
 }
 
 func (h *ProductHandler) ListActive(w http.ResponseWriter, r *http.Request) {

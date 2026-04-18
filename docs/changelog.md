@@ -1,5 +1,25 @@
 # IncusAdmin Changelog
 
+## 2026-04-18 18:42 [progress]
+
+PLAN-015 / QA-005 全量落地，QA-004 报告 N1-N15 清零（除 N4/N7/N9/N10/N14 已转 PLAN-014 / 反代窗口）：
+
+- N1 字体回退 + lang 同步：`index.css` font-sans 加 PingFang/YaHei/Noto CJK 兜底；`app/i18n.ts` languageChanged 钩子写 `<html lang>`，与 i18next 状态保持一致
+- N2 Portal Tickets 入口：表格行加 ▶/▼ chevron + 链接化 Subject + aria-expanded；click → 内联展开 TicketDetail（API 已存在）
+- N3 i18n 大扫除：`en/zh common.json` 补齐 admin.products / admin.nodes / admin.tickets / admin.users / admin.vmDetail / monitoring 等键；`monitoring.tsx` / `observability.tsx` / `node-join.tsx` 全部硬编码中文走 `t()`
+- N5 audit target 渲染：`features/audit-logs/helpers.ts` `targetLabel()` 优先 `details.name || target || vm || vm_name || host || osd_id`，缺失才回退 `#target_id`；6 条单测覆盖
+- N6 admin catchall 404：`app/routes/admin.tsx` 加 `notFoundComponent` —— "404 / Admin page not found / Back to Clusters" 取代裸 "Not Found"
+- N8 后端 API 错误响应统一 JSON：`internal/server/static.go` `/api/*` 落空时返 `{"error":"not found"}`；`server.go` 注册 `MethodNotAllowed` handler 返 405 JSON；新增 `GET /api/admin/orders/{id}` 与 `GET /api/admin/products/{id}`
+- N11 Node Ops IP 校验：`features/nodes/host-validation.ts` 抽出 `validHost()`（IPv4/IPv6/RFC1123），7 条单测覆盖
+- N12 移动端表格溢出：13 个 admin/portal 路由表格 wrapper `overflow-hidden` → `overflow-x-auto`
+- N13 VM 默认用户名按 image 映射：`features/vms/default-user.ts` 覆盖 ubuntu/debian/rocky/almalinux/centos/fedora/opensuse/arch/alpine/freebsd，6 条单测
+- N15 Audit IP 列：`stripCidrSuffix()` 去掉 `/32`、`/128` 后缀
+
+CI 门：后端 `go build/vet/test` 全过；前端 `tsc --noEmit / vitest run / vite build` 全过（37 条单测，新增 19 条）
+
+部署：本地 build → AIssh `file_deploy` → systemctl restart incus-admin（PID 216141）；
+新 dist_hash `b934750eb3d6f6...` 与本地一致；浏览器回归 N1/N3/N5/N6/N8/N11/N12/N13/N15 全部生效
+
 ## 2026-04-18 00:05 [progress]
 
 QA-004 后继项：DB ↔ Incus VM 状态漂移修复（生产手工同步 + 前端空态文案 + 后端 db_running_count 指标）：

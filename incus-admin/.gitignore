@@ -1,6 +1,7 @@
 # Binaries
 incus-admin
 *.exe
+bin/
 
 # IDE
 .idea/

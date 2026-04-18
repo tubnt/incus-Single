@@ -101,7 +101,7 @@ function NodeCard({
         : "bg-destructive/20 text-destructive";
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-x-auto">
       <button
         type="button"
         onClick={onSelect}

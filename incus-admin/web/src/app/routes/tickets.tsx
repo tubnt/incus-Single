@@ -42,10 +42,11 @@ function TicketsPage() {
           {t("ticket.empty", { defaultValue: "暂无工单。如需帮助请提交工单。" })}
         </div>
       ) : (
-        <div className="border border-border rounded-lg overflow-hidden">
+        <div className="border border-border rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/30">
               <tr>
+                <th className="px-4 py-2 w-8"></th>
                 <th className="text-left px-4 py-2 font-medium">#</th>
                 <th className="text-left px-4 py-2 font-medium">{t("ticket.subject", { defaultValue: "主题" })}</th>
                 <th className="text-left px-4 py-2 font-medium">{t("ticket.status", { defaultValue: "状态" })}</th>
@@ -144,16 +145,21 @@ function PriorityBadge({ priority }: { priority: string }) {
 function TicketRow({ ticket: tk, isOpen, onToggle }: { ticket: Ticket; isOpen: boolean; onToggle: () => void }) {
   return (
     <>
-      <tr className="border-t border-border hover:bg-muted/20 cursor-pointer" onClick={onToggle}>
+      <tr
+        className="border-t border-border hover:bg-muted/20 cursor-pointer"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+      >
+        <td className="px-4 py-2 text-muted-foreground select-none w-8">{isOpen ? "▼" : "▶"}</td>
         <td className="px-4 py-2">{tk.id}</td>
-        <td className="px-4 py-2 font-medium">{tk.subject}</td>
+        <td className="px-4 py-2 font-medium text-primary hover:underline">{tk.subject}</td>
         <td className="px-4 py-2"><TicketStatusBadge status={tk.status} /></td>
         <td className="px-4 py-2"><PriorityBadge priority={tk.priority} /></td>
         <td className="px-4 py-2 text-muted-foreground text-xs">{new Date(tk.updated_at).toLocaleString()}</td>
       </tr>
       {isOpen && (
         <tr>
-          <td colSpan={5} className="p-0">
+          <td colSpan={6} className="p-0">
             <TicketDetail ticketId={tk.id} />
           </td>
         </tr>

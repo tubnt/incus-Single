@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { type VMMetric, useMetricsOverviewQuery } from "@/features/monitoring/api";
 import {
   BarChart,
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/admin/monitoring")({
 });
 
 function MonitoringPage() {
+  const { t } = useTranslation();
   const { data, isLoading, error } = useMetricsOverviewQuery();
 
   const clusters = data?.clusters ?? [];
@@ -30,9 +32,9 @@ function MonitoringPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">集群监控</h1>
+        <h1 className="text-2xl font-bold">{t("monitoring.title")}</h1>
         <span className="text-xs text-muted-foreground">
-          每 30 秒自动刷新
+          {t("monitoring.refresh")}
         </span>
       </div>
 
@@ -53,19 +55,13 @@ function MonitoringPage() {
         </div>
       ) : error ? (
         <div className="border border-destructive/30 rounded-lg p-4 text-destructive text-sm">
-          获取监控数据失败: {(error as Error).message}
+          {t("monitoring.fetchFailed", { error: (error as Error).message })}
         </div>
       ) : allVMs.length === 0 ? (
         <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {drifted ? (
-            <>
-              DB 记录当前集群有 {dbRunningTotal} 个 running VM，但 Incus 侧实时查询为 0。
-              数据已漂移 —— 这些 VM 可能已在 Incus 端被直接删除，状态未同步回 DB。
-              请管理员核对并执行状态同步。
-            </>
-          ) : (
-            <>暂无 VM 监控数据（当前集群无运行中的 VM）。</>
-          )}
+          {drifted
+            ? t("monitoring.noDataDrift", { count: dbRunningTotal })
+            : t("monitoring.noData")}
         </div>
       ) : (
         <div className="space-y-6">
@@ -84,6 +80,7 @@ function MonitoringPage() {
 }
 
 function SummaryCards({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const totalMem = vms.reduce((s, v) => s + v.mem_total_bytes, 0);
   const usedMem = vms.reduce((s, v) => s + v.mem_used_bytes, 0);
   const totalDisk = vms.reduce((s, v) => s + v.disk_total_bytes, 0);
@@ -95,14 +92,14 @@ function SummaryCards({ vms }: { vms: VMMetric[] }) {
       : 0;
 
   const cards = [
-    { label: "VM 数量", value: String(vms.length) },
-    { label: "平均 CPU 使用", value: `${avgCPU.toFixed(1)}%` },
+    { label: t("monitoring.vmCount"), value: String(vms.length) },
+    { label: t("monitoring.avgCpu"), value: `${avgCPU.toFixed(1)}%` },
     {
-      label: "总内存使用",
+      label: t("monitoring.totalMemory"),
       value: `${fmtBytes(usedMem)} / ${fmtBytes(totalMem)}`,
     },
     {
-      label: "总磁盘使用",
+      label: t("monitoring.totalDisk"),
       value: `${fmtBytes(usedDisk)} / ${fmtBytes(totalDisk)}`,
     },
   ];
@@ -123,6 +120,7 @@ function SummaryCards({ vms }: { vms: VMMetric[] }) {
 }
 
 function CPUChart({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const chartData = vms.map((v) => ({
     name: v.name,
     user: +v.cpu_user_pct.toFixed(1),
@@ -130,14 +128,14 @@ function CPUChart({ vms }: { vms: VMMetric[] }) {
   }));
 
   return (
-    <ChartCard title="CPU 使用率 (%)">
+    <ChartCard title={t("monitoring.cpu")}>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
           <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v}%`} />
-          <Bar dataKey="user" stackId="cpu" fill="var(--color-primary)" name="User" />
-          <Bar dataKey="system" stackId="cpu" fill="var(--color-destructive)" name="System" />
+          <Bar dataKey="user" stackId="cpu" fill="var(--color-primary)" name={t("monitoring.legendUser")} />
+          <Bar dataKey="system" stackId="cpu" fill="var(--color-destructive)" name={t("monitoring.legendSystem")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -145,6 +143,7 @@ function CPUChart({ vms }: { vms: VMMetric[] }) {
 }
 
 function MemoryChart({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const chartData = vms.map((v) => ({
     name: v.name,
     used: +(v.mem_used_bytes / 1024 / 1024 / 1024).toFixed(2),
@@ -153,14 +152,14 @@ function MemoryChart({ vms }: { vms: VMMetric[] }) {
   }));
 
   return (
-    <ChartCard title="内存使用">
+    <ChartCard title={t("monitoring.memory")}>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
           <XAxis type="number" tickFormatter={(v) => `${v} GB`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v} GB`} />
-          <Bar dataKey="total" fill="var(--color-muted)" name="总量" />
-          <Bar dataKey="used" fill="var(--color-primary)" name="已用" />
+          <Bar dataKey="total" fill="var(--color-muted)" name={t("monitoring.memTotal")} />
+          <Bar dataKey="used" fill="var(--color-primary)" name={t("monitoring.memUsed")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -168,6 +167,7 @@ function MemoryChart({ vms }: { vms: VMMetric[] }) {
 }
 
 function DiskChart({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const chartData = vms
     .filter((v) => v.disk_total_bytes > 0)
     .map((v) => ({
@@ -176,13 +176,13 @@ function DiskChart({ vms }: { vms: VMMetric[] }) {
     }));
 
   return (
-    <ChartCard title="磁盘使用率 (%)">
+    <ChartCard title={t("monitoring.disk")}>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
           <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v}%`} />
-          <Bar dataKey="pct" name="使用率">
+          <Bar dataKey="pct" name={t("monitoring.usageLegend")}>
             {chartData.map((_, i) => (
               <Cell
                 key={i}
@@ -203,6 +203,7 @@ function DiskChart({ vms }: { vms: VMMetric[] }) {
 }
 
 function NetworkChart({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const chartData = vms
     .filter((v) => v.net_rx_bytes > 0 || v.net_tx_bytes > 0)
     .map((v) => ({
@@ -213,23 +214,23 @@ function NetworkChart({ vms }: { vms: VMMetric[] }) {
 
   if (chartData.length === 0) {
     return (
-      <ChartCard title="网络流量">
+      <ChartCard title={t("monitoring.network")}>
         <div className="h-[280px] flex items-center justify-center text-muted-foreground text-sm">
-          暂无网络数据
+          {t("monitoring.noNetworkData")}
         </div>
       </ChartCard>
     );
   }
 
   return (
-    <ChartCard title="网络流量 (MB)">
+    <ChartCard title={t("monitoring.network")}>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
           <XAxis type="number" tickFormatter={(v) => `${v} MB`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v} MB`} />
-          <Bar dataKey="rx" fill="var(--color-success)" name="接收" />
-          <Bar dataKey="tx" fill="var(--color-primary)" name="发送" />
+          <Bar dataKey="rx" fill="var(--color-success)" name={t("monitoring.netReceive")} />
+          <Bar dataKey="tx" fill="var(--color-primary)" name={t("monitoring.netSend")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -237,6 +238,7 @@ function NetworkChart({ vms }: { vms: VMMetric[] }) {
 }
 
 function VMTable({ vms }: { vms: VMMetric[] }) {
+  const { t } = useTranslation();
   const [sort, setSort] = useState<"cpu" | "mem" | "disk">("cpu");
 
   const sorted = [...vms].sort((a, b) => {
@@ -248,10 +250,13 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
     return b.disk_used_pct - a.disk_used_pct;
   });
 
+  const sortLabel = (s: "cpu" | "mem" | "disk") =>
+    s === "cpu" ? "CPU" : s === "mem" ? t("monitoring.sortMem") : t("monitoring.sortDisk");
+
   return (
     <div className="border border-border rounded-lg bg-card overflow-hidden">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <h3 className="font-semibold text-sm">VM 资源明细</h3>
+        <h3 className="font-semibold text-sm">{t("monitoring.vmMetricsTitle")}</h3>
         <div className="flex gap-1">
           {(["cpu", "mem", "disk"] as const).map((s) => (
             <button
@@ -259,7 +264,7 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
               onClick={() => setSort(s)}
               className={`px-2 py-1 text-xs rounded ${sort === s ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
             >
-              {s === "cpu" ? "CPU" : s === "mem" ? "内存" : "磁盘"}
+              {sortLabel(s)}
             </button>
           ))}
         </div>
@@ -270,9 +275,9 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
             <tr>
               <th className="text-left px-4 py-2 font-medium">VM</th>
               <th className="text-right px-4 py-2 font-medium">CPU</th>
-              <th className="text-right px-4 py-2 font-medium">内存</th>
-              <th className="text-right px-4 py-2 font-medium">磁盘</th>
-              <th className="text-right px-4 py-2 font-medium">网络 (RX/TX)</th>
+              <th className="text-right px-4 py-2 font-medium">{t("monitoring.sortMem")}</th>
+              <th className="text-right px-4 py-2 font-medium">{t("monitoring.sortDisk")}</th>
+              <th className="text-right px-4 py-2 font-medium">{t("monitoring.networkColumn")}</th>
             </tr>
           </thead>
           <tbody>

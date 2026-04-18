@@ -24,4 +24,18 @@ i18n
     },
   });
 
+const syncHtmlLang = (lng: string) => {
+  if (typeof document !== "undefined") {
+    const normalized = lng.startsWith("zh") ? "zh" : lng.split("-")[0] || "en";
+    document.documentElement.setAttribute("lang", normalized);
+  }
+};
+
+i18n.on("languageChanged", syncHtmlLang);
+if (i18n.isInitialized && i18n.language) {
+  syncHtmlLang(i18n.language);
+} else {
+  i18n.on("initialized", () => syncHtmlLang(i18n.language));
+}
+
 export default i18n;

@@ -39,7 +39,26 @@ func (h *OrderHandler) PortalRoutes(r chi.Router) {
 
 func (h *OrderHandler) AdminRoutes(r chi.Router) {
 	r.Get("/orders", h.ListAll)
+	r.Get("/orders/{id}", h.AdminGetByID)
 	r.Put("/orders/{id}/status", h.UpdateStatus)
+}
+
+func (h *OrderHandler) AdminGetByID(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid order id"})
+		return
+	}
+	order, err := h.orders.GetByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if order == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "order not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
 }
 
 func (h *OrderHandler) ListMine(w http.ResponseWriter, r *http.Request) {

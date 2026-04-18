@@ -91,7 +91,7 @@ function StoragePage() {
           )}
 
           {osds.length > 0 && (
-            <div className="border border-border rounded-lg overflow-hidden mb-6">
+            <div className="border border-border rounded-lg overflow-x-auto mb-6">
               <div className="px-4 py-3 border-b border-border bg-muted/30">
                 <h3 className="font-semibold text-sm">{t("storage.osdListTitle")} ({osds.length})</h3>
               </div>
@@ -163,7 +163,7 @@ function PoolSection() {
   const poolList = Array.isArray(pools) ? pools : [];
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden mb-6">
+    <div className="border border-border rounded-lg overflow-x-auto mb-6">
       <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
         <h3 className="font-semibold text-sm">{t("storage.poolsTitle")} ({poolList.length})</h3>
         <button

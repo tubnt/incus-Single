@@ -20,4 +20,16 @@ export const Route = createFileRoute("/admin")({
     }
   },
   component: () => <Outlet />,
+  notFoundComponent: () => (
+    <div className="flex flex-col items-center justify-center py-20 gap-4">
+      <div className="text-6xl font-bold text-muted-foreground">404</div>
+      <p className="text-muted-foreground">Admin page not found</p>
+      <a
+        href="/admin/clusters"
+        className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
+      >
+        Back to Clusters
+      </a>
+    </div>
+  ),
 });
