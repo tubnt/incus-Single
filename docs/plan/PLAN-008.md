@@ -1,9 +1,10 @@
 # PLAN-008 QA fixes + three-persona user journey gaps
 
-- **status**: draft
+- **status**: completed
 - **createdAt**: 2026-04-16 01:30
-- **approvedAt**: (pending)
-- **relatedTask**: (none yet)
+- **approvedAt**: 2026-04-16（通过 PLAN-009 落地审计）
+- **completedAt**: 2026-04-19 05:55
+- **relatedTask**: 由 PLAN-009/010/013/015/017/018/020 系列吸收交付
 
 ## Context
 
@@ -181,3 +182,13 @@ Graph + Grep verification confirmed all 30 original items. 8 new items discovere
 ## Annotations
 
 (User annotations and responses. Keep all history.)
+
+### 2026-04-19 关闭审计
+
+- P0（BUG-1 + NEW-6 IP 分配）→ PLAN-009/010 落地 `ip_addresses` + `SELECT FOR UPDATE` 路径
+- P1（BUG-2 / U8 / A4 / A5 / O2 / O5）→ PLAN-009/010/013 完成，metrics fallback + 用户 reinstall + 指定用户 createVM + 产品 CRUD + 节点详情/维护态全部上线
+- P2（BUG-3 / NEW-1 / NEW-3 / NEW-5 / A6 / A9 / O3 / O7 / O8 / O9 / O13 / O16）→ PLAN-013/015/017 + UX-001 收口，sonner toast / ErrorBoundary / VM 重置密码 / 管理发票页 / quota 执行 / node-join wizard / OSD 动作 / 存储告警 / Incus 事件流 SSE / 单 VM 迁移 全部完成
+- P3（NEW-2 / NEW-4 / NEW-8 / A7）→ UX-002/UX-003/PLAN-018 Skeleton + 用户设置 + 移动适配 + 订单 cancel/退款
+- P3 延期清单归档到产品 backlog：U18（VM 调配升级）/ U19（rDNS）/ U20（流量统计）/ A8（用户删除）/ A11（批量操作）/ A12（邮件通知）/ O11（IP 生命周期）/ O14（告警规则）/ O15（计划任务）/ O18（长期指标）/ O19（集群备份）/ O20（节点 SSH Key UI）
+
+PLAN-008 本身为"缺口盘点"文档，P0-P2 全部 ✅ 后满足关闭条件；P3 长尾属于产品规划范畴，挂到各自专属 task/plan 后续推进，不阻塞本 PLAN。

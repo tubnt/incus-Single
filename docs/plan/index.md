@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-04-17
+> Updated: 2026-04-19
 
 ## Usage
 
@@ -36,14 +36,16 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-005 Full-stack refactor to pma-web and pma-go standards**](PLAN-005.md) `2026-04-15`
 - [x] [**PLAN-006 Infrastructure automation — HA failover, node management, standalone host**](PLAN-006.md) `2026-04-15`
 - [x] [**PLAN-007 UI/UX completeness — compete with DigitalOcean/Vultr/Hetzner**](PLAN-007.md) `2026-04-15`
-- [ ] [**PLAN-008 QA fixes + three-persona user journey gaps**](PLAN-008.md) `2026-04-16`
+- [x] [**PLAN-008 QA fixes + three-persona user journey gaps**](PLAN-008.md) `2026-04-16`
 - [x] [**PLAN-009 Code review follow-up — PLAN-008 findings**](PLAN-009.md) `2026-04-16`
 - [x] [**PLAN-010 Production QA bug fixes (post-PLAN-009)**](PLAN-010.md) `2026-04-16`
 - [x] [**PLAN-011 Frontend pma-web compliance cleanup**](PLAN-011.md) `2026-04-17`
 - [x] [**PLAN-012 后端核算收尾 —— PayWithBalance 回滚集成测试 + TopUp 日额度**](PLAN-012.md) `2026-04-17`
 - [x] [**PLAN-013 历史延期项全量清零 —— PLAN-009 架构级 + PLAN-010 反代 + PLAN-011 收尾 + PLAN-012 限制**](PLAN-013.md) `2026-04-17`
-- [ ] [**PLAN-014 VM 状态反向同步 worker —— 消除 DB ↔ Incus 漂移**](PLAN-014.md) `2026-04-18`
+- [~] [**PLAN-014 VM 状态反向同步 worker —— 消除 DB ↔ Incus 漂移**](PLAN-014.md) `2026-04-18` *(已合并到 PLAN-020)*
 - [x] [**PLAN-015 QA-004 后续修复 —— N1-N15 清单**](PLAN-015.md) `2026-04-18`
 - [x] [**PLAN-016 后台菜单重组 + 用户/管理员视角分离**](PLAN-016.md) `2026-04-18`
 - [x] [**PLAN-017 QA-006 用户端 E2E N1-N11 修复**](PLAN-017.md) `2026-04-18`
 - [x] [**PLAN-018 用户端功能缺口填补(G1-G5)**](PLAN-018.md) `2026-04-18`
+- [x] [**PLAN-019 安全与审计基线（Step-up / 审计全覆盖 / Token TTL / Shadow Login）**](PLAN-019.md) `2026-04-19`
+- [x] [**PLAN-020 HA 真正化 + VM 状态反向同步（合并 PLAN-014）**](PLAN-020.md) `2026-04-19`
