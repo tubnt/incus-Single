@@ -20,6 +20,46 @@ import (
 // 单独定义而不复用全局 http.DefaultClient，避免被外部修改默认 timeout 影响。
 var reinstallImageProbeClient = &http.Client{Timeout: 8 * time.Second}
 
+// prePullImage 在 Reinstall 删除原 VM 之前主动把镜像拉到本地缓存。这样即使
+// probe → recreate 之间上游挂掉，create 仍能命中本地 cache；同时把"server 可达
+// 但 alias 不存在"的边缘情况提前到删除前暴露 —— 拉失败 → return early，原 VM
+// 完整保留。
+//
+// 复用 Incus images API（POST /1.0/images with source spec）。镜像若已在本地
+// 缓存，Incus 会无操作返回；otherwise 触发一次拉取。任一情况下 op 完成都说明
+// 镜像可用，create 阶段可放心引用。
+func prePullImage(ctx context.Context, client *cluster.Client, project, serverURL, protocol, alias string) error {
+	body, _ := json.Marshal(map[string]any{
+		"source": map[string]any{
+			"type":     "image",
+			"mode":     "pull",
+			"server":   serverURL,
+			"protocol": protocol,
+			"alias":    alias,
+		},
+	})
+	path := fmt.Sprintf("/1.0/images?project=%s", project)
+	resp, err := client.APIPost(ctx, path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("submit image pull: %w", err)
+	}
+	if resp == nil || resp.Type != "async" {
+		// 非 async 通常意味着已经命中缓存或返回错误状态；前者就是成功。
+		return nil
+	}
+	var op struct{ ID string }
+	_ = json.Unmarshal(resp.Metadata, &op)
+	if op.ID == "" {
+		return nil
+	}
+	pullCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := client.WaitForOperation(pullCtx, op.ID); err != nil {
+		return fmt.Errorf("wait image pull: %w", err)
+	}
+	return nil
+}
+
 // probeImageServer 在 Reinstall 删除原 VM 之前探测 simplestreams 镜像服务器。
 // 不可达 → 立即 abort 整个 Reinstall（不删原 VM）。可达不保证 alias 一定存在，
 // 但能挡住 99% 的"上游服务挂了"导致用户数据被永久销毁的最常见场景（OPS-008 #8）。
@@ -115,6 +155,11 @@ func (s *VMService) Create(ctx context.Context, params CreateVMParams) (*CreateV
 			"user.cloud-init":          cloudInit,
 			"cloud-init.network-config": networkConfig,
 			"security.secureboot":       "false",
+			// Enable live migration (stateful) so MigrateVM can use --live without
+			// having to cold-migrate (stop → migrate → start). OPS-008 #5: Incus
+			// rejects live migration without this flag; OPS-008 cold-migrate fix
+			// stays as fallback for VMs that lacked this at create time.
+			"migration.stateful": "true",
 		},
 		"devices": map[string]any{
 			"root": map[string]any{
@@ -275,12 +320,17 @@ func (s *VMService) Reinstall(ctx context.Context, params ReinstallParams) (*Rei
 		return nil, fmt.Errorf("parse instance: %w", err)
 	}
 
-	// OPS-012: 删除原 VM 之前先探测镜像服务器，挡住"上游挂掉 → VM 已删但
+	// OPS-012 (probe): 删除原 VM 之前先探测镜像服务器，挡住"上游挂掉 → VM 已删但
 	// 重建失败 → 用户数据永久销毁"的最常见数据丢失路径（OPS-008 Bug #8 教训）。
-	// 探测仅验证服务器可达，不保证 alias 一定存在；但生产环境最大风险（CDN 故障 /
-	// 网络分区）99% 都属于服务器不可达级别，这道闸够用。
 	if err := probeImageServer(ctx, serverURL); err != nil {
 		return nil, fmt.Errorf("镜像服务器 %s 不可达，已取消重装以保护原 VM 数据: %w", serverURL, err)
+	}
+
+	// OPS-016 (pre-pull): 主动把镜像拉到本地缓存。这样即使 probe 之后到 recreate
+	// 之前上游挂掉，create 也能命中本地 cache。残留 1% 的"server 可达但 alias
+	// 不存在"风险也在这一步暴露 —— 拉失败 → return 早，原 VM 不动。
+	if err := prePullImage(ctx, client, params.Project, serverURL, protocol, params.ImageSource); err != nil {
+		return nil, fmt.Errorf("镜像 %s 预拉取失败，已取消重装以保护原 VM 数据: %w", params.ImageSource, err)
 	}
 
 	_ = s.ChangeState(ctx, params.ClusterName, params.Project, params.VMName, "stop", true)

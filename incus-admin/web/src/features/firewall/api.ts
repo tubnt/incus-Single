@@ -5,6 +5,9 @@ import { queryClient } from "@/shared/lib/query-client";
 export interface FirewallRule {
   id?: number;
   group_id?: number;
+  // Direction is optional in the API for back-compat; defaults to "ingress"
+  // server-side when omitted.
+  direction?: "ingress" | "egress";
   action: "allow" | "reject" | "drop";
   protocol: "tcp" | "udp" | "icmp4" | "icmp6" | "";
   destination_port: string;

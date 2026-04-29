@@ -198,6 +198,9 @@ type FirewallGroup struct {
 type FirewallRule struct {
 	ID              int64     `json:"id" db:"id"`
 	GroupID         int64     `json:"group_id" db:"group_id"`
+	// Direction is 'ingress' (default; matches phase-E behaviour) or 'egress'.
+	// Forwarded verbatim into the Incus ACL rule.direction field.
+	Direction       string    `json:"direction" db:"direction"`
 	Action          string    `json:"action" db:"action"`
 	Protocol        string    `json:"protocol" db:"protocol"`
 	DestinationPort string    `json:"destination_port" db:"destination_port"`

@@ -52,7 +52,9 @@ func (h *RescueHandler) PortalEnter(w http.ResponseWriter, r *http.Request) {
 	if vm == nil {
 		return
 	}
-	h.doEnter(w, r, vm)
+	if h.doEnter(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.enter", "vm", vm.ID, map[string]any{"via": "portal", "name": vm.Name})
+	}
 }
 
 func (h *RescueHandler) PortalExit(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,9 @@ func (h *RescueHandler) PortalExit(w http.ResponseWriter, r *http.Request) {
 	if vm == nil {
 		return
 	}
-	h.doExit(w, r, vm)
+	if h.doExit(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.exit", "vm", vm.ID, map[string]any{"via": "portal", "name": vm.Name})
+	}
 }
 
 // vmForPortal looks up the VM by id and returns it only if the requesting
@@ -90,7 +94,9 @@ func (h *RescueHandler) EnterByName(w http.ResponseWriter, r *http.Request) {
 	if vm == nil {
 		return
 	}
-	h.doEnter(w, r, vm)
+	if h.doEnter(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.enter", "vm", vm.ID, map[string]any{"via": "admin-by-name", "name": vm.Name})
+	}
 }
 
 func (h *RescueHandler) ExitByName(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +104,9 @@ func (h *RescueHandler) ExitByName(w http.ResponseWriter, r *http.Request) {
 	if vm == nil {
 		return
 	}
-	h.doExit(w, r, vm)
+	if h.doExit(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.exit", "vm", vm.ID, map[string]any{"via": "admin-by-name", "name": vm.Name})
+	}
 }
 
 func (h *RescueHandler) vmByName(w http.ResponseWriter, r *http.Request) *model.VM {
@@ -134,21 +142,26 @@ func (h *RescueHandler) Enter(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
 		return
 	}
-	h.doEnter(w, r, vm)
+	if h.doEnter(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.enter", "vm", vm.ID, map[string]any{"via": "admin-by-id", "name": vm.Name})
+	}
 }
 
-func (h *RescueHandler) doEnter(w http.ResponseWriter, r *http.Request, vm *model.VM) {
+// doEnter performs the rescue-enter state machine + writes the success or
+// failure response. Returns true on success so the caller can audit at the
+// entry-point level (preserves "via" context: admin-by-id / by-name / portal).
+func (h *RescueHandler) doEnter(w http.ResponseWriter, r *http.Request, vm *model.VM) bool {
 	id := vm.ID
 	if vm.RescueState != "normal" {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm is already in rescue mode"})
-		return
+		return false
 	}
 
 	clusterName, project := h.resolveVM(vm)
 	snapshotName, err := h.svc.EnterRescue(r.Context(), clusterName, project, vm.Name)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
+		return false
 	}
 
 	if ok, dbErr := h.repo.SetRescueState(r.Context(), id, snapshotName); dbErr != nil || !ok {
@@ -160,13 +173,9 @@ func (h *RescueHandler) doEnter(w http.ResponseWriter, r *http.Request, vm *mode
 			"snapshot": snapshotName,
 			"db_err":   dbErrOrRace(dbErr),
 		})
-		return
+		return false
 	}
 
-	audit(r.Context(), r, "vm.rescue.enter", "vm", id, map[string]any{
-		"name":     vm.Name,
-		"snapshot": snapshotName,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "entered_rescue",
 		"vm_id":    id,
@@ -174,6 +183,7 @@ func (h *RescueHandler) doEnter(w http.ResponseWriter, r *http.Request, vm *mode
 		"snapshot": snapshotName,
 		"note":     "VM is stopped with a rescue snapshot. Exit with restore=true to roll back, or restore=false to resume.",
 	})
+	return true
 }
 
 type exitRescueReq struct {
@@ -203,19 +213,23 @@ func (h *RescueHandler) Exit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
 		return
 	}
-	h.doExit(w, r, vm)
+	if h.doExit(w, r, vm) {
+		audit(r.Context(), r, "vm.rescue.exit", "vm", vm.ID, map[string]any{"via": "admin-by-id", "name": vm.Name})
+	}
 }
 
-func (h *RescueHandler) doExit(w http.ResponseWriter, r *http.Request, vm *model.VM) {
+// doExit performs the rescue-exit state machine. Returns true on success so
+// the caller (entry-point handler) can audit with its own "via" context.
+func (h *RescueHandler) doExit(w http.ResponseWriter, r *http.Request, vm *model.VM) bool {
 	id := vm.ID
 	if vm.RescueState != "rescue" {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm is not in rescue mode"})
-		return
+		return false
 	}
 
 	var req exitRescueReq
 	if !decodeAndValidate(w, r, &req) {
-		return
+		return false
 	}
 
 	clusterName, project := h.resolveVM(vm)
@@ -226,11 +240,11 @@ func (h *RescueHandler) doExit(w http.ResponseWriter, r *http.Request, vm *model
 
 	if err := h.svc.ExitRescue(r.Context(), clusterName, project, vm.Name, snapshotName, req.Restore); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
+		return false
 	}
 	if _, err := h.repo.ClearRescueState(r.Context(), id); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
+		return false
 	}
 
 	deleted := false
@@ -240,12 +254,6 @@ func (h *RescueHandler) doExit(w http.ResponseWriter, r *http.Request, vm *model
 		}
 	}
 
-	audit(r.Context(), r, "vm.rescue.exit", "vm", id, map[string]any{
-		"name":             vm.Name,
-		"snapshot":         snapshotName,
-		"restore":          req.Restore,
-		"snapshot_deleted": deleted,
-	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":           "exited_rescue",
 		"vm_id":            id,
@@ -253,6 +261,7 @@ func (h *RescueHandler) doExit(w http.ResponseWriter, r *http.Request, vm *model
 		"restored":         req.Restore,
 		"snapshot_deleted": deleted,
 	})
+	return true
 }
 
 func (h *RescueHandler) resolveVM(vm *model.VM) (clusterName, project string) {

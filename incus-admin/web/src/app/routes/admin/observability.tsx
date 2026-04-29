@@ -6,7 +6,7 @@ export const Route = createFileRoute("/admin/observability")({
   component: ObservabilityPage,
 });
 
-type Dashboard = {
+interface Dashboard {
   id: string;
   label: string;
   url: string;
@@ -14,7 +14,7 @@ type Dashboard = {
   // embeddable=false 表示浏览器 Mixed-Content 会拦截 iframe（HTTP over HTTPS 页面）
   // 或目标服务拒绝被 iframe（X-Frame-Options）。此时只允许"新窗口打开"。
   embeddable: boolean;
-};
+}
 
 const DASHBOARDS: Dashboard[] = [
   { id: "grafana", label: "Grafana", url: "http://10.0.20.1:3000", desc: "Metrics dashboards (CPU, RAM, Disk, Network) — HTTP only, new tab", embeddable: false },

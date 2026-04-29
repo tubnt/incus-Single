@@ -1,20 +1,21 @@
+import type {CephPool, OSDTreeNode} from "@/features/storage/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { fmtBytes } from "@/shared/lib/utils";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { toast } from "sonner";
 import {
-  type CephPool,
-  type OSDTreeNode,
+  
+  
   useCephPoolsQuery,
   useCephStatusQuery,
   useCreateCephPoolMutation,
   useDeleteCephPoolMutation,
   useOSDInMutation,
   useOSDOutMutation,
-  useOSDTreeQuery,
+  useOSDTreeQuery
 } from "@/features/storage/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { fmtBytes } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/storage")({
   component: StoragePage,

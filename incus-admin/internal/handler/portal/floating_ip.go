@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
+	"github.com/incuscloud/incus-admin/internal/middleware"
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service"
@@ -47,6 +48,111 @@ func (h *FloatingIPHandler) AdminRoutes(r chi.Router) {
 	r.Delete("/floating-ips/{id}", h.Release)
 	r.Post("/floating-ips/{id}/attach", h.Attach)
 	r.Post("/floating-ips/{id}/detach", h.Detach)
+}
+
+// PortalRoutes lets end users attach/detach an already-allocated Floating IP
+// to/from a VM they own. Allocation + release stay admin-only because they
+// claim a public IP from the shared pool — quota policy lives there.
+func (h *FloatingIPHandler) PortalRoutes(r chi.Router) {
+	// List all available (status='available') Floating IPs the user can
+	// attach to one of their VMs. We deliberately surface the same shape as
+	// admin /floating-ips so the portal UI can reuse the same row component.
+	r.Get("/floating-ips", h.PortalListAvailable)
+
+	// Attach / detach against a VM the user owns. Owner check uses the
+	// {id}=vm_id pattern shared with rescue / firewall portal routes.
+	r.Post("/services/{id}/floating-ips/{fipID}/attach", h.PortalAttach)
+	r.Post("/services/{id}/floating-ips/{fipID}/detach", h.PortalDetach)
+}
+
+// PortalListAvailable returns Floating IPs the caller can pick when attaching.
+// Includes IPs already attached to one of the caller's own VMs so the UI can
+// render a "currently bound" badge — the user shouldn't need to switch pages
+// to know what's already on their VM.
+func (h *FloatingIPHandler) PortalListAvailable(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if userID == 0 {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "auth required"})
+		return
+	}
+	all, err := h.repo.List(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	// Bring back only:
+	//   - status='available' (claimable by anyone with a VM in that cluster)
+	//   - status='attached' AND bound_vm_id ∈ caller's VMs (so they can detach)
+	visible := make([]model.FloatingIP, 0, len(all))
+	for i := range all {
+		ip := all[i]
+		if ip.Status == repository.FloatingIPAvailable {
+			visible = append(visible, ip)
+			continue
+		}
+		if ip.Status == repository.FloatingIPAttached && ip.BoundVMID != nil {
+			vm, err := h.vmRepo.GetByID(r.Context(), *ip.BoundVMID)
+			if err != nil || vm == nil {
+				continue
+			}
+			if vm.UserID == userID {
+				visible = append(visible, ip)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"floating_ips": visible})
+}
+
+// PortalAttach attaches an available Floating IP to a VM the caller owns.
+// Reuses the admin Attach implementation after the owner check; that keeps
+// rollback / audit semantics identical between the two paths.
+func (h *FloatingIPHandler) PortalAttach(w http.ResponseWriter, r *http.Request) {
+	vm, fipID, ok := h.portalLookupVMAndFIP(w, r)
+	if !ok {
+		return
+	}
+	h.attachVerified(w, r, fipID, vm, "portal")
+}
+
+// PortalDetach detaches a Floating IP that's bound to a VM the caller owns.
+func (h *FloatingIPHandler) PortalDetach(w http.ResponseWriter, r *http.Request) {
+	vm, fipID, ok := h.portalLookupVMAndFIP(w, r)
+	if !ok {
+		return
+	}
+	// Same ownership invariant: detach is only legal if the IP is bound to
+	// *this* VM (not any random VM the user owns) — protects against UI
+	// stale state racing the IP onto a different host.
+	fip, err := h.repo.GetByID(r.Context(), fipID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if fip == nil || fip.BoundVMID == nil || *fip.BoundVMID != vm.ID {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "floating_ip not attached to this VM"})
+		return
+	}
+	h.detachVerified(w, r, fipID, vm, "portal")
+}
+
+func (h *FloatingIPHandler) portalLookupVMAndFIP(w http.ResponseWriter, r *http.Request) (*model.VM, int64, bool) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	vmID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid vm id"})
+		return nil, 0, false
+	}
+	fipID, err := strconv.ParseInt(chi.URLParam(r, "fipID"), 10, 64)
+	if err != nil || fipID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid floating_ip id"})
+		return nil, 0, false
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "access denied"})
+		return nil, 0, false
+	}
+	return vm, fipID, true
 }
 
 func (h *FloatingIPHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +247,18 @@ func (h *FloatingIPHandler) Attach(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
+	vm, err := h.vmRepo.GetByID(r.Context(), req.VMID)
+	if err != nil || vm == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	h.attachVerified(w, r, id, vm, "admin")
+}
+
+// attachVerified does the actual attach state machine after callers have
+// validated FIP id + VM ownership. The `via` field tags the audit row so we
+// can tell admin actions apart from portal self-service.
+func (h *FloatingIPHandler) attachVerified(w http.ResponseWriter, r *http.Request, id int64, vm *model.VM, via string) {
 	fip, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -155,11 +273,6 @@ func (h *FloatingIPHandler) Attach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vm, err := h.vmRepo.GetByID(r.Context(), req.VMID)
-	if err != nil || vm == nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
-		return
-	}
 	clusterName := findClusterName(h.clusters, vm.ClusterID)
 	cc, _ := h.clusters.ConfigByName(clusterName)
 	project := cc.DefaultProject
@@ -169,7 +282,7 @@ func (h *FloatingIPHandler) Attach(w http.ResponseWriter, r *http.Request) {
 
 	// Atomic DB update first — if someone else raced us the row will no
 	// longer be 'available' and the Incus mutation never happens.
-	ok, err := h.repo.Attach(r.Context(), id, req.VMID)
+	ok, err := h.repo.Attach(r.Context(), id, vm.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
@@ -183,8 +296,6 @@ func (h *FloatingIPHandler) Attach(w http.ResponseWriter, r *http.Request) {
 	if attachErr != nil {
 		// Best-effort rollback: undo the DB attach so we don't lie about state.
 		if _, rollbackErr := h.repo.Detach(r.Context(), id); rollbackErr != nil {
-			// Rollback failed — surface both in the response so the admin
-			// has enough context to reconcile by hand.
 			writeJSON(w, http.StatusInternalServerError, map[string]any{
 				"error":       attachErr.Error(),
 				"rollback_err": rollbackErr.Error(),
@@ -197,16 +308,17 @@ func (h *FloatingIPHandler) Attach(w http.ResponseWriter, r *http.Request) {
 
 	audit(r.Context(), r, "floating_ip.attach", "floating_ip", id, map[string]any{
 		"ip":      fip.IP,
-		"vm_id":   req.VMID,
+		"vm_id":   vm.ID,
 		"vm_name": vm.Name,
+		"via":     via,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":        "attached",
-		"ip":            fip.IP,
-		"vm_id":         req.VMID,
-		"vm_name":       vm.Name,
-		"runbook_hint":  hint,
-		"runbook_note":  "Run this inside the VM so the guest OS serves the floating IP.",
+		"status":       "attached",
+		"ip":           fip.IP,
+		"vm_id":        vm.ID,
+		"vm_name":      vm.Name,
+		"runbook_hint": hint,
+		"runbook_note": "Run this inside the VM so the guest OS serves the floating IP.",
 	})
 }
 
@@ -216,6 +328,13 @@ func (h *FloatingIPHandler) Detach(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
 		return
 	}
+	h.detachVerified(w, r, id, nil, "admin")
+}
+
+// detachVerified runs the detach against the FIP's currently bound VM. When
+// `vm` is non-nil (portal path), the caller has already proven ownership and
+// we trust it; admin path passes nil and we look the VM up here.
+func (h *FloatingIPHandler) detachVerified(w http.ResponseWriter, r *http.Request, id int64, vm *model.VM, via string) {
 	fip, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -232,9 +351,14 @@ func (h *FloatingIPHandler) Detach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vm, err := h.vmRepo.GetByID(r.Context(), *fip.BoundVMID)
+	if vm == nil {
+		looked, lookupErr := h.vmRepo.GetByID(r.Context(), *fip.BoundVMID)
+		if lookupErr == nil {
+			vm = looked
+		}
+	}
 	var hint string
-	if err == nil && vm != nil {
+	if vm != nil {
 		clusterName := findClusterName(h.clusters, vm.ClusterID)
 		cc, _ := h.clusters.ConfigByName(clusterName)
 		project := cc.DefaultProject
@@ -255,6 +379,7 @@ func (h *FloatingIPHandler) Detach(w http.ResponseWriter, r *http.Request) {
 		"ip":      fip.IP,
 		"vm_id":   fip.BoundVMID,
 		"vm_name": vmNameOrEmpty(vm),
+		"via":     via,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":       "detached",

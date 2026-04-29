@@ -1,6 +1,6 @@
+import { AlertDialog } from "@base-ui-components/react/alert-dialog";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertDialog } from "@base-ui-components/react/alert-dialog";
 
 interface ConfirmOptions {
   title?: string;

@@ -1,14 +1,15 @@
+import type {Ticket} from "@/features/tickets/api";
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
-  type Ticket,
+  
   useCloseTicketMutation,
   useCreateTicketMutation,
   useMyTicketsQuery,
   useReplyTicketMutation,
-  useTicketDetailQuery,
+  useTicketDetailQuery
 } from "@/features/tickets/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 

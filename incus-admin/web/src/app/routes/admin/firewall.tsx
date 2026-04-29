@@ -1,14 +1,15 @@
+import type {FirewallGroup, FirewallRule} from "@/features/firewall/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
-  type FirewallGroup,
-  type FirewallRule,
+  
+  
   useCreateFirewallGroupMutation,
   useDeleteFirewallGroupMutation,
   useFirewallGroupsQuery,
-  useReplaceFirewallRulesMutation,
+  useReplaceFirewallRulesMutation
 } from "@/features/firewall/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 

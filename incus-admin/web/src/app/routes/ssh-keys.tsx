@@ -1,13 +1,14 @@
+import type {SSHKey} from "@/features/ssh-keys/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
-  type SSHKey,
+  
   useCreateSSHKeyMutation,
   useDeleteSSHKeyMutation,
-  useSSHKeysQuery,
+  useSSHKeysQuery
 } from "@/features/ssh-keys/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/ssh-keys")({
   component: SSHKeysPage,

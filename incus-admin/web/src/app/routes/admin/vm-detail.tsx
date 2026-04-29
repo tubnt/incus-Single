@@ -1,12 +1,14 @@
+import type {ResetPasswordMode} from "@/features/vms/api";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { NodePicker } from "@/features/nodes/node-picker";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 import {
+  
   useAdminResetPasswordByNameMutation,
   useAdminVMDetailQuery,
   useDeleteVMMutation,
@@ -14,10 +16,9 @@ import {
   useReinstallVMMutation,
   useRescueEnterByNameMutation,
   useRescueExitByNameMutation,
-  useVMStateMutation,
-  type ResetPasswordMode,
+  useVMStateMutation
 } from "@/features/vms/api";
-import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/admin/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({

@@ -1,7 +1,7 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { queryClient } from "@/shared/lib/query-client";
 import type { User } from "@/shared/lib/auth";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
+import { queryClient } from "@/shared/lib/query-client";
 
 export const Route = createFileRoute("/admin")({
   beforeLoad: async () => {

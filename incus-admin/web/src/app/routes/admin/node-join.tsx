@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { useExecSSHMutation, useTestSSHMutation } from "@/features/nodes/api";
 
 export const Route = createFileRoute("/admin/node-join")({

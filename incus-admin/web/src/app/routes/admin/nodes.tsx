@@ -1,16 +1,17 @@
+import type {ClusterNode} from "@/features/nodes/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { queryClient } from "@/shared/lib/query-client";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
-  type ClusterNode,
+  
   nodeKeys,
-  useAdminNodesQuery,
   useAdminNodeDetailQuery,
+  useAdminNodesQuery,
   useNodeEvacuateMutation,
-  useNodeRestoreMutation,
+  useNodeRestoreMutation
 } from "@/features/nodes/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { queryClient } from "@/shared/lib/query-client";
 
 export const Route = createFileRoute("/admin/nodes")({
   component: NodesPage,

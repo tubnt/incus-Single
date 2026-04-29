@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { snapshotPath } from "./snapshot-utils";
 
 interface SnapshotInfo {

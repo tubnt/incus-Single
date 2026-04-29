@@ -1,8 +1,9 @@
+import type {PageParams} from "@/shared/lib/pagination";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { http } from "@/shared/lib/http";
-import { pageKeyPart, pageQueryString, type PageParams } from "@/shared/lib/pagination";
-import { queryClient } from "@/shared/lib/query-client";
 import { vmKeys } from "@/features/vms/api";
+import { http } from "@/shared/lib/http";
+import { pageKeyPart,  pageQueryString } from "@/shared/lib/pagination";
+import { queryClient } from "@/shared/lib/query-client";
 
 export interface Order {
   id: number;

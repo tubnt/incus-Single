@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
-import {
-  LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
-  Network, ServerCog, Activity, Globe, Users, Package, ShoppingCart,
-  Ticket, FileText, Plus, ChevronLeft, Menu, Shield, HardDrive, BarChart3, MapPin, Terminal, Settings, X,
-  ChevronDown, ArrowLeft, ArrowRight, Disc3, ShieldCheck, Share2,
-} from "lucide-react";
+import type {NavGroup, NavItem} from "./sidebar-data";
 import { Accordion } from "@base-ui-components/react/accordion";
+import { Link, useRouterState } from "@tanstack/react-router";
+import {
+  Activity, ArrowLeft, ArrowRight, BarChart3, ChevronDown, ChevronLeft,
+  CreditCard, Disc3, FileText, Globe, HardDrive, Key, KeyRound,
+  LayoutDashboard, MapPin, Menu, MessageSquare, Network, Package, Plus, Server, ServerCog, Settings, Share2, Shield,
+  ShieldCheck, ShoppingCart, Terminal, Ticket, Users, X,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/shared/lib/utils";
-import { adminSidebar, userSidebar, type NavGroup, type NavItem } from "./sidebar-data";
+import { adminSidebar,   userSidebar } from "./sidebar-data";
 
 const iconMap: Record<string, React.ElementType> = {
   LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
@@ -282,5 +283,5 @@ function AdminNav({
 
 function isItemActive(currentPath: string, to: string): boolean {
   if (to === "/") return currentPath === "/";
-  return currentPath === to || currentPath.startsWith(to + "/");
+  return currentPath === to || currentPath.startsWith(`${to  }/`);
 }

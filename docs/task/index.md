@@ -66,3 +66,7 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-013 admin/create-vm 页 UX 修复（i18n + 规格按钮 active 态）**](OPS-013.md) `P3`
 - [x] [**OPS-014 用户端 VM 详情页 Firewall tab（绑定/解绑 UI）**](OPS-014.md) `P2`
 - [x] [**OPS-015 admin/monitoring metrics 跨节点 fan-out（修复多 VM 缺失）**](OPS-015.md) `P2`
+- [x] [**OPS-016 Reinstall 数据丢失防线再加一层（image pre-pull）**](OPS-016.md) `P2`
+- [x] [**OPS-017 Firewall ingress/egress 双向规则**](OPS-017.md) `P2`
+- [x] [**OPS-018 Floating IP portal attach/detach + Admin VM firewall bind**](OPS-018.md) `P2`
+- [x] [**OPS-019 杂项打磨：lint / i18n / stateful / Bug#4 / log / audit**](OPS-019.md) `P3`

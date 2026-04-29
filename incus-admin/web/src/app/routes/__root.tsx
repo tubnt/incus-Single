@@ -1,13 +1,13 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
 import { useTranslation } from "react-i18next";
-import { AppSidebar } from "@/shared/components/layout/app-sidebar";
-import { AppHeader } from "@/shared/components/layout/app-header";
-import { cn } from "@/shared/lib/utils";
 import { Toaster } from "sonner";
 import { ErrorBoundary } from "@/shared/components/error-boundary";
+import { AppHeader } from "@/shared/components/layout/app-header";
+import { AppSidebar } from "@/shared/components/layout/app-sidebar";
+import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
+import { cn } from "@/shared/lib/utils";
 
 export const Route = createRootRoute({
   component: RootLayout,

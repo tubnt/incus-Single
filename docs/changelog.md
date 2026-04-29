@@ -1,5 +1,41 @@
 # IncusAdmin Changelog
 
+## 2026-04-29 04:20 [feat+fix+deploy]
+
+OPS-016 / OPS-017 / OPS-018 / OPS-019 一次性合并部署。生产 dist 备份 `incus-admin.bak-ops016-021-20260429-0420xx`，前端 bundle hash 重新生成，migration 014 已应用。
+
+**OPS-016** Reinstall 数据丢失防线 ×2：
+- 在 OPS-012 probe（99% 拦截）之上加 `prePullImage`：删除前主动 `POST /1.0/images mode=pull` 拉镜像到本地缓存；拉失败 → return early，原 VM 不动
+- 把"server 可达但 alias 不存在"的失败提前暴露在删除前
+- 即使 probe 后到 recreate 之间上游挂掉，create 命中本地缓存仍可成功
+
+**OPS-017** Firewall ingress/egress：
+- migration 014 加 `firewall_rules.direction` 列 + CHECK 约束
+- model / repository / service / handler / frontend type 全链路加 direction（默认 ingress 向后兼容）
+- service `splitRulesByDirection` 一次性拆 ingress / egress 两个槽推给 Incus ACL
+- UI 选择器后续渐进（后端 / API / DB 都已就绪）
+
+**OPS-018** portal/admin 跨域操作补齐：
+- portal `/portal/floating-ips` + `/portal/services/{id}/floating-ips/{fipID}/{attach,detach}`：用户自助管理 FIP（owner check）
+- admin `/admin/vms/{id}/firewall` + `/firewall/{groupID}`：admin 不需 shadow login 即可改任意 VM 的防火墙绑定
+- 共享 service 层 + audit `via` 字段区分调用源
+
+**OPS-019** 6 项打磨：
+- 修 `bun run lint` 基础设施（装 react-refresh + 降 @eslint-react v3）
+- audit-logs.tsx i18n TODO 收尾（6 个 zh+en key）
+- VM create 时设 `migration.stateful=true`（启用 live migration）
+- HA-001 rescue audit 重构 → 6 writes / 6 audits 全 ok
+- HealingEventRepo.GetByID 4 case integration test
+- Bug #4 cert-restricted 日志加 runbook 字段（操作员一眼看出是设计行为）
+
+**测试基线**：vitest 37/37 + go test ./... 全包 + go vet + audit-coverage --strict（70 writes / 71 audits / 0 missing）。
+
+**deferred**（明确不在本批）：
+- P2.1 VM provisioning 异步化 + SSE — 架构级改动，需要专项 plan
+- INFRA-002 集群节点管理 UI / INFRA-003 standalone host 管理 — 大新功能，需求待澄清
+
+---
+
 ## 2026-04-29 03:35 [e2e-pass]
 
 OPS-013 / OPS-014 / OPS-015 浏览器 E2E 实测全部 PASS（chrome MCP，dist `index-EnRb6dKR.js`）：

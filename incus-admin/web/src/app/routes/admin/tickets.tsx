@@ -1,15 +1,16 @@
+import type {Ticket} from "@/features/tickets/api";
+import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  type Ticket,
+  
   useAdminTicketsQuery,
   useReplyTicketMutation,
   useTicketDetailQuery,
-  useUpdateTicketStatusMutation,
+  useUpdateTicketStatusMutation
 } from "@/features/tickets/api";
 import { Pagination } from "@/shared/components/ui/pagination";
-import type { PageParams } from "@/shared/lib/pagination";
 
 export const Route = createFileRoute("/admin/tickets")({
   component: AdminTicketsPage,

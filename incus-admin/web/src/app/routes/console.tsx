@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
+import { createFileRoute } from "@tanstack/react-router";
 import { ConsoleTerminal } from "@/features/console/terminal";
+import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
 
 export const Route = createFileRoute("/console")({
   validateSearch: (search: Record<string, unknown>) => ({

@@ -1,9 +1,9 @@
+import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAdminOrdersQuery } from "@/features/billing/api";
 import { Pagination } from "@/shared/components/ui/pagination";
-import type { PageParams } from "@/shared/lib/pagination";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/orders")({

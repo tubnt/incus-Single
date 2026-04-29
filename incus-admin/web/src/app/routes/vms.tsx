@@ -1,12 +1,13 @@
+import type {VMService} from "@/features/vms/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { CardSkeleton } from "@/shared/components/ui/skeleton";
+import { toast } from "sonner";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
-import { useMyVMsQuery, useVMActionMutation, type VMService } from "@/features/vms/api";
+import { useMyVMsQuery, useVMActionMutation  } from "@/features/vms/api";
 import { defaultUserForImage } from "@/features/vms/default-user";
+import { CardSkeleton } from "@/shared/components/ui/skeleton";
 
 export const Route = createFileRoute("/vms")({
   component: MyVMs,

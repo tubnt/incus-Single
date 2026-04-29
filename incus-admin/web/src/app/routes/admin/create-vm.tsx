@@ -1,10 +1,11 @@
+import type {AdminCreateVMResult} from "@/features/vms/api";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useClustersQuery } from "@/features/clusters/api";
 import { ClusterPicker } from "@/features/clusters/cluster-picker";
 import { ProjectPicker } from "@/features/projects/project-picker";
-import { type AdminCreateVMResult, useAdminCreateVMMutation } from "@/features/vms/api";
+import {  useAdminCreateVMMutation } from "@/features/vms/api";
 import { DEFAULT_OS_IMAGE, OsImagePicker, useOsImageLabel } from "@/features/vms/os-image-picker";
 
 export const Route = createFileRoute("/admin/create-vm")({

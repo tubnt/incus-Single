@@ -31,6 +31,12 @@ func (h *FirewallHandler) AdminRoutes(r chi.Router) {
 	r.Put("/firewall/groups/{id}", h.UpdateGroup)
 	r.Delete("/firewall/groups/{id}", h.DeleteGroup)
 	r.Put("/firewall/groups/{id}/rules", h.ReplaceRules)
+	// Admin can bind/unbind any VM's firewall (no owner check). Uses the same
+	// service-layer cold-modify path as portal so behaviour is identical
+	// other than the audit `via` field.
+	r.Get("/vms/{id}/firewall", h.AdminGetVMBindings)
+	r.Post("/vms/{id}/firewall", h.AdminBindVM)
+	r.Delete("/vms/{id}/firewall/{groupID}", h.AdminUnbindVM)
 }
 
 func (h *FirewallHandler) PortalRoutes(r chi.Router) {
@@ -97,6 +103,9 @@ type createFirewallGroupReq struct {
 }
 
 type firewallRuleBody struct {
+	// Direction defaults to "ingress" when omitted (back-compat: phase-E
+	// shipped ingress-only). "egress" toggles outbound rules.
+	Direction       string `json:"direction"        validate:"omitempty,oneof=ingress egress"`
 	Action          string `json:"action"           validate:"required,oneof=allow reject drop"`
 	Protocol        string `json:"protocol"         validate:"omitempty,oneof=tcp udp icmp4 icmp6"`
 	DestinationPort string `json:"destination_port" validate:"omitempty,max=128"`
@@ -112,8 +121,13 @@ func rulesFromBody(groupID int64, body []firewallRuleBody) []model.FirewallRule 
 		if proto == "" {
 			proto = "tcp"
 		}
+		dir := r.Direction
+		if dir == "" {
+			dir = "ingress"
+		}
 		out = append(out, model.FirewallRule{
 			GroupID:         groupID,
+			Direction:       dir,
 			Action:          r.Action,
 			Protocol:        proto,
 			DestinationPort: r.DestinationPort,
@@ -374,6 +388,109 @@ func (h *FirewallHandler) UnbindVM(w http.ResponseWriter, r *http.Request) {
 	audit(r.Context(), r, "firewall.unbind", "vm", vmID, map[string]any{
 		"group_id":   group.ID,
 		"group_slug": group.Slug,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "unbound"})
+}
+
+// --- VM bindings (admin) ---
+//
+// Admin path mirrors the portal handlers but skips the owner check so support
+// can bind/unbind a customer VM without going through shadow-login.
+
+func (h *FirewallHandler) AdminGetVMBindings(w http.ResponseWriter, r *http.Request) {
+	vmID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if vm == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	groups, err := h.repo.ListBindingsByVM(r.Context(), vmID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
+}
+
+func (h *FirewallHandler) AdminBindVM(w http.ResponseWriter, r *http.Request) {
+	vmID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil || vm == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	var req bindFirewallReq
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	group, err := h.repo.GetGroupByID(r.Context(), req.GroupID)
+	if err != nil || group == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	clusterName, project := h.resolveVMLocation(vm)
+	if err := h.svc.AttachACLToVM(r.Context(), clusterName, project, vm.Name, group.Slug); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "attach ACL: " + err.Error()})
+		return
+	}
+	if err := h.repo.Bind(r.Context(), vmID, group.ID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	audit(r.Context(), r, "firewall.bind", "vm", vmID, map[string]any{
+		"group_id":   group.ID,
+		"group_slug": group.Slug,
+		"via":        "admin",
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "bound", "group": group})
+}
+
+func (h *FirewallHandler) AdminUnbindVM(w http.ResponseWriter, r *http.Request) {
+	vmID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	groupID, err := strconv.ParseInt(chi.URLParam(r, "groupID"), 10, 64)
+	if err != nil || groupID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid group id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil || vm == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	group, err := h.repo.GetGroupByID(r.Context(), groupID)
+	if err != nil || group == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	clusterName, project := h.resolveVMLocation(vm)
+	if err := h.svc.DetachACLFromVM(r.Context(), clusterName, project, vm.Name, group.Slug); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "detach ACL: " + err.Error()})
+		return
+	}
+	if err := h.repo.Unbind(r.Context(), vmID, groupID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	audit(r.Context(), r, "firewall.unbind", "vm", vmID, map[string]any{
+		"group_id":   group.ID,
+		"group_slug": group.Slug,
+		"via":        "admin",
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"status": "unbound"})
 }

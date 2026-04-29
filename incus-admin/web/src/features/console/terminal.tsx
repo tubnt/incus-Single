@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal } from "@xterm/xterm";
+import { useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 
 interface ConsoleTerminalProps {
@@ -40,7 +40,7 @@ export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalPro
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/console?vm=${encodeURIComponent(vmName)}&project=${encodeURIComponent(project)}&cluster=${encodeURIComponent(cluster)}`;
 
-    terminal.writeln("Connecting to " + vmName + "...");
+    terminal.writeln(`Connecting to ${  vmName  }...`);
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -62,11 +62,11 @@ export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalPro
     };
 
     ws.onerror = () => {
-      terminal.writeln("\r\n\x1b[31mConnection error.\x1b[0m");
+      terminal.writeln("\r\n\x1B[31mConnection error.\x1B[0m");
     };
 
     ws.onclose = () => {
-      terminal.writeln("\r\n\x1b[33mDisconnected.\x1b[0m");
+      terminal.writeln("\r\n\x1B[33mDisconnected.\x1B[0m");
     };
 
     terminal.onData((data) => {

@@ -1,28 +1,30 @@
+import type {FirewallGroup} from "@/features/firewall/api";
+import type {ResetPasswordMode} from "@/features/vms/api";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import {
+  
+  usePortalBindVMFirewallMutation,
+  usePortalFirewallGroupsQuery,
+  usePortalUnbindVMFirewallMutation,
+  usePortalVMFirewallBindingsQuery
+} from "@/features/firewall/api";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 import {
+  
+  useMyVMDetailQuery,
   usePortalReinstallVMMutation,
   usePortalRescueEnterMutation,
   usePortalRescueExitMutation,
-  useMyVMDetailQuery,
   useResetVMPasswordMutation,
-  useVMActionMutation,
-  type ResetPasswordMode,
+  useVMActionMutation
 } from "@/features/vms/api";
-import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 import { defaultUserForImage } from "@/features/vms/default-user";
-import {
-  usePortalFirewallGroupsQuery,
-  usePortalVMFirewallBindingsQuery,
-  usePortalBindVMFirewallMutation,
-  usePortalUnbindVMFirewallMutation,
-  type FirewallGroup,
-} from "@/features/firewall/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({

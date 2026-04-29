@@ -1,20 +1,22 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
-import { useState } from "react";
-import { toast } from "sonner";
+import type {Invoice, Order, VMCredentials} from "@/features/billing/api";
+import type {Product} from "@/features/products/api";
 import { useQuery } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
-  type Invoice,
-  type Order,
-  type VMCredentials,
+  
+  
+  
   useCancelOrderMutation,
   useCreateOrderMutation,
   useMyInvoicesQuery,
   useMyOrdersQuery,
-  usePayOrderMutation,
+  usePayOrderMutation
 } from "@/features/billing/api";
 import { InvoiceDetailDialog } from "@/features/billing/invoice-detail-dialog";
-import { type Product, useProductsQuery } from "@/features/products/api";
+import {  useProductsQuery } from "@/features/products/api";
 import { DEFAULT_OS_IMAGE, OsImagePicker } from "@/features/vms/os-image-picker";
 import { fetchCurrentUser } from "@/shared/lib/auth";
 import { formatCurrency } from "@/shared/lib/utils";
@@ -181,7 +183,7 @@ function BalanceCard({ balance }: { balance: number }) {
 // Mirror the backend `safename` regex (httpx.SafeNameRe). Catching invalid
 // VM names client-side avoids the cryptic "vMName: safename" 400 the user
 // hit on 2026-04-25 when typing a name with a space.
-const VM_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const VM_NAME_RE = /^[a-z0-9][\w.-]*$/i;
 
 function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (c: VMCredentials) => void }) {
   const { t } = useTranslation();

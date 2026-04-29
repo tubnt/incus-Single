@@ -1,10 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { CreditCard, MessageSquare, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Plus, CreditCard, MessageSquare } from "lucide-react";
-import { fetchCurrentUser } from "@/shared/lib/auth";
-import { useMyVMsQuery } from "@/features/vms/api";
 import { useMyTicketsQuery } from "@/features/tickets/api";
+import { useMyVMsQuery } from "@/features/vms/api";
+import { fetchCurrentUser } from "@/shared/lib/auth";
 
 export const Route = createFileRoute("/")({
   component: UserDashboard,

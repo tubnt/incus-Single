@@ -14,8 +14,7 @@ function AuditLogsPage() {
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(50);
   // CSV export form state — these only affect the download URL, not the
-  // paginated list above. TODO(i18n): labels here use literals; move to
-  // translation keys once admin page batch sync lands.
+  // paginated list above.
   const [exportFrom, setExportFrom] = useState("");
   const [exportTo, setExportTo] = useState("");
   const [exportAction, setExportAction] = useState("");
@@ -41,7 +40,7 @@ function AuditLogsPage() {
 
       <div className="flex flex-wrap gap-3 items-end mb-4 p-3 border border-border rounded-lg bg-muted/20">
         <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">起始日期</label>
+          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditFromDate", { defaultValue: "起始日期" })}</label>
           <input
             type="date"
             value={exportFrom}
@@ -50,7 +49,7 @@ function AuditLogsPage() {
           />
         </div>
         <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">截止日期</label>
+          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditToDate", { defaultValue: "截止日期" })}</label>
           <input
             type="date"
             value={exportTo}
@@ -59,12 +58,12 @@ function AuditLogsPage() {
           />
         </div>
         <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">动作前缀</label>
+          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditActionPrefix", { defaultValue: "动作前缀" })}</label>
           <input
             type="text"
             value={exportAction}
             onChange={(e) => setExportAction(e.target.value)}
-            placeholder="如 vm. / node. / http."
+            placeholder={t("admin.auditActionPlaceholder", { defaultValue: "如 vm. / node. / http." })}
             className="h-8 px-2 text-sm border border-border rounded bg-background w-40"
           />
         </div>
@@ -73,9 +72,11 @@ function AuditLogsPage() {
           download
           className="h-8 px-3 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 inline-flex items-center"
         >
-          导出 CSV
+          {t("admin.auditExportCsv", { defaultValue: "导出 CSV" })}
         </a>
-        <span className="text-xs text-muted-foreground self-center">默认 30 天，最多 10 万行</span>
+        <span className="text-xs text-muted-foreground self-center">
+          {t("admin.auditExportHint", { defaultValue: "默认 30 天，最多 10 万行" })}
+        </span>
       </div>
 
       {isLoading ? (

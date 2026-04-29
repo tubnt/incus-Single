@@ -1,16 +1,16 @@
+import type {GoneVM, IncusInstance} from "@/features/vms/api";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
-import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { toast } from "sonner";
 import { useClustersQuery } from "@/features/clusters/api";
-import { Pagination } from "@/shared/components/ui/pagination";
+import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
+import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
+import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 import {
-  type GoneVM,
-  type IncusInstance,
   extractIP,
+  
+  
   useClusterVMsQuery,
   useDeleteVMMutation,
   useForceDeleteGoneVMMutation,
@@ -18,9 +18,10 @@ import {
   useReinstallVMMutation,
   useRescueEnterByNameMutation,
   useRescueExitByNameMutation,
-  useVMStateMutation,
+  useVMStateMutation
 } from "@/features/vms/api";
-import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { Pagination } from "@/shared/components/ui/pagination";
 
 export const Route = createFileRoute("/admin/vms")({
   component: AllVMsPage,
@@ -75,7 +76,7 @@ function GoneVMsPanel() {
     });
     if (!ok) return;
     forceDelete.mutate(vm.id, {
-      onSuccess: () => toast.success(t("vm.forceDeleted", { defaultValue: "已清理" }) + ` ${vm.name}`),
+      onSuccess: () => toast.success(`${t("vm.forceDeleted", { defaultValue: "已清理" })  } ${vm.name}`),
       onError: (err) => toast.error((err as Error).message),
     });
   };

@@ -1,6 +1,7 @@
+import type {PageParams} from "@/shared/lib/pagination";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "@/shared/lib/http";
-import { pageKeyPart, pageQueryString, type PageParams } from "@/shared/lib/pagination";
+import { pageKeyPart,  pageQueryString } from "@/shared/lib/pagination";
 import { queryClient } from "@/shared/lib/query-client";
 
 export interface Ticket {

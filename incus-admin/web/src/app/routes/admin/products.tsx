@@ -1,15 +1,16 @@
+import type {Product, ProductFormData} from "@/features/products/api";
+import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  type Product,
-  type ProductFormData,
+  
+  
   useAdminProductsQuery,
   useCreateProductMutation,
-  useUpdateProductMutation,
+  useUpdateProductMutation
 } from "@/features/products/api";
 import { Pagination } from "@/shared/components/ui/pagination";
-import type { PageParams } from "@/shared/lib/pagination";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/products")({

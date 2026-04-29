@@ -55,8 +55,8 @@ type aclBody struct {
 	Config      struct{}  `json:"config"`
 }
 
-// rulesToIncus converts our flat DB rows into Incus ACL ingress rules.
-// Pure helper to keep the sync path testable.
+// rulesToIncus converts our flat DB rows into Incus ACL rules. Direction is
+// applied at the splitRulesByDirection layer; this helper just maps fields.
 func rulesToIncus(rules []model.FirewallRule) []aclRule {
 	out := make([]aclRule, 0, len(rules))
 	for _, r := range rules {
@@ -73,6 +73,20 @@ func rulesToIncus(rules []model.FirewallRule) []aclRule {
 	return out
 }
 
+// splitRulesByDirection partitions a flat rule list into Incus ACL's ingress
+// and egress slots. Empty / unset direction defaults to ingress (matches the
+// Phase E original behaviour and the DB CHECK constraint default).
+func splitRulesByDirection(rules []model.FirewallRule) (ingress, egress []model.FirewallRule) {
+	for _, r := range rules {
+		if r.Direction == "egress" {
+			egress = append(egress, r)
+		} else {
+			ingress = append(ingress, r)
+		}
+	}
+	return
+}
+
 // EnsureACL creates-or-updates the Incus network ACL for the given group.
 // Idempotent: safe to call repeatedly, e.g. after a group or rule edit.
 func (s *FirewallService) EnsureACL(ctx context.Context, group *model.FirewallGroup, rules []model.FirewallRule) error {
@@ -80,11 +94,12 @@ func (s *FirewallService) EnsureACL(ctx context.Context, group *model.FirewallGr
 	if len(clients) == 0 {
 		return nil // nothing to do on configs without an Incus cluster
 	}
+	ingress, egress := splitRulesByDirection(rules)
 	body := aclBody{
 		Name:        ACLName(group.Slug),
 		Description: group.Description,
-		Ingress:     rulesToIncus(rules),
-		Egress:      []aclRule{},
+		Ingress:     rulesToIncus(ingress),
+		Egress:      rulesToIncus(egress),
 	}
 	bodyJSON, err := json.Marshal(body)
 	if err != nil {

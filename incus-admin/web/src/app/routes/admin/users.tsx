@@ -1,22 +1,23 @@
+import type {PageParams, Quota} from "@/features/users/api";
+import type { User } from "@/shared/lib/auth";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import type { User } from "@/shared/lib/auth";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { toast } from "sonner";
 import {
-  type PageParams,
-  type Quota,
+  
+  
   useAdminUsersQuery,
   useTopUpBalanceMutation,
   useTopUpQuotaQuery,
   useUpdateUserQuotaMutation,
   useUpdateUserRoleMutation,
-  useUserQuotaQuery,
+  useUserQuotaQuery
 } from "@/features/users/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { Pagination } from "@/shared/components/ui/pagination";
-import { formatCurrency } from "@/shared/lib/utils";
 import { http } from "@/shared/lib/http";
+import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/users")({
   component: UsersPage,
@@ -77,7 +78,7 @@ function UserRow({ user }: { user: User }) {
   const roleMutation = useUpdateUserRoleMutation(user.id);
   const topUpMutation = useTopUpBalanceMutation(user.id);
   const { data: quota } = useTopUpQuotaQuery(user.id, showTopUp);
-  const amountNum = parseFloat(amount);
+  const amountNum = Number.parseFloat(amount);
   const quotaExceeded =
     !!quota && amountNum > 0 && amountNum > quota.remaining;
 
@@ -99,7 +100,7 @@ function UserRow({ user }: { user: User }) {
   };
 
   const confirmTopUp = async () => {
-    const amt = parseFloat(amount);
+    const amt = Number.parseFloat(amount);
     if (!(amt > 0)) return;
     const ok = await confirm({
       title: t("admin.topUpConfirmTitle", { defaultValue: "确认充值" }),

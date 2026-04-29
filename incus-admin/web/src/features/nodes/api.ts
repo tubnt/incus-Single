@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { clusterKeys } from "@/features/clusters/api";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
-import { clusterKeys } from "@/features/clusters/api";
 
 export interface ClusterNode {
   cluster: string;

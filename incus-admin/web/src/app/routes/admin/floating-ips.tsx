@@ -1,16 +1,17 @@
+import type {FloatingIP} from "@/features/floating-ips/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { useClustersQuery } from "@/features/clusters/api";
 import {
-  type FloatingIP,
+  
   useAllocateFloatingIPMutation,
   useAttachFloatingIPMutation,
   useDetachFloatingIPMutation,
   useFloatingIPsQuery,
-  useReleaseFloatingIPMutation,
+  useReleaseFloatingIPMutation
 } from "@/features/floating-ips/api";
-import { useClustersQuery } from "@/features/clusters/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/admin/floating-ips")({
@@ -216,7 +217,7 @@ function Row({ ip }: { ip: FloatingIP }) {
               <input
                 type="number"
                 value={vmID || ""}
-                onChange={(e) => setVMID(parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => setVMID(Number.parseInt(e.target.value, 10) || 0)}
                 className="w-24 px-2 py-1 rounded border border-border bg-card text-sm"
                 placeholder="e.g. 17"
               />

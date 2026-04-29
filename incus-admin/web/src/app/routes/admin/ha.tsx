@@ -1,23 +1,25 @@
-import { Tabs } from "@base-ui-components/react/tabs";
+import type {HealingEvent, HealingListFilter, HealingStatus, HealingTrigger} from "@/features/healing/api";
+import type {HANodeInfo} from "@/features/nodes/api";
 import { Dialog } from "@base-ui-components/react/dialog";
+import { Tabs } from "@base-ui-components/react/tabs";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useClustersQuery } from "@/features/clusters/api";
 import { ClusterPicker } from "@/features/clusters/cluster-picker";
 import {
-  type HANodeInfo,
-  useHAStatusQuery,
-  useHAEvacuateMutation,
-} from "@/features/nodes/api";
-import {
-  type HealingEvent,
-  type HealingListFilter,
-  type HealingStatus,
-  type HealingTrigger,
+  
+  
+  
+  
   useHealingEventDetailQuery,
-  useHealingEventsQuery,
+  useHealingEventsQuery
 } from "@/features/healing/api";
+import {
+  
+  useHAEvacuateMutation,
+  useHAStatusQuery
+} from "@/features/nodes/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 export const Route = createFileRoute("/admin/ha")({

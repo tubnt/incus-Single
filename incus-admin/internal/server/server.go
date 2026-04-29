@@ -100,9 +100,14 @@ type Handlers struct {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
 	}
-	// FloatingIPs registers PLAN-021 Phase G admin endpoints for allocating,
-	// attaching, detaching and releasing public floating IPs.
-	FloatingIPs AdminRouteRegistrar
+	// FloatingIPs registers PLAN-021 Phase G endpoints. Admin handles
+	// allocate / release / attach-by-vm-id / detach. Portal lets the VM
+	// owner attach/detach a Floating IP to one of their own VMs without
+	// going through admin.
+	FloatingIPs interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
 	// Rescue registers PLAN-021 Phase D safe-mode endpoints (enter / exit).
 	// Admin routes use VM id or name; portal routes are id-only with owner
 	// check inside the handler.
@@ -219,6 +224,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Rescue != nil {
 				h.Rescue.PortalRoutes(r)
+			}
+			if h.FloatingIPs != nil {
+				h.FloatingIPs.PortalRoutes(r)
 			}
 		})
 

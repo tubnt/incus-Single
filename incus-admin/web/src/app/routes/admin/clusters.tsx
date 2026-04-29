@@ -1,18 +1,19 @@
+import type {ClusterInfo, NodeInfo} from "@/features/clusters/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { fmtBytes } from "@/shared/lib/utils";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { toast } from "sonner";
 import {
-  type ClusterInfo,
-  type NodeInfo,
+  
+  
   useAddClusterMutation,
   useClusterNodesQuery,
   useClustersQuery,
   useEvacuateNodeMutation,
-  useRestoreNodeMutation,
+  useRestoreNodeMutation
 } from "@/features/clusters/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { fmtBytes } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/clusters")({
   component: ClustersPage,

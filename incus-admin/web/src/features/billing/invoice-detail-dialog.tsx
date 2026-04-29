@@ -1,7 +1,7 @@
-import { Dialog } from "@base-ui-components/react/dialog";
-import { useTranslation } from "react-i18next";
 import type { Invoice, Order } from "./api";
 import type { Product } from "@/features/products/api";
+import { Dialog } from "@base-ui-components/react/dialog";
+import { useTranslation } from "react-i18next";
 import { formatCurrency } from "@/shared/lib/utils";
 
 interface Props {

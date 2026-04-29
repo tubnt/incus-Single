@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -358,8 +359,20 @@ func ensureCustomerProjectAllowsClusterTarget(mgr *cluster.Manager) {
 			_, err := c.APIPatch(ctx, path, bytes.NewReader(body))
 			cancel()
 			if err != nil {
-				slog.Warn("project patch restricted.cluster.target=allow failed",
-					"cluster", c.Name, "project", projName, "error", err)
+				// Bug #4: incus-admin's mTLS client cert is restricted by design
+				// (least-privilege), and Incus 6.x refuses project config edits
+				// from restricted certs. We can't fix this from code; surface a
+				// clear runbook hint so operators know what to do once and the
+				// log noise becomes self-explanatory instead of alarming.
+				if strings.Contains(err.Error(), "Certificate is restricted") {
+					slog.Warn("project patch restricted.cluster.target=allow blocked by Incus restricted-cert policy — apply once via runbook",
+						"cluster", c.Name, "project", projName,
+						"runbook", "incus project set "+projName+" restricted.cluster.target=allow",
+						"error", err)
+				} else {
+					slog.Warn("project patch restricted.cluster.target=allow failed",
+						"cluster", c.Name, "project", projName, "error", err)
+				}
 				continue
 			}
 			slog.Info("project restricted.cluster.target ensured allow",

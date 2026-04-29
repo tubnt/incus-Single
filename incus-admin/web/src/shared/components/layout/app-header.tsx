@@ -1,7 +1,7 @@
-import { useTranslation } from "react-i18next";
-import { Moon, Sun, Monitor, Globe, LogOut, Menu, UserX } from "lucide-react";
-import { useTheme } from "@/shared/components/theme-provider";
 import type { ShadowActingAs } from "@/shared/lib/auth";
+import { Globe, LogOut, Menu, Monitor, Moon, Sun, UserX } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { useTheme } from "@/shared/components/theme-provider";
 import { cn } from "@/shared/lib/utils";
 
 interface AppHeaderProps {

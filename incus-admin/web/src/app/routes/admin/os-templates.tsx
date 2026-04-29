@@ -1,14 +1,15 @@
+import type {OSTemplate, OSTemplateFormData} from "@/features/templates/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
-  type OSTemplate,
-  type OSTemplateFormData,
+  
+  
   useAdminOSTemplatesQuery,
   useCreateOSTemplateMutation,
   useDeleteOSTemplateMutation,
-  useUpdateOSTemplateMutation,
+  useUpdateOSTemplateMutation
 } from "@/features/templates/api";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 

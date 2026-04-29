@@ -106,10 +106,10 @@ func (r *FirewallRepo) DeleteGroup(ctx context.Context, id int64) error {
 
 // --- rules ---
 
-const firewallRuleColumns = `id, group_id, action, protocol, destination_port, source_cidr, description, sort_order, created_at`
+const firewallRuleColumns = `id, group_id, COALESCE(direction, 'ingress'), action, protocol, destination_port, source_cidr, description, sort_order, created_at`
 
 func scanFirewallRule(row interface{ Scan(dest ...any) error }, rule *model.FirewallRule) error {
-	return row.Scan(&rule.ID, &rule.GroupID, &rule.Action, &rule.Protocol, &rule.DestinationPort,
+	return row.Scan(&rule.ID, &rule.GroupID, &rule.Direction, &rule.Action, &rule.Protocol, &rule.DestinationPort,
 		&rule.SourceCIDR, &rule.Description, &rule.SortOrder, &rule.CreatedAt)
 }
 
@@ -136,12 +136,16 @@ func (r *FirewallRepo) ListRules(ctx context.Context, groupID int64) ([]model.Fi
 
 func (r *FirewallRepo) CreateRule(ctx context.Context, rule *model.FirewallRule) (*model.FirewallRule, error) {
 	var out model.FirewallRule
+	dir := rule.Direction
+	if dir == "" {
+		dir = "ingress"
+	}
 	err := scanFirewallRule(
 		r.db.QueryRowContext(ctx,
-			`INSERT INTO firewall_rules (group_id, action, protocol, destination_port, source_cidr, description, sort_order)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`INSERT INTO firewall_rules (group_id, direction, action, protocol, destination_port, source_cidr, description, sort_order)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			 RETURNING `+firewallRuleColumns,
-			rule.GroupID, rule.Action, rule.Protocol, rule.DestinationPort, rule.SourceCIDR, rule.Description, rule.SortOrder,
+			rule.GroupID, dir, rule.Action, rule.Protocol, rule.DestinationPort, rule.SourceCIDR, rule.Description, rule.SortOrder,
 		),
 		&out,
 	)
@@ -170,10 +174,14 @@ func (r *FirewallRepo) ReplaceRules(ctx context.Context, groupID int64, rules []
 		return fmt.Errorf("clear rules: %w", err)
 	}
 	for _, rule := range rules {
+		dir := rule.Direction
+		if dir == "" {
+			dir = "ingress"
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO firewall_rules (group_id, action, protocol, destination_port, source_cidr, description, sort_order)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			groupID, rule.Action, rule.Protocol, rule.DestinationPort, rule.SourceCIDR, rule.Description, rule.SortOrder,
+			`INSERT INTO firewall_rules (group_id, direction, action, protocol, destination_port, source_cidr, description, sort_order)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			groupID, dir, rule.Action, rule.Protocol, rule.DestinationPort, rule.SourceCIDR, rule.Description, rule.SortOrder,
 		); err != nil {
 			return fmt.Errorf("insert rule: %w", err)
 		}

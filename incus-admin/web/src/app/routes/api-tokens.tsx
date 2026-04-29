@@ -1,14 +1,15 @@
+import type {APIToken} from "@/features/api-tokens/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
-  type APIToken,
+  
   useAPITokensQuery,
   useCreateAPITokenMutation,
   useDeleteAPITokenMutation,
-  useRenewAPITokenMutation,
+  useRenewAPITokenMutation
 } from "@/features/api-tokens/api";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 
 // TTL options surfaced in the create + renew dropdowns. Hours is the lowest
 // common unit the backend accepts; the UI labels the common presets so users
