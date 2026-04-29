@@ -16,8 +16,11 @@ import {
   useForceDeleteGoneVMMutation,
   useGoneVMsQuery,
   useReinstallVMMutation,
+  useRescueEnterByNameMutation,
+  useRescueExitByNameMutation,
   useVMStateMutation,
 } from "@/features/vms/api";
+import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 
 export const Route = createFileRoute("/admin/vms")({
   component: AllVMsPage,
@@ -216,13 +219,6 @@ function ClusterVMs({ clusterName, displayName }: { clusterName: string; display
   );
 }
 
-const OS_IMAGES = [
-  { value: "images:ubuntu/24.04/cloud", label: "Ubuntu 24.04 LTS" },
-  { value: "images:ubuntu/22.04/cloud", label: "Ubuntu 22.04 LTS" },
-  { value: "images:debian/12/cloud", label: "Debian 12" },
-  { value: "images:rockylinux/9/cloud", label: "Rocky Linux 9" },
-];
-
 function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
@@ -234,8 +230,56 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
 
   const stateMutation = useVMStateMutation();
   const deleteMutation = useDeleteVMMutation();
+  const rescueEnterMutation = useRescueEnterByNameMutation();
+  const rescueExitMutation = useRescueExitByNameMutation(vm.name);
 
-  const isActing = stateMutation.isPending || deleteMutation.isPending;
+  const isActing = stateMutation.isPending || deleteMutation.isPending
+    || rescueEnterMutation.isPending || rescueExitMutation.isPending;
+
+  const runRescueEnter = async () => {
+    const ok = await confirm({
+      title: t("vm.rescueEnterTitle", "进入 Rescue 模式"),
+      message: t("vm.rescueEnterMessage", {
+        name: vm.name,
+        defaultValue: `确认让 ${vm.name} 进入 Rescue 模式？会先拍快照再停机。`,
+      }),
+      destructive: true,
+    });
+    if (!ok) return;
+    rescueEnterMutation.mutate(vm.name, {
+      onSuccess: (res) => toast.success(
+        t("vm.rescueEntered", { snap: res.snapshot, defaultValue: `已进入 Rescue；快照 ${res.snapshot}` }),
+        { duration: 15_000 },
+      ),
+      onError: (err) => toast.error((err as Error).message),
+    });
+  };
+
+  const runRescueExit = async (restore: boolean) => {
+    const ok = await confirm({
+      title: t("vm.rescueExitTitle", "退出 Rescue 模式"),
+      message: restore
+        ? t("vm.rescueExitRestoreMessage", {
+            name: vm.name,
+            defaultValue: `确认退出 Rescue 并恢复快照？${vm.name} 会回滚到进入前的状态。`,
+          })
+        : t("vm.rescueExitMessage", {
+            name: vm.name,
+            defaultValue: `确认退出 Rescue？${vm.name} 会直接启动（不恢复快照）。`,
+          }),
+      destructive: restore,
+    });
+    if (!ok) return;
+    rescueExitMutation.mutate(
+      { restore, delete_snapshot: false },
+      {
+        onSuccess: () => toast.success(
+          restore ? t("vm.rescueExitedRestored", "已恢复快照并启动") : t("vm.rescueExited", "已退出 Rescue"),
+        ),
+        onError: (err) => toast.error((err as Error).message),
+      },
+    );
+  };
 
   const runAction = (action: string) => {
     stateMutation.mutate(
@@ -300,7 +344,19 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
             onClick={() => setShowSnaps(!showSnaps)} />
           <ActionBtn label={t("vm.reinstall")} color="muted" disabled={isActing}
             onClick={() => setShowReinstall(!showReinstall)} />
-          <ActionBtn label={t("vm.delete")} color="destructive" disabled={isActing}
+          {vm.status !== "Rescue" ? (
+            <ActionBtn label={t("vm.rescueEnter", "Rescue")} color="muted" disabled={isActing}
+              onClick={runRescueEnter} />
+          ) : (
+            <>
+              <ActionBtn label={t("vm.rescueExitRestore", "Rescue 恢复")} color="success" disabled={isActing}
+                onClick={() => runRescueExit(true)} />
+              <ActionBtn label={t("vm.rescueExit", "Rescue 退出")} color="muted" disabled={isActing}
+                onClick={() => runRescueExit(false)} />
+            </>
+          )}
+          <button
+            disabled={isActing}
             onClick={async () => {
               const ok = await confirm({
                 title: t("deleteConfirm.vmTitle"),
@@ -308,7 +364,13 @@ function VMRow({ vm, clusterName }: { vm: IncusInstance; clusterName: string }) 
                 destructive: true,
               });
               if (ok) runDelete();
-            }} />
+            }}
+            aria-label={t("vm.deleteVmAriaLabel", { name: vm.name, defaultValue: `Delete VM ${vm.name}` })}
+            data-testid={`delete-vm-${vm.name}`}
+            className="px-2 py-1 rounded text-xs font-medium border border-destructive bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
+          >
+            ⚠ {t("vm.delete")}
+          </button>
         </div>
       </td>
     </tr>
@@ -343,12 +405,12 @@ function ReinstallPanel({ vmName, cluster, project, onDone }: {
 }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
-  const [os, setOs] = useState(OS_IMAGES[0]!.value);
+  const [slug, setSlug] = useState<string>(DEFAULT_TEMPLATE_SLUG);
   const mutation = useReinstallVMMutation();
 
   const run = () => {
     mutation.mutate(
-      { name: vmName, cluster, project, os_image: os },
+      { name: vmName, cluster, project, template_slug: slug },
       {
         onSuccess: (data) => {
           toast.success(t("vm.reinstallDone", { username: data.username, password: data.password }), { duration: 20_000 });
@@ -366,15 +428,11 @@ function ReinstallPanel({ vmName, cluster, project, onDone }: {
         {t("vm.reinstallWarning")}
       </p>
       <div className="flex items-center gap-3">
-        <select
-          value={os}
-          onChange={(e) => setOs(e.target.value)}
+        <TemplatePicker
+          value={slug}
+          onChange={setSlug}
           className="px-2 py-1 text-xs border border-border rounded bg-card"
-        >
-          {OS_IMAGES.map((img) => (
-            <option key={img.value} value={img.value}>{img.label}</option>
-          ))}
-        </select>
+        />
         <button
           onClick={async () => {
             const ok = await confirm({

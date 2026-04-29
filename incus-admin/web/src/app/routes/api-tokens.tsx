@@ -181,9 +181,11 @@ function TokenCard({ token, onRenewed }: { token: APIToken; onRenewed: (raw: str
             if (ok) deleteMutation.mutate(token.id);
           }}
           disabled={deleteMutation.isPending}
-          className="px-3 py-1.5 text-xs bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
+          aria-label={`Delete API token ${token.name}`}
+          data-testid={`delete-api-token-${token.id}`}
+          className="px-3 py-1.5 text-xs border border-destructive bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
         >
-          {t("common.delete")}
+          ⚠ {t("common.delete")}
         </button>
       </div>
     </div>

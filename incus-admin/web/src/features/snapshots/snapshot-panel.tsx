@@ -117,6 +117,8 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
                     if (ok) deleteMutation.mutate(snap.name);
                   }}
                   disabled={deleteMutation.isPending}
+                  aria-label={t("snapshot.deleteAriaLabel", { name: snap.name, defaultValue: `Delete snapshot ${snap.name}` })}
+                  data-testid={`delete-snapshot-${snap.name}`}
                   className="px-2 py-1 rounded bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
                 >
                   {t("common.delete")}

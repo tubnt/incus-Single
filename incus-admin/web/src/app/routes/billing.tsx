@@ -178,6 +178,11 @@ function BalanceCard({ balance }: { balance: number }) {
   );
 }
 
+// Mirror the backend `safename` regex (httpx.SafeNameRe). Catching invalid
+// VM names client-side avoids the cryptic "vMName: safename" 400 the user
+// hit on 2026-04-25 when typing a name with a space.
+const VM_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
 function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (c: VMCredentials) => void }) {
   const { t } = useTranslation();
   const [osImage, setOsImage] = useState<string>(DEFAULT_OS_IMAGE);
@@ -187,7 +192,15 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
   const payMutation = usePayOrderMutation();
   const orderMutation = useCreateOrderMutation();
 
+  const vmNameError =
+    vmName !== "" && !VM_NAME_RE.test(vmName)
+      ? t("billing.vmNameInvalid", {
+          defaultValue: "VM 名称只能包含字母、数字、点 . 横杠 - 和下划线 _，且不能以特殊字符开头",
+        })
+      : "";
+
   const submitOrder = () => {
+    if (vmNameError) return;
     orderMutation.mutate(
       { product_id: p.id, vm_name: vmName || undefined, os_image: osImage },
       {
@@ -215,9 +228,17 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
       {expanded ? (
         <div className="space-y-2 mb-3">
           <OsImagePicker value={osImage} onChange={setOsImage} />
-          <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)}
+          <input
+            type="text"
+            value={vmName}
+            onChange={(e) => setVmName(e.target.value)}
             placeholder={t("billing.vmNamePlaceholder", { defaultValue: "VM name (optional)" })}
-            className="w-full px-2 py-1.5 text-xs rounded border border-border bg-card" />
+            aria-invalid={!!vmNameError}
+            className={`w-full px-2 py-1.5 text-xs rounded border bg-card ${vmNameError ? "border-destructive" : "border-border"}`}
+          />
+          {vmNameError && (
+            <div className="text-destructive text-xs">{vmNameError}</div>
+          )}
         </div>
       ) : null}
 
@@ -226,7 +247,7 @@ function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (
           if (!expanded) { setExpanded(true); return; }
           submitOrder();
         }}
-        disabled={isPending}
+        disabled={isPending || !!vmNameError}
         className="w-full py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
       >
         {isPending ? "..." : expanded ? t("billing.pay") : t("billing.buy")}
@@ -284,7 +305,9 @@ function OrderRow({ order: o, onProvisioned }: { order: Order; onProvisioned: (c
             </button>
           </div>
         )}
-        {payMutation.isError && <span className="text-destructive text-xs ml-2">{(payMutation.error as Error).message}</span>}
+        {payMutation.isError && o.status === "pending" && (
+          <span className="text-destructive text-xs ml-2">{(payMutation.error as Error).message}</span>
+        )}
       </td>
     </tr>
   );

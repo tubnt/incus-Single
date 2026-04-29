@@ -88,6 +88,28 @@ type Handlers struct {
 	// Healing registers PLAN-020 Phase F history endpoints
 	// (GET /admin/ha/events, GET /admin/ha/events/{id}).
 	Healing AdminRouteRegistrar
+	// OSTemplates registers PLAN-021 Phase A endpoints
+	// (portal GET /portal/os-templates; admin CRUD under /admin/os-templates).
+	OSTemplates interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+	// Firewall registers PLAN-021 Phase E endpoints (admin CRUD on groups
+	// + portal bind/unbind on VMs).
+	Firewall interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
+	// FloatingIPs registers PLAN-021 Phase G admin endpoints for allocating,
+	// attaching, detaching and releasing public floating IPs.
+	FloatingIPs AdminRouteRegistrar
+	// Rescue registers PLAN-021 Phase D safe-mode endpoints (enter / exit).
+	// Admin routes use VM id or name; portal routes are id-only with owner
+	// check inside the handler.
+	Rescue interface {
+		AdminRouteRegistrar
+		PortalRouteRegistrar
+	}
 	// Auth exposes the step-up OIDC round-trip handlers. Start requires an
 	// active session (mounted inside the ProxyAuth group); Callback is reached
 	// directly from Logto (mounted outside, allowlisted by oauth2-proxy's
@@ -189,6 +211,15 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			if h.Quotas != nil {
 				h.Quotas.PortalRoutes(r)
 			}
+			if h.OSTemplates != nil {
+				h.OSTemplates.PortalRoutes(r)
+			}
+			if h.Firewall != nil {
+				h.Firewall.PortalRoutes(r)
+			}
+			if h.Rescue != nil {
+				h.Rescue.PortalRoutes(r)
+			}
 		})
 
 		r.Route("/api/admin", func(r chi.Router) {
@@ -260,6 +291,18 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.Healing != nil {
 				h.Healing.AdminRoutes(r)
+			}
+			if h.OSTemplates != nil {
+				h.OSTemplates.AdminRoutes(r)
+			}
+			if h.Firewall != nil {
+				h.Firewall.AdminRoutes(r)
+			}
+			if h.FloatingIPs != nil {
+				h.FloatingIPs.AdminRoutes(r)
+			}
+			if h.Rescue != nil {
+				h.Rescue.AdminRoutes(r)
 			}
 		})
 

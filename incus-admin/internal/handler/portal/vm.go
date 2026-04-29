@@ -52,29 +52,43 @@ func (h *VMHandler) Reinstall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		OSImage string `json:"os_image" validate:"omitempty,max=200"`
+		TemplateSlug string `json:"template_slug" validate:"omitempty,safename,max=64"`
+		OSImage      string `json:"os_image"      validate:"omitempty,max=200"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
-	if req.OSImage == "" { req.OSImage = "images:ubuntu/24.04/cloud" }
+	if req.TemplateSlug == "" && req.OSImage == "" {
+		req.TemplateSlug = "ubuntu-24-04"
+	}
 
-	cc, _ := h.clusters.ConfigByName(findClusterName(h.clusters, vm.ClusterID))
+	resolved, err := resolveReinstallTemplate(r.Context(), req.TemplateSlug, req.OSImage)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+
+	clusterName := findClusterName(h.clusters, vm.ClusterID)
+	cc, _ := h.clusters.ConfigByName(clusterName)
 	project := cc.DefaultProject
-	if project == "" { project = "customers" }
+	if project == "" {
+		project = "customers"
+	}
+	resolved.ClusterName = clusterName
+	resolved.Project = project
+	resolved.VMName = vm.Name
 
-	result, err := h.vmSvc.Reinstall(r.Context(), service.ReinstallParams{
-		ClusterName: findClusterName(h.clusters, vm.ClusterID),
-		Project:     project,
-		VMName:      vm.Name,
-		NewOSImage:  req.OSImage,
-	})
+	result, err := h.vmSvc.Reinstall(r.Context(), resolved)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 
-	audit(r.Context(), r, "vm.reinstall", "vm", vmID, map[string]any{"name": vm.Name, "os": req.OSImage})
+	auditDetails := map[string]any{"name": vm.Name, "source": resolved.ImageSource, "user": resolved.DefaultUser}
+	if req.TemplateSlug != "" {
+		auditDetails["template_slug"] = req.TemplateSlug
+	}
+	audit(r.Context(), r, "vm.reinstall", "vm", vmID, auditDetails)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "reinstalled",
 		"password": result.Password,
@@ -92,6 +106,17 @@ func (h *VMHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PLAN-021 Phase C: optional mode selects online / offline / auto.
+	// Default "auto" tries online first (works on healthy VMs via guest
+	// agent) and falls back to offline (cloud-init re-run on reboot).
+	var req struct {
+		Mode string `json:"mode" validate:"omitempty,oneof=auto online offline"`
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	mode := service.ResetPasswordMode(req.Mode)
+
 	clusterName := findClusterName(h.clusters, vm.ClusterID)
 	cc, _ := h.clusters.ConfigByName(clusterName)
 	project := cc.DefaultProject
@@ -99,21 +124,26 @@ func (h *VMHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		project = "customers"
 	}
 
-	newPassword, err := h.vmSvc.ResetPassword(r.Context(), clusterName, project, vm.Name, "ubuntu")
+	result, err := h.vmSvc.ResetPassword(r.Context(), clusterName, project, vm.Name, "ubuntu", mode)
 	if err != nil {
 		slog.Error("reset password failed", "vm", vm.Name, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "password reset failed: " + err.Error()})
 		return
 	}
 
-	// 更新 DB 中的密码
-	_ = h.vmRepo.UpdatePassword(r.Context(), vmID, newPassword)
+	_ = h.vmRepo.UpdatePassword(r.Context(), vmID, result.Password)
 
-	audit(r.Context(), r, "vm.reset_password", "vm", vmID, map[string]any{"name": vm.Name})
+	audit(r.Context(), r, "vm.reset_password", "vm", vmID, map[string]any{
+		"name":     vm.Name,
+		"channel":  string(result.Channel),
+		"fallback": result.Fallback,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "password_reset",
-		"password": newPassword,
-		"username": "ubuntu",
+		"password": result.Password,
+		"username": result.Username,
+		"channel":  result.Channel,
+		"fallback": result.Fallback,
 	})
 }
 
@@ -1111,9 +1141,10 @@ func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Cluster string `json:"cluster"  validate:"required,safename"`
-		Project string `json:"project"  validate:"omitempty,safename"`
-		OSImage string `json:"os_image" validate:"omitempty,max=200"`
+		Cluster      string `json:"cluster"       validate:"required,safename"`
+		Project      string `json:"project"       validate:"omitempty,safename"`
+		TemplateSlug string `json:"template_slug" validate:"omitempty,safename,max=64"`
+		OSImage      string `json:"os_image"      validate:"omitempty,max=200"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
@@ -1121,24 +1152,32 @@ func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {
 	if req.Project == "" {
 		req.Project = "default"
 	}
-	if req.OSImage == "" {
-		req.OSImage = "images:ubuntu/24.04/cloud"
+	if req.TemplateSlug == "" && req.OSImage == "" {
+		req.TemplateSlug = "ubuntu-24-04"
 	}
 
-	result, err := h.vmSvc.Reinstall(r.Context(), service.ReinstallParams{
-		ClusterName: req.Cluster,
-		Project:     req.Project,
-		VMName:      vmName,
-		NewOSImage:  req.OSImage,
-	})
+	resolved, err := resolveReinstallTemplate(r.Context(), req.TemplateSlug, req.OSImage)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	resolved.ClusterName = req.Cluster
+	resolved.Project = req.Project
+	resolved.VMName = vmName
+
+	result, err := h.vmSvc.Reinstall(r.Context(), resolved)
 	if err != nil {
 		slog.Error("reinstall VM failed", "vm", vmName, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 
-	slog.Info("vm reinstalled", "vm", vmName, "os", req.OSImage)
-	audit(r.Context(), r, "vm.reinstall", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName, "os": req.OSImage})
+	slog.Info("vm reinstalled", "vm", vmName, "source", resolved.ImageSource)
+	auditDetails := map[string]any{"name": vmName, "source": resolved.ImageSource, "user": resolved.DefaultUser}
+	if req.TemplateSlug != "" {
+		auditDetails["template_slug"] = req.TemplateSlug
+	}
+	audit(r.Context(), r, "vm.reinstall", "vm", h.vmIDByName(r.Context(), vmName), auditDetails)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "reinstalled",
 		"password": result.Password,
@@ -1146,13 +1185,16 @@ func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ResetPasswordAdmin 给 VM 重置密码（admin 路径），通过 non-interactive exec 调 chpasswd。
+// ResetPasswordAdmin 给 VM 重置密码（admin 路径）。PLAN-021 Phase C 起支持
+// online（guest-agent chpasswd）/ offline（cloud-init 重启重跑）/ auto（试
+// online 失败再 offline）三种模式，默认 auto。
 func (h *AdminVMHandler) ResetPasswordAdmin(w http.ResponseWriter, r *http.Request) {
 	vmName := chi.URLParam(r, "name")
 	var req struct {
 		Cluster  string `json:"cluster"  validate:"required,safename"`
 		Project  string `json:"project"  validate:"omitempty,safename"`
 		Username string `json:"username" validate:"omitempty,max=64"`
+		Mode     string `json:"mode"     validate:"omitempty,oneof=auto online offline"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
@@ -1164,18 +1206,25 @@ func (h *AdminVMHandler) ResetPasswordAdmin(w http.ResponseWriter, r *http.Reque
 		req.Username = "ubuntu"
 	}
 
-	newPassword, err := h.vmSvc.ResetPassword(r.Context(), req.Cluster, req.Project, vmName, req.Username)
+	result, err := h.vmSvc.ResetPassword(r.Context(), req.Cluster, req.Project, vmName, req.Username, service.ResetPasswordMode(req.Mode))
 	if err != nil {
 		slog.Error("admin reset password failed", "vm", vmName, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "password reset failed: " + err.Error()})
 		return
 	}
 
-	audit(r.Context(), r, "vm.reset_password", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{"name": vmName, "username": req.Username})
+	audit(r.Context(), r, "vm.reset_password", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{
+		"name":     vmName,
+		"username": req.Username,
+		"channel":  string(result.Channel),
+		"fallback": result.Fallback,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "password_reset",
-		"password": newPassword,
-		"username": req.Username,
+		"password": result.Password,
+		"username": result.Username,
+		"channel":  result.Channel,
+		"fallback": result.Fallback,
 	})
 }
 
@@ -1203,13 +1252,30 @@ func (h *AdminVMHandler) MigrateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Incus 迁移：POST /1.0/instances/{name}?project={project}&target={node}
-	// 请求体需包含实例当前配置（空 body 触发迁移）
+	// Incus migrate API: POST /1.0/instances/{name}?project=...&target=NODE
+	// `migration:true` flags this as a migration. Live migration requires
+	// per-VM `migration.stateful=true` AND Ceph block storage AND QEMU
+	// build with live migration patches; we don't set those at create time
+	// so we always do a cold migrate: stop → move stateless → start.
+	wasRunning, _ := h.vmIsRunning(r.Context(), client, req.Project, vmName)
+	if wasRunning {
+		if err := h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "stop", true); err != nil {
+			slog.Error("migrate stop failed", "vm", vmName, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "migration failed (stop): " + err.Error()})
+			return
+		}
+	}
+
 	migrateBody := fmt.Sprintf(`{"name":"%s","migration":true}`, vmName)
 	path := fmt.Sprintf("/1.0/instances/%s?project=%s&target=%s", vmName, req.Project, req.TargetNode)
 	resp, err := client.APIPost(r.Context(), path, strings.NewReader(migrateBody))
 	if err != nil {
 		slog.Error("migrate VM failed", "vm", vmName, "target", req.TargetNode, "error", err)
+		// Best-effort: try to start the VM back up on whatever node it
+		// ended up on so we don't leave it stopped after a migrate failure.
+		if wasRunning {
+			_ = h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "start", false)
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "migration failed: " + err.Error()})
 		return
 	}
@@ -1223,11 +1289,33 @@ func (h *AdminVMHandler) MigrateVM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if wasRunning {
+		if err := h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "start", false); err != nil {
+			slog.Warn("migrate start failed; VM stopped on target node", "vm", vmName, "target", req.TargetNode, "error", err)
+		}
+	}
+
 	audit(r.Context(), r, "vm.migrate", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{
-		"name": vmName, "target": req.TargetNode, "cluster": req.Cluster,
+		"name": vmName, "target": req.TargetNode, "cluster": req.Cluster, "was_running": wasRunning,
 	})
-	slog.Info("vm migrated", "vm", vmName, "target", req.TargetNode)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "migrated", "target": req.TargetNode})
+	slog.Info("vm migrated", "vm", vmName, "target", req.TargetNode, "was_running", wasRunning)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "migrated", "target": req.TargetNode, "was_running": wasRunning})
+}
+
+// vmIsRunning checks the live Incus state to know whether to stop+start
+// around a cold migrate. Failures default to false so we don't double-stop.
+func (h *AdminVMHandler) vmIsRunning(ctx context.Context, client *cluster.Client, project, vmName string) (bool, error) {
+	stateData, err := client.GetInstanceState(ctx, project, vmName)
+	if err != nil {
+		return false, err
+	}
+	var state struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		return false, err
+	}
+	return state.Status == "Running", nil
 }
 
 // ListProjects 返回集群实际存在的 project 列表（来自 Incus `/1.0/projects?recursion=1`）。

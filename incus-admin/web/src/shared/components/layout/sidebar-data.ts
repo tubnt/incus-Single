@@ -52,6 +52,8 @@ export const adminSidebar: NavGroup[] = [
       { key: "nav.nodeOps", to: "/admin/node-ops", icon: "Terminal" },
       { key: "nav.ipPools", to: "/admin/ip-pools", icon: "Globe" },
       { key: "nav.ipRegistry", to: "/admin/ip-registry", icon: "MapPin" },
+      { key: "nav.firewall", to: "/admin/firewall", icon: "ShieldCheck" },
+      { key: "nav.floatingIPs", to: "/admin/floating-ips", icon: "Share2" },
     ],
   },
   {
@@ -60,6 +62,7 @@ export const adminSidebar: NavGroup[] = [
     icon: "ShoppingCart",
     items: [
       { key: "nav.products", to: "/admin/products", icon: "Package" },
+      { key: "nav.osTemplates", to: "/admin/os-templates", icon: "Disc3" },
       { key: "nav.orders", to: "/admin/orders", icon: "ShoppingCart" },
       { key: "nav.invoices", to: "/admin/invoices", icon: "FileText" },
     ],

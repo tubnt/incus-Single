@@ -142,7 +142,16 @@ func (r *OrderRepo) PayWithBalance(ctx context.Context, orderID int64) error {
 		return fmt.Errorf("get order: %w", err)
 	}
 	if o.Status != model.OrderPending {
-		return fmt.Errorf("order not pending")
+		// 友好中文消息：常见于用户重复点击 Pay 或并发支付，让 toast 一眼看懂
+		// （比技术词 "order not pending" 对终端用户更可读）。
+		switch o.Status {
+		case model.OrderPaid, model.OrderActive:
+			return fmt.Errorf("订单已支付，请刷新页面查看 VM")
+		case model.OrderCancelled:
+			return fmt.Errorf("订单已取消，无法重复支付")
+		default:
+			return fmt.Errorf("订单状态异常（%s），请刷新页面", o.Status)
+		}
 	}
 
 	var balance float64

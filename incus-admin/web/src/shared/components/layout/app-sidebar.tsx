@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
   Network, ServerCog, Activity, Globe, Users, Package, ShoppingCart,
   Ticket, FileText, Plus, ChevronLeft, Menu, Shield, HardDrive, BarChart3, MapPin, Terminal, Settings, X,
-  ChevronDown, ArrowLeft, ArrowRight,
+  ChevronDown, ArrowLeft, ArrowRight, Disc3, ShieldCheck, Share2,
 } from "lucide-react";
 import { Accordion } from "@base-ui-components/react/accordion";
 import { cn } from "@/shared/lib/utils";
@@ -14,7 +14,7 @@ import { adminSidebar, userSidebar, type NavGroup, type NavItem } from "./sideba
 const iconMap: Record<string, React.ElementType> = {
   LayoutDashboard, Server, Key, CreditCard, MessageSquare, KeyRound,
   Network, ServerCog, Activity, Globe, Users, Package, ShoppingCart,
-  Ticket, FileText, Plus, Menu, Shield, HardDrive, BarChart3, MapPin, Terminal, Settings,
+  Ticket, FileText, Plus, Menu, Shield, HardDrive, BarChart3, MapPin, Terminal, Settings, Disc3, ShieldCheck, Share2,
 };
 
 const OPEN_GROUPS_LS_KEY = "incus.sidebar.admin.openGroups";

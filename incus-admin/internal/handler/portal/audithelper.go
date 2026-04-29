@@ -13,6 +13,7 @@ import (
 var auditRepo *repository.AuditRepo
 var userRepo *repository.UserRepo
 var healingRepo *repository.HealingEventRepo
+var osTemplateRepo *repository.OSTemplateRepo
 
 // appEnv gates destructive-but-recoverable ops (chaos drill). Defaults to
 // "production" so the safe path is the default; staging/dev must opt in.
@@ -38,6 +39,12 @@ func SetUserRepo(repo *repository.UserRepo) {
 // healing_events 表。nil 时 evacuate 仍正常工作，只是不记 healing 事件。
 func SetHealingRepo(repo *repository.HealingEventRepo) {
 	healingRepo = repo
+}
+
+// SetOSTemplateRepo 注入 OSTemplateRepo 供 reinstall handler 反查 template_slug
+// → source/default_user/server_url/protocol。nil 时 handler 会回落到默认值。
+func SetOSTemplateRepo(repo *repository.OSTemplateRepo) {
+	osTemplateRepo = repo
 }
 
 func audit(ctx context.Context, r *http.Request, action, targetType string, targetID int64, details any) {

@@ -250,9 +250,11 @@ function PoolSection() {
                       if (ok) onDelete(p.pool_name);
                     }}
                     disabled={deleteMutation.isPending}
-                    className="px-2 py-0.5 text-xs border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
+                    aria-label={`Delete storage pool ${p.pool_name}`}
+                    data-testid={`delete-storage-pool-${p.pool_name}`}
+                    className="px-2 py-0.5 text-xs border border-destructive text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
                   >
-                    {t("common.delete")}
+                    ⚠ {t("common.delete")}
                   </button>
                 </td>
               </tr>

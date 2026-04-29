@@ -148,6 +148,15 @@ function UserRow({ user }: { user: User }) {
             </button>
             <button
               onClick={async () => {
+                const ok = await confirm({
+                  title: t("shadow.confirmTitle", { defaultValue: "Shadow Login 确认" }),
+                  message: t("shadow.confirmMessage", {
+                    defaultValue: "你将以 {{email}} 的身份登入。所有操作都会按 admin shadow 审计记录。继续吗？",
+                    email: user.email,
+                  }),
+                  destructive: true,
+                });
+                if (!ok) return;
                 const reason = window.prompt(
                   t("shadow.reasonPrompt", { defaultValue: "请输入 Shadow Login 的原因（必填，审计记录用）" }),
                   "",
@@ -163,10 +172,12 @@ function UserRow({ user }: { user: User }) {
                   toast.error(String((e as Error).message ?? e));
                 }
               }}
-              className="px-2 py-1 rounded text-xs bg-destructive/20 text-destructive hover:bg-destructive/30"
+              aria-label={`Shadow login as ${user.email}`}
+              data-testid={`shadow-login-${user.id}`}
+              className="px-2 py-1 rounded text-xs border border-destructive bg-destructive/20 text-destructive hover:bg-destructive/30"
               title={t("shadow.loginTitle", { defaultValue: "以该用户身份登入（审计、排障用）" })}
             >
-              Shadow
+              ⚠ Shadow
             </button>
           </div>
         </td>

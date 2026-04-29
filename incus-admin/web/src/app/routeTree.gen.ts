@@ -25,6 +25,7 @@ import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminTicketsRouteImport } from './routes/admin/tickets'
 import { Route as AdminStorageRouteImport } from './routes/admin/storage'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
+import { Route as AdminOsTemplatesRouteImport } from './routes/admin/os-templates'
 import { Route as AdminOrdersRouteImport } from './routes/admin/orders'
 import { Route as AdminObservabilityRouteImport } from './routes/admin/observability'
 import { Route as AdminNodesRouteImport } from './routes/admin/nodes'
@@ -35,6 +36,8 @@ import { Route as AdminIpRegistryRouteImport } from './routes/admin/ip-registry'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
 import { Route as AdminInvoicesRouteImport } from './routes/admin/invoices'
 import { Route as AdminHaRouteImport } from './routes/admin/ha'
+import { Route as AdminFloatingIpsRouteImport } from './routes/admin/floating-ips'
+import { Route as AdminFirewallRouteImport } from './routes/admin/firewall'
 import { Route as AdminCreateVmRouteImport } from './routes/admin/create-vm'
 import { Route as AdminClustersRouteImport } from './routes/admin/clusters'
 import { Route as AdminAuditLogsRouteImport } from './routes/admin/audit-logs'
@@ -119,6 +122,11 @@ const AdminProductsRoute = AdminProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminOsTemplatesRoute = AdminOsTemplatesRouteImport.update({
+  id: '/os-templates',
+  path: '/os-templates',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminOrdersRoute = AdminOrdersRouteImport.update({
   id: '/orders',
   path: '/orders',
@@ -169,6 +177,16 @@ const AdminHaRoute = AdminHaRouteImport.update({
   path: '/ha',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminFloatingIpsRoute = AdminFloatingIpsRouteImport.update({
+  id: '/floating-ips',
+  path: '/floating-ips',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminFirewallRoute = AdminFirewallRouteImport.update({
+  id: '/firewall',
+  path: '/firewall',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCreateVmRoute = AdminCreateVmRouteImport.update({
   id: '/create-vm',
   path: '/create-vm',
@@ -199,6 +217,8 @@ export interface FileRoutesByFullPath {
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
+  '/admin/firewall': typeof AdminFirewallRoute
+  '/admin/floating-ips': typeof AdminFloatingIpsRoute
   '/admin/ha': typeof AdminHaRoute
   '/admin/invoices': typeof AdminInvoicesRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
@@ -209,6 +229,7 @@ export interface FileRoutesByFullPath {
   '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/os-templates': typeof AdminOsTemplatesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
@@ -230,6 +251,8 @@ export interface FileRoutesByTo {
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
+  '/admin/firewall': typeof AdminFirewallRoute
+  '/admin/floating-ips': typeof AdminFloatingIpsRoute
   '/admin/ha': typeof AdminHaRoute
   '/admin/invoices': typeof AdminInvoicesRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
@@ -240,6 +263,7 @@ export interface FileRoutesByTo {
   '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/os-templates': typeof AdminOsTemplatesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
@@ -262,6 +286,8 @@ export interface FileRoutesById {
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/clusters': typeof AdminClustersRoute
   '/admin/create-vm': typeof AdminCreateVmRoute
+  '/admin/firewall': typeof AdminFirewallRoute
+  '/admin/floating-ips': typeof AdminFloatingIpsRoute
   '/admin/ha': typeof AdminHaRoute
   '/admin/invoices': typeof AdminInvoicesRoute
   '/admin/ip-pools': typeof AdminIpPoolsRoute
@@ -272,6 +298,7 @@ export interface FileRoutesById {
   '/admin/nodes': typeof AdminNodesRoute
   '/admin/observability': typeof AdminObservabilityRoute
   '/admin/orders': typeof AdminOrdersRoute
+  '/admin/os-templates': typeof AdminOsTemplatesRoute
   '/admin/products': typeof AdminProductsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/admin/tickets': typeof AdminTicketsRoute
@@ -295,6 +322,8 @@ export interface FileRouteTypes {
     | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
+    | '/admin/firewall'
+    | '/admin/floating-ips'
     | '/admin/ha'
     | '/admin/invoices'
     | '/admin/ip-pools'
@@ -305,6 +334,7 @@ export interface FileRouteTypes {
     | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
+    | '/admin/os-templates'
     | '/admin/products'
     | '/admin/storage'
     | '/admin/tickets'
@@ -326,6 +356,8 @@ export interface FileRouteTypes {
     | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
+    | '/admin/firewall'
+    | '/admin/floating-ips'
     | '/admin/ha'
     | '/admin/invoices'
     | '/admin/ip-pools'
@@ -336,6 +368,7 @@ export interface FileRouteTypes {
     | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
+    | '/admin/os-templates'
     | '/admin/products'
     | '/admin/storage'
     | '/admin/tickets'
@@ -357,6 +390,8 @@ export interface FileRouteTypes {
     | '/admin/audit-logs'
     | '/admin/clusters'
     | '/admin/create-vm'
+    | '/admin/firewall'
+    | '/admin/floating-ips'
     | '/admin/ha'
     | '/admin/invoices'
     | '/admin/ip-pools'
@@ -367,6 +402,7 @@ export interface FileRouteTypes {
     | '/admin/nodes'
     | '/admin/observability'
     | '/admin/orders'
+    | '/admin/os-templates'
     | '/admin/products'
     | '/admin/storage'
     | '/admin/tickets'
@@ -502,6 +538,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminProductsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/os-templates': {
+      id: '/admin/os-templates'
+      path: '/os-templates'
+      fullPath: '/admin/os-templates'
+      preLoaderRoute: typeof AdminOsTemplatesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/orders': {
       id: '/admin/orders'
       path: '/orders'
@@ -572,6 +615,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHaRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/floating-ips': {
+      id: '/admin/floating-ips'
+      path: '/floating-ips'
+      fullPath: '/admin/floating-ips'
+      preLoaderRoute: typeof AdminFloatingIpsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/firewall': {
+      id: '/admin/firewall'
+      path: '/firewall'
+      fullPath: '/admin/firewall'
+      preLoaderRoute: typeof AdminFirewallRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/create-vm': {
       id: '/admin/create-vm'
       path: '/create-vm'
@@ -600,6 +657,8 @@ interface AdminRouteChildren {
   AdminAuditLogsRoute: typeof AdminAuditLogsRoute
   AdminClustersRoute: typeof AdminClustersRoute
   AdminCreateVmRoute: typeof AdminCreateVmRoute
+  AdminFirewallRoute: typeof AdminFirewallRoute
+  AdminFloatingIpsRoute: typeof AdminFloatingIpsRoute
   AdminHaRoute: typeof AdminHaRoute
   AdminInvoicesRoute: typeof AdminInvoicesRoute
   AdminIpPoolsRoute: typeof AdminIpPoolsRoute
@@ -610,6 +669,7 @@ interface AdminRouteChildren {
   AdminNodesRoute: typeof AdminNodesRoute
   AdminObservabilityRoute: typeof AdminObservabilityRoute
   AdminOrdersRoute: typeof AdminOrdersRoute
+  AdminOsTemplatesRoute: typeof AdminOsTemplatesRoute
   AdminProductsRoute: typeof AdminProductsRoute
   AdminStorageRoute: typeof AdminStorageRoute
   AdminTicketsRoute: typeof AdminTicketsRoute
@@ -622,6 +682,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAuditLogsRoute: AdminAuditLogsRoute,
   AdminClustersRoute: AdminClustersRoute,
   AdminCreateVmRoute: AdminCreateVmRoute,
+  AdminFirewallRoute: AdminFirewallRoute,
+  AdminFloatingIpsRoute: AdminFloatingIpsRoute,
   AdminHaRoute: AdminHaRoute,
   AdminInvoicesRoute: AdminInvoicesRoute,
   AdminIpPoolsRoute: AdminIpPoolsRoute,
@@ -632,6 +694,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminNodesRoute: AdminNodesRoute,
   AdminObservabilityRoute: AdminObservabilityRoute,
   AdminOrdersRoute: AdminOrdersRoute,
+  AdminOsTemplatesRoute: AdminOsTemplatesRoute,
   AdminProductsRoute: AdminProductsRoute,
   AdminStorageRoute: AdminStorageRoute,
   AdminTicketsRoute: AdminTicketsRoute,

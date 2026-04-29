@@ -105,6 +105,13 @@ func (c *Client) APIDelete(ctx context.Context, path string) (*IncusResponse, er
 	return c.apiRequest(ctx, http.MethodDelete, path, nil)
 }
 
+// APIPatch is the partial-update sibling of APIPut. Used for endpoints that
+// accept HTTP PATCH (e.g. /1.0/projects/{name}) where we want to set just
+// one config key without re-marshaling the whole object back.
+func (c *Client) APIPatch(ctx context.Context, path string, body io.Reader) (*IncusResponse, error) {
+	return c.apiRequest(ctx, http.MethodPatch, path, body)
+}
+
 func (c *Client) RawGet(ctx context.Context, path string) (string, error) {
 	url := c.APIURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

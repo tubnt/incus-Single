@@ -7,11 +7,17 @@ import { NodePicker } from "@/features/nodes/node-picker";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
+  useAdminResetPasswordByNameMutation,
   useAdminVMDetailQuery,
   useDeleteVMMutation,
   useMigrateVMMutation,
+  useReinstallVMMutation,
+  useRescueEnterByNameMutation,
+  useRescueExitByNameMutation,
   useVMStateMutation,
+  type ResetPasswordMode,
 } from "@/features/vms/api";
+import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 
 export const Route = createFileRoute("/admin/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -30,6 +36,10 @@ function VMDetailPage() {
   const [tab, setTab] = useState<"overview" | "console" | "snapshots">("overview");
   const [migrateTarget, setMigrateTarget] = useState("");
   const [showMigrate, setShowMigrate] = useState(false);
+  const [showReinstall, setShowReinstall] = useState(false);
+  const [showResetPwd, setShowResetPwd] = useState(false);
+  const [reinstallSlug, setReinstallSlug] = useState(DEFAULT_TEMPLATE_SLUG);
+  const [resetPwdMode, setResetPwdMode] = useState<ResetPasswordMode>("auto");
 
   const { data: detailData, isLoading: detailLoading, isError: detailError } = useAdminVMDetailQuery(
     cluster,
@@ -43,6 +53,10 @@ function VMDetailPage() {
   const stateMutation = useVMStateMutation();
   const migrateMutation = useMigrateVMMutation();
   const deleteMutation = useDeleteVMMutation();
+  const reinstallMutation = useReinstallVMMutation();
+  const resetPwdMutation = useAdminResetPasswordByNameMutation(name);
+  const rescueEnterMutation = useRescueEnterByNameMutation();
+  const rescueExitMutation = useRescueExitByNameMutation(name);
 
   const runAction = (action: string) =>
     stateMutation.mutate(
@@ -119,6 +133,64 @@ function VMDetailPage() {
           >
             {t("admin.migrate", { defaultValue: "Migrate" })}
           </button>
+          <ActionBtn
+            label={t("vm.reinstall")}
+            onClick={() => setShowReinstall(!showReinstall)}
+            disabled={reinstallMutation.isPending}
+          />
+          <ActionBtn
+            label={t("vm.passwordReset", { defaultValue: "重置密码" })}
+            onClick={() => setShowResetPwd(!showResetPwd)}
+            disabled={resetPwdMutation.isPending}
+          />
+          <ActionBtn
+            label={t("vm.rescueEnter", "Rescue")}
+            onClick={async () => {
+              const ok = await confirm({
+                title: t("vm.rescueEnterTitle", "进入 Rescue 模式"),
+                message: t("vm.rescueEnterMessage", {
+                  name,
+                  defaultValue: `确认让 ${name} 进入 Rescue 模式？会先拍快照再停机。`,
+                }),
+                destructive: true,
+              });
+              if (!ok) return;
+              rescueEnterMutation.mutate(name, {
+                onSuccess: (res) =>
+                  toast.success(
+                    t("vm.rescueEntered", {
+                      snap: res.snapshot,
+                      defaultValue: `已进入 Rescue；快照 ${res.snapshot}`,
+                    }),
+                    { duration: 15_000 },
+                  ),
+                onError: (err) => toast.error((err as Error).message),
+              });
+            }}
+            disabled={rescueEnterMutation.isPending}
+          />
+          <ActionBtn
+            label={t("vm.rescueExitRestore", "Rescue 恢复")}
+            onClick={async () => {
+              const ok = await confirm({
+                title: t("vm.rescueExitTitle", "退出 Rescue 模式"),
+                message: t("vm.rescueExitRestoreMessage", {
+                  name,
+                  defaultValue: `确认退出 Rescue 并恢复快照？${name} 会回滚到进入前的状态。`,
+                }),
+                destructive: true,
+              });
+              if (!ok) return;
+              rescueExitMutation.mutate(
+                { restore: true, delete_snapshot: false },
+                {
+                  onSuccess: () => toast.success(t("vm.rescueExitedRestored", "已恢复快照并启动")),
+                  onError: (err) => toast.error((err as Error).message),
+                },
+              );
+            }}
+            disabled={rescueExitMutation.isPending}
+          />
           <button
             onClick={async () => {
               const ok = await confirm({
@@ -129,12 +201,118 @@ function VMDetailPage() {
               if (ok) runDelete();
             }}
             disabled={deleteMutation.isPending}
-            className="px-3 py-1.5 rounded text-xs font-medium bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
+            // aria-label includes the VM name so DOM queries / assistive
+            // tools can disambiguate this from row-level Delete buttons
+            // (e.g. snapshot rows in the same page). Born of the 2026-04-25
+            // incident where a UI test selector "Delete" hit this button
+            // instead of the snapshot row's.
+            aria-label={t("vm.deleteVmAriaLabel", { name, defaultValue: `Delete VM ${name}` })}
+            data-testid="delete-vm-button"
+            className="px-3 py-1.5 rounded text-xs font-medium border border-destructive bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
           >
-            {t("vm.delete")}
+            ⚠ {t("vm.delete")}
           </button>
         </div>
       </div>
+
+      {showReinstall && (
+        <div className="border border-border rounded-lg bg-card p-4 mb-4">
+          <h3 className="font-semibold text-sm mb-1">
+            {t("vm.reinstallHeading", { name, defaultValue: `Reinstall system — ${name}` })}
+          </h3>
+          <p className="text-xs text-destructive mb-3">{t("vm.reinstallWarning")}</p>
+          <div className="flex items-center gap-3">
+            <TemplatePicker
+              value={reinstallSlug}
+              onChange={setReinstallSlug}
+              className="px-2 py-1 text-xs border border-border rounded bg-card"
+            />
+            <button
+              onClick={async () => {
+                const ok = await confirm({
+                  title: t("deleteConfirm.reinstallTitle"),
+                  message: t("deleteConfirm.reinstallMessage", { name }),
+                  destructive: true,
+                });
+                if (!ok) return;
+                reinstallMutation.mutate(
+                  { name, cluster, project, template_slug: reinstallSlug },
+                  {
+                    onSuccess: (data) => {
+                      toast.success(
+                        t("vm.reinstallDone", {
+                          username: data.username,
+                          password: data.password,
+                          defaultValue: `重装完成 · ${data.username} / ${data.password}`,
+                        }),
+                        { duration: 20_000 },
+                      );
+                      setShowReinstall(false);
+                    },
+                    onError: (err) => toast.error((err as Error).message),
+                  },
+                );
+              }}
+              disabled={reinstallMutation.isPending}
+              className="px-3 py-1 text-xs bg-destructive text-destructive-foreground rounded disabled:opacity-50"
+            >
+              {reinstallMutation.isPending ? t("vm.reinstalling") : t("vm.reinstallConfirm")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showResetPwd && (
+        <div className="border border-border rounded-lg bg-card p-4 mb-4">
+          <h3 className="font-semibold text-sm mb-1">
+            {t("vm.resetPwdHeading", { name, defaultValue: `重置 ${name} 密码` })}
+          </h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            {t("vm.resetPwdModeHint", {
+              defaultValue: "auto：先 online 失败后回落 offline（重启走 cloud-init）；online：guest-agent 执行 chpasswd；offline：直接走 cloud-init 重启。",
+            })}
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={resetPwdMode}
+              onChange={(e) => setResetPwdMode(e.target.value as ResetPasswordMode)}
+              className="px-2 py-1 text-xs border border-border rounded bg-card"
+            >
+              <option value="auto">auto</option>
+              <option value="online">online</option>
+              <option value="offline">offline</option>
+            </select>
+            <button
+              onClick={() => {
+                resetPwdMutation.mutate(
+                  { cluster, project, username: "ubuntu", mode: resetPwdMode },
+                  {
+                    onSuccess: (data) => {
+                      const ch = data.channel ?? "online";
+                      const note = data.fallback ? `${ch} (fallback)` : ch;
+                      toast.success(
+                        t("vm.passwordResetResult", {
+                          user: data.username,
+                          password: data.password,
+                          channel: note,
+                          defaultValue: `${data.username} / ${data.password} · via ${note}`,
+                        }),
+                        { duration: 20_000 },
+                      );
+                      setShowResetPwd(false);
+                    },
+                    onError: (err) => toast.error((err as Error).message),
+                  },
+                );
+              }}
+              disabled={resetPwdMutation.isPending}
+              className="px-3 py-1 text-xs bg-warning text-warning-foreground rounded disabled:opacity-50"
+            >
+              {resetPwdMutation.isPending ? t("vm.passwordResetting") : t("vm.passwordReset")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showMigrate && (
         <div className="border border-border rounded-lg bg-card p-4 mb-4">

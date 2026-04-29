@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/incuscloud/incus-admin/internal/config"
 	"github.com/incuscloud/incus-admin/internal/repository"
@@ -30,35 +31,60 @@ func allocateIP(ctx context.Context, cc config.ClusterConfig, vmID int64) (ip, g
 	if len(cc.IPPools) == 0 {
 		return "", "", "", fmt.Errorf("cluster has no IP pools configured")
 	}
-
-	p := cc.IPPools[0]
-	gateway = p.Gateway
-	cidr = extractCIDR(p.CIDR)
-
 	if ipAddrRepo == nil {
-		return "", gateway, cidr, fmt.Errorf("ip address repository not initialized")
+		return "", "", "", fmt.Errorf("ip address repository not initialized")
 	}
 
+	// PLAN-021 Phase F: walk pools in config order, skipping exhausted ones.
+	// An exhausted pool is detected by "no available IPs" from AllocateNext;
+	// any other error bubbles up immediately.
+	var lastErr error
+	for i, p := range cc.IPPools {
+		ip, err = allocateFromPool(ctx, p, vmID)
+		if err == nil {
+			return ip, p.Gateway, extractCIDR(p.CIDR), nil
+		}
+		lastErr = err
+		if !isPoolExhausted(err) {
+			// Hard failure (DB unreachable, bad CIDR, etc) — don't silently
+			// fall through, surface it.
+			return "", p.Gateway, extractCIDR(p.CIDR), fmt.Errorf("allocate IP from pool %s: %w", p.CIDR, err)
+		}
+		slog.Warn("IP pool exhausted, trying next", "index", i, "cidr", p.CIDR)
+	}
+
+	// All pools exhausted.
+	first := cc.IPPools[0]
+	return "", first.Gateway, extractCIDR(first.CIDR), fmt.Errorf("all IP pools exhausted: %w", lastErr)
+}
+
+// allocateFromPool ensures the pool row + seed, then asks the repo for the
+// next available IP in that pool only.
+func allocateFromPool(ctx context.Context, p config.IPPoolConfig, vmID int64) (string, error) {
 	poolID, err := ipAddrRepo.GetPoolID(ctx, p.CIDR)
 	if err != nil {
-		return "", gateway, cidr, fmt.Errorf("get IP pool: %w", err)
+		return "", fmt.Errorf("get IP pool: %w", err)
 	}
 	if poolID == 0 {
 		poolID, err = ipAddrRepo.EnsurePool(ctx, 1, p.CIDR, p.Gateway, p.VLAN)
 		if err != nil {
-			return "", gateway, cidr, fmt.Errorf("ensure IP pool: %w", err)
+			return "", fmt.Errorf("ensure IP pool: %w", err)
 		}
-		n, seedErr := ipAddrRepo.SeedPool(ctx, poolID, p.Range)
-		if seedErr != nil {
+		if n, seedErr := ipAddrRepo.SeedPool(ctx, poolID, p.Range); seedErr != nil {
 			slog.Error("seed IP pool failed", "pool_id", poolID, "error", seedErr)
 		} else {
 			slog.Info("seeded IP pool", "pool_id", poolID, "count", n)
 		}
 	}
+	return ipAddrRepo.AllocateNext(ctx, poolID, vmID, p.Range)
+}
 
-	ip, err = ipAddrRepo.AllocateNext(ctx, poolID, vmID, p.Range)
-	if err != nil {
-		return "", gateway, cidr, fmt.Errorf("allocate IP: %w", err)
+// isPoolExhausted matches the AllocateNext "no available IPs" wording. We
+// don't use errors.Is here because the repo wraps a plain fmt.Errorf —
+// promoting it to a typed error would churn other callers for no gain.
+func isPoolExhausted(err error) bool {
+	if err == nil {
+		return false
 	}
-	return ip, gateway, cidr, nil
+	return strings.Contains(err.Error(), "no available IPs")
 }

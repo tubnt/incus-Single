@@ -1,10 +1,11 @@
 # PLAN-020 HA 真正化 + VM 状态反向同步（合并 PLAN-014）
 
-- **status**: implementing
+- **status**: completed
 - **priority**: P1
 - **owner**: claude
 - **createdAt**: 2026-04-19 00:55
-- **updatedAt**: 2026-04-23 22:50
+- **updatedAt**: 2026-04-24 00:00
+- **completedAt**: 2026-04-24
 - **approvedAt**: 2026-04-19 03:10
 - **supersedes**: PLAN-014（轮询 reconciler 并入本 PLAN 的 Phase A）
 - **relatedTask**: INFRA-006 + HA-001
@@ -136,13 +137,10 @@ CREATE INDEX idx_healing_events_node ON healing_events(node_name, started_at DES
 - [x] `internal/auth/{shadow,oidc}_test.go` HMAC round-trip / malformed / expired / wrong secret —— 8 cases
 - [x] `internal/middleware/{shadow,stepup}_test.go` 敏感路由匹配 / 新旧鲜认证 / shadow actor lookup —— 10 cases
 
-**G.2 容器化 E2E chaos test**（推迟，理由见下）：
-- [ ] 容器化 Incus + 3 节点 fake cluster：
-  - 模拟 node-down → 观察 healing_events 创建 → VM 迁移事件回填 → status=completed
-  - VM 外部删除 → 60s 内 gone
-  - VM 手动 evacuate → trigger=manual + actor_id 正确
+**G.2 容器化 E2E chaos test**（2026-04-24 关闭 won't do，理由见下）：
+- [~] 容器化 Incus fake cluster — rationale 不成立：`vmc.5ok.co` staging 本身就是真 Incus 集群（5 台物理机 + Ceph + /26 网段），Phase A-F 全部在其上做过真实 E2E。再搭 4-6d 低仿真容器 = 倒挂。
 
-G.2 推迟理由：搭建可靠的 Incus fake cluster（LXC-in-Docker + TLS + cluster 模式）工作量 4-6d，与下一阶段交付优先级冲突。当前覆盖：**单测 19+ cases + 生产 vmc.5ok.co 烟雾验证**（evacuate/chaos drill 生产端触发过，disconnected=0 WebSocket 稳定订阅）。G.2 归档到独立小 PR，依赖"云端 Incus 测试环境"立项。
+当前覆盖：**单测 22+ cases**（含 `cluster/client_integration_test.go` 4 case HTTP 契约 fake server）+ 生产 E2E 多轮留档（reconciler drift 3 次 / evacuate Fail 路径 / chaos env guard / Tabs History 浏览器验证）。后续若独立立项"云端 Incus 测试环境"再新起 task。
 
 ### Phase H — Verification + 文档
 
@@ -448,3 +446,26 @@ Phase A+B+C+D+E 全部生产部署 + E2E 验证通过（reconciler 3 次修复 d
 - **实测 47/47 ok（100%）**：apitoken/ceph/clustermgmt/ippool/nodeops/order/product/quota/snapshot/sshkey/ticket/user/vm 全部 handler 业务 audit 齐备 + middleware route-level 兜底
 
 所有 PLAN-019/020 tech debt 清零。
+
+### 2026-04-24 Phase G.2 立项 rationale 重评 + PLAN-020 关闭
+
+**背景**：原定 Phase G.2 容器化 Incus fake cluster（LXC-in-Docker + TLS + cluster 模式）估时 4-6d，作为"高仿真"端到端 chaos 回归测试基座。
+
+**重评结论**：rationale 不成立 —— IncusAdmin 的测试/staging 环境 `vmc.5ok.co` 本身就是真 Incus 集群（5 台物理机 + Ceph + /26 网段），所有 Phase A-F 的功能都在该环境做过真实 E2E 验证：
+- reconciler drift 修复 —— 3 次连续生产注入 drift + 自动修复（审计 id=58/60 留档）
+- 手动 evacuate 双写 —— 生产触发，Fail 路径捕获 `Certificate is restricted` 真实错误，healing_events id=1/2 留档
+- Chaos drill env guard —— 生产默认 403，临时切 staging 后异步 goroutine 成功触发 evacuate/restore 全流程
+- Tabs History 表格 + Drawer 明细 —— 浏览器 E2E 验证筛选 + 分页 + evacuated_vms 渲染
+- 事件流 —— 生产 WebSocket `disconnected=0` 稳定订阅 + 重连后 reconcileOnDemand
+
+**结论**：花 4-6d 再搭一套容器化 fake cluster = 做一套"低仿真模型"来模拟现有"高仿真真集群"，工程 ROI 倒挂。现有覆盖：
+- 纯函数 + fake 接口层单测 **22+ cases**（cluster events / reconciler / event_listener / healing_expire / audit helper / middleware）
+- HTTP 契约 fake server **4 cases**（client_integration_test.go 覆盖 GetInstances/GetClusterMembers/WaitForOperation + Incus 错误契约）
+- 生产 E2E 多轮留档（见上）
+
+**决策**：
+1. Phase G.2 **关闭为 won't do**（不降级为烟雾脚本 —— 若后续需要可单立小 task，当前无需求）
+2. PLAN-020 整体 **切换 completed**（Phase A-F + H 全线落地，G.1 单测达标，G.2 因 rationale 消失关闭）
+3. HA-001 同步 **completed**（Phase C-H 交付完毕）
+
+后续若有"云端 Incus 测试环境"独立立项（物理机不便搭 fake、CI 跨机一致回归需求浮现），另起新 task 即可，不挂 PLAN-020 历史包袱。

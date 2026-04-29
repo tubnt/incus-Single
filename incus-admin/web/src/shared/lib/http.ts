@@ -10,9 +10,24 @@ class HttpError extends Error {
     public statusText: string,
     public body: unknown,
   ) {
-    super(`HTTP ${status}: ${statusText}`);
+    super(`HTTP ${status}: ${formatHttpErrorBody(status, statusText, body)}`);
     this.name = "HttpError";
   }
+}
+
+function formatHttpErrorBody(status: number, statusText: string, body: unknown): string {
+  if (body && typeof body === "object") {
+    const b = body as Record<string, unknown>;
+    if (typeof b.error === "string" && b.error.length > 0) {
+      if (Array.isArray(b.details) && b.details.length > 0) {
+        return `${b.error} (${(b.details as unknown[]).join(", ")})`;
+      }
+      return b.error;
+    }
+    if (typeof b.message === "string" && b.message.length > 0) return b.message;
+  }
+  if (typeof body === "string" && body.length > 0) return body;
+  return statusText || String(status);
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {

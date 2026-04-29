@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	authhandler "github.com/incuscloud/incus-admin/internal/handler/auth"
 	"github.com/incuscloud/incus-admin/internal/handler/portal"
 	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/server"
 	"github.com/incuscloud/incus-admin/internal/service"
@@ -82,6 +84,12 @@ func main() {
 			scheduler = cluster.NewScheduler(clusterMgr)
 			vmSvc = service.NewVMService(clusterMgr)
 			slog.Info("cluster manager ready", "clusters", len(clusterMgr.List()))
+
+			// PLAN-021 Phase F+G follow-up: ensure customer-facing projects
+			// allow cluster-member targeting so admin Migrate isn't blocked
+			// by Incus' default `restricted.cluster.target=block`. Best-effort
+			// per cluster + project; failures are logged not fatal.
+			ensureCustomerProjectAllowsClusterTarget(clusterMgr)
 		}
 	}
 
@@ -121,10 +129,14 @@ func main() {
 
 	ipAddrRepo := repository.NewIPAddrRepo(db)
 	healingRepo := repository.NewHealingEventRepo(db)
+	osTemplateRepo := repository.NewOSTemplateRepo(db)
+	firewallRepo := repository.NewFirewallRepo(db)
+	floatingIPRepo := repository.NewFloatingIPRepo(db)
 	portal.SetAuditRepo(auditRepo)
 	portal.SetIPAddrRepo(ipAddrRepo)
 	portal.SetUserRepo(userRepo)
 	portal.SetHealingRepo(healingRepo)
+	portal.SetOSTemplateRepo(osTemplateRepo)
 	portal.SetAppEnv(cfg.Server.Env)
 	middleware.SetEmergencySecret(cfg.Auth.EmergencyToken)
 
@@ -271,6 +283,17 @@ func main() {
 		// of an Incus event we never received (network glitch, crash).
 		// Flip to 'partial' so the history UI doesn't show stuck entries.
 		go worker.RunHealingExpireStale(workerCtx, healingRepo, 15*time.Minute, 5*time.Minute)
+
+		// One-shot startup reconcile: ensure every DB firewall_groups row
+		// has a matching Incus network ACL. Migration 011 INSERTs seed rows
+		// (default-web / ssh-only / database-lan) but only handler.CreateGroup
+		// calls EnsureACL, so seed groups never get pushed to Incus. Without
+		// this, vm bind silently fails (Incus accepts unknown ACL name in
+		// PUT but doesn't apply). Idempotent.
+		go worker.ReconcileFirewallOnce(workerCtx, &firewallReconcileAdapter{
+			repo: firewallRepo,
+			svc:  service.NewFirewallService(clusterMgr, vmSvc),
+		})
 	}
 
 	srv := server.New(cfg, userLookup, roleLookup, balanceLookup, stepUpLookup, auditWriter, server.Handlers{
@@ -294,6 +317,10 @@ func main() {
 		Quotas:      portal.NewQuotaHandler(quotaRepo, vmRepo),
 		Events:      portal.NewEventsHandler(clusterMgr),
 		Healing:     portal.NewHealingHandler(healingRepo, clusterMgr),
+		OSTemplates: portal.NewOSTemplateHandler(osTemplateRepo),
+		Firewall:    portal.NewFirewallHandler(firewallRepo, service.NewFirewallService(clusterMgr, vmSvc), vmRepo, clusterMgr),
+		FloatingIPs: portal.NewFloatingIPHandler(floatingIPRepo, service.NewFloatingIPService(clusterMgr), vmRepo, clusterRepo, clusterMgr),
+		Rescue:      portal.NewRescueHandler(vmRepo, service.NewRescueService(vmSvc, clusterMgr), clusterMgr),
 		Auth:        stepUpHandler,
 		Shadow:      shadowHandler,
 	})
@@ -301,6 +328,43 @@ func main() {
 	if err := srv.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+// ensureCustomerProjectAllowsClusterTarget patches every configured Incus
+// project to set restricted.cluster.target=allow. Without this Incus 6.x
+// rejects "POST /1.0/instances/{name}?target=NODE" with "This project
+// doesn't allow cluster member targeting", breaking admin Migrate.
+//
+// Soft-fail per project: log + continue. Idempotent (PATCH on a project
+// that already has the key is a no-op).
+func ensureCustomerProjectAllowsClusterTarget(mgr *cluster.Manager) {
+	if mgr == nil {
+		return
+	}
+	for _, c := range mgr.List() {
+		cc, ok := mgr.ConfigByName(c.Name)
+		if !ok {
+			continue
+		}
+		for _, p := range cc.Projects {
+			projName := p.Name
+			if projName == "" {
+				continue
+			}
+			body := []byte(`{"config":{"restricted.cluster.target":"allow"}}`)
+			path := fmt.Sprintf("/1.0/projects/%s", projName)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := c.APIPatch(ctx, path, bytes.NewReader(body))
+			cancel()
+			if err != nil {
+				slog.Warn("project patch restricted.cluster.target=allow failed",
+					"cluster", c.Name, "project", projName, "error", err)
+				continue
+			}
+			slog.Info("project restricted.cluster.target ensured allow",
+				"cluster", c.Name, "project", projName)
+		}
 	}
 }
 
@@ -316,6 +380,26 @@ func (s *clusterPinStore) Get(ctx context.Context, clusterName string) (string, 
 
 func (s *clusterPinStore) Set(ctx context.Context, clusterName, fingerprint string) error {
 	return s.repo.SetTLSFingerprint(ctx, clusterName, fingerprint)
+}
+
+// firewallReconcileAdapter glues repo + service into the consumer-side
+// worker.FirewallReconciler interface so the worker package stays
+// dependency-light.
+type firewallReconcileAdapter struct {
+	repo *repository.FirewallRepo
+	svc  *service.FirewallService
+}
+
+func (a *firewallReconcileAdapter) ListGroups(ctx context.Context) ([]model.FirewallGroup, error) {
+	return a.repo.ListGroups(ctx)
+}
+
+func (a *firewallReconcileAdapter) ListRules(ctx context.Context, groupID int64) ([]model.FirewallRule, error) {
+	return a.repo.ListRules(ctx, groupID)
+}
+
+func (a *firewallReconcileAdapter) EnsureACL(ctx context.Context, group *model.FirewallGroup, rules []model.FirewallRule) error {
+	return a.svc.EnsureACL(ctx, group, rules)
 }
 
 // healingTrackerAdapter lets the worker talk to HealingEventRepo without

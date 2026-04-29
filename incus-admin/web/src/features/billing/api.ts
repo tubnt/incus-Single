@@ -70,6 +70,13 @@ export function useMyInvoicesQuery() {
 }
 
 export function useCreateOrderMutation() {
+  // Do NOT invalidate orderKeys on success: the create-then-pay flow in
+  // ProductCard chains createOrder → payOrder, and the pay request takes
+  // 10–15 s while VM provisioning runs synchronously. If we refetch orders
+  // in between, the new pending order shows up in the list with a Pay button
+  // and an impatient user can click it, racing the in-flight pay request and
+  // hitting "order not pending" on the second call. Let usePayOrderMutation
+  // own the invalidation once payment + provisioning has actually finished.
   return useMutation({
     mutationFn: (params: {
       product_id: number;
@@ -78,7 +85,6 @@ export function useCreateOrderMutation() {
       cluster_id?: number;
       cluster_name?: string;
     }) => http.post<{ order: Order }>("/portal/orders", params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: orderKeys.all }),
   });
 }
 

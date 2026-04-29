@@ -26,21 +26,24 @@ type Cluster struct {
 }
 
 type VM struct {
-	ID        int64     `json:"id" db:"id"`
-	Name      string    `json:"name" db:"name"`
-	ClusterID int64     `json:"cluster_id" db:"cluster_id"`
-	UserID    int64     `json:"user_id" db:"user_id"`
-	OrderID   *int64    `json:"order_id,omitempty" db:"order_id"`
-	IP        *string   `json:"ip,omitempty" db:"ip"`
-	Status    string    `json:"status" db:"status"`
-	CPU       int       `json:"cpu" db:"cpu"`
-	MemoryMB  int       `json:"memory_mb" db:"memory_mb"`
-	DiskGB    int       `json:"disk_gb" db:"disk_gb"`
-	OSImage   string    `json:"os_image" db:"os_image"`
-	Node      string    `json:"node" db:"node"`
-	Password  *string   `json:"password,omitempty" db:"password"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID                  int64      `json:"id" db:"id"`
+	Name                string     `json:"name" db:"name"`
+	ClusterID           int64      `json:"cluster_id" db:"cluster_id"`
+	UserID              int64      `json:"user_id" db:"user_id"`
+	OrderID             *int64     `json:"order_id,omitempty" db:"order_id"`
+	IP                  *string    `json:"ip,omitempty" db:"ip"`
+	Status              string     `json:"status" db:"status"`
+	CPU                 int        `json:"cpu" db:"cpu"`
+	MemoryMB            int        `json:"memory_mb" db:"memory_mb"`
+	DiskGB              int        `json:"disk_gb" db:"disk_gb"`
+	OSImage             string     `json:"os_image" db:"os_image"`
+	Node                string     `json:"node" db:"node"`
+	Password            *string    `json:"password,omitempty" db:"password"`
+	RescueState         string     `json:"rescue_state" db:"rescue_state"`
+	RescueStartedAt     *time.Time `json:"rescue_started_at,omitempty" db:"rescue_started_at"`
+	RescueSnapshotName  *string    `json:"rescue_snapshot_name,omitempty" db:"rescue_snapshot_name"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 type Product struct {
@@ -169,6 +172,61 @@ type TicketMessage struct {
 	Body      string    `json:"body" db:"body"`
 	IsStaff   bool      `json:"is_staff" db:"is_staff"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+type FloatingIP struct {
+	ID          int64      `json:"id" db:"id"`
+	ClusterID   int64      `json:"cluster_id" db:"cluster_id"`
+	IP          string     `json:"ip" db:"ip"`
+	BoundVMID   *int64     `json:"bound_vm_id,omitempty" db:"bound_vm_id"`
+	Status      string     `json:"status" db:"status"`
+	Description string     `json:"description" db:"description"`
+	AllocatedAt time.Time  `json:"allocated_at" db:"allocated_at"`
+	AttachedAt  *time.Time `json:"attached_at,omitempty" db:"attached_at"`
+	DetachedAt  *time.Time `json:"detached_at,omitempty" db:"detached_at"`
+}
+
+type FirewallGroup struct {
+	ID          int64     `json:"id" db:"id"`
+	Slug        string    `json:"slug" db:"slug"`
+	Name        string    `json:"name" db:"name"`
+	Description string    `json:"description" db:"description"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type FirewallRule struct {
+	ID              int64     `json:"id" db:"id"`
+	GroupID         int64     `json:"group_id" db:"group_id"`
+	Action          string    `json:"action" db:"action"`
+	Protocol        string    `json:"protocol" db:"protocol"`
+	DestinationPort string    `json:"destination_port" db:"destination_port"`
+	SourceCIDR      string    `json:"source_cidr" db:"source_cidr"`
+	Description     string    `json:"description" db:"description"`
+	SortOrder       int       `json:"sort_order" db:"sort_order"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+}
+
+type VMFirewallBinding struct {
+	VMID      int64     `json:"vm_id" db:"vm_id"`
+	GroupID   int64     `json:"group_id" db:"group_id"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+type OSTemplate struct {
+	ID                int64     `json:"id" db:"id"`
+	Slug              string    `json:"slug" db:"slug"`
+	Name              string    `json:"name" db:"name"`
+	Source            string    `json:"source" db:"source"`
+	Protocol          string    `json:"protocol" db:"protocol"`
+	ServerURL         string    `json:"server_url" db:"server_url"`
+	DefaultUser       string    `json:"default_user" db:"default_user"`
+	CloudInitTemplate string    `json:"cloud_init_template" db:"cloud_init_template"`
+	SupportsRescue    bool      `json:"supports_rescue" db:"supports_rescue"`
+	Enabled           bool      `json:"enabled" db:"enabled"`
+	SortOrder         int       `json:"sort_order" db:"sort_order"`
+	CreatedAt         time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
 const (

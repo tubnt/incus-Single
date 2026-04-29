@@ -95,6 +95,16 @@ function VMCard({ vm }: { vm: VMService }) {
           {vm.status === "stopped" && (
             <ActionBtn label={t("vm.start", { defaultValue: "Start" })} onClick={() => runAction("start")} disabled={actionMutation.isPending} />
           )}
+          {/* Destructive / infrequent actions (Reinstall / Reset Password /
+              Rescue) live on the VM detail page — this deep-link keeps the
+              card tidy and ensures the user sees the full warning + mode
+              selectors before acting. */}
+          <a
+            href={`/vm-detail?id=${vm.id}`}
+            className="px-3 py-1.5 rounded text-xs font-medium bg-muted/30 text-muted-foreground hover:bg-muted text-center"
+          >
+            {t("vm.moreActions", { defaultValue: "更多操作 →" })}
+          </a>
         </div>
       </div>
       {showMetrics && vm.status === "running" && (

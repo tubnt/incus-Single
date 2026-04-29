@@ -211,10 +211,61 @@ export function useMigrateVMMutation() {
   });
 }
 
+// PLAN-021 Phase D — rescue mode is a DB-owned state column; frontend reads
+// it off the admin VMs endpoint (when exposed) and uses these hooks to
+// enter / exit.
+export interface RescueEnterResponse {
+  status: string;
+  vm_id: number;
+  vm_name: string;
+  snapshot: string;
+  note: string;
+}
+
+export interface RescueExitParams {
+  restore: boolean;
+  delete_snapshot?: boolean;
+}
+
+export function useRescueEnterByNameMutation() {
+  return useMutation({
+    mutationFn: (vmName: string) =>
+      http.post<RescueEnterResponse>(`/admin/vms/by-name/${vmName}/rescue/enter`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+export function useRescueExitByNameMutation(vmName: string) {
+  return useMutation({
+    mutationFn: (params: RescueExitParams) =>
+      http.post(`/admin/vms/by-name/${vmName}/rescue/exit`, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+// Reinstall payload supports two forms — template_slug (preferred, PLAN-021
+// Phase B) and legacy os_image (pre-B callers). Backend picks whichever is
+// present; at least one must be set.
+export interface ReinstallVMParams {
+  name: string;
+  cluster: string;
+  project: string;
+  template_slug?: string;
+  os_image?: string;
+}
+
 export function useReinstallVMMutation() {
   return useMutation({
-    mutationFn: (params: { name: string; cluster: string; project: string; os_image: string }) =>
-      http.post<{ status: string; password: string; username: string }>(`/admin/vms/${params.name}/reinstall`, params),
+    mutationFn: (params: ReinstallVMParams) =>
+      http.post<{ status: string; password: string; username: string }>(
+        `/admin/vms/${params.name}/reinstall`,
+        {
+          cluster: params.cluster,
+          project: params.project,
+          template_slug: params.template_slug,
+          os_image: params.os_image,
+        },
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
@@ -245,13 +296,71 @@ export function useAdminCreateVMMutation(clusterName: string) {
 export interface ResetPasswordResult {
   password: string;
   username: string;
+  // PLAN-021 Phase C backend additions. Older responses will have these
+  // undefined; the UI treats that as "auto mode, online channel".
+  channel?: "auto" | "online" | "offline";
+  fallback?: boolean;
 }
+
+export type ResetPasswordMode = "auto" | "online" | "offline";
 
 export function useResetVMPasswordMutation(vmId: number) {
   return useMutation({
-    mutationFn: () =>
-      http.post<ResetPasswordResult>(`/portal/services/${vmId}/reset-password`, {}),
+    mutationFn: (mode?: ResetPasswordMode) =>
+      http.post<ResetPasswordResult>(`/portal/services/${vmId}/reset-password`, mode ? { mode } : {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) }),
+  });
+}
+
+// Reinstall from the user (portal) side. Uses the same template_slug wire
+// format as the admin path; backend resolves the slug through os_templates.
+export interface PortalReinstallResult {
+  status: string;
+  password: string;
+  username: string;
+}
+
+export function usePortalReinstallVMMutation(vmId: number) {
+  return useMutation({
+    mutationFn: (params: { template_slug?: string; os_image?: string }) =>
+      http.post<PortalReinstallResult>(`/portal/services/${vmId}/reinstall`, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+// Portal rescue — id-keyed with server-side owner check. Mirrors the
+// admin by-name hooks but uses a numeric id the portal UI already has.
+export interface PortalRescueEnterResponse {
+  status: string;
+  vm_id: number;
+  vm_name: string;
+  snapshot: string;
+  note: string;
+}
+
+export function usePortalRescueEnterMutation(vmId: number) {
+  return useMutation({
+    mutationFn: () =>
+      http.post<PortalRescueEnterResponse>(`/portal/services/${vmId}/rescue/enter`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) }),
+  });
+}
+
+export function usePortalRescueExitMutation(vmId: number) {
+  return useMutation({
+    mutationFn: (params: RescueExitParams) =>
+      http.post(`/portal/services/${vmId}/rescue/exit`, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) }),
+  });
+}
+
+// Admin reset password (name-keyed, matches reinstall/migrate convention).
+// Accepts an optional mode; backend defaults to "auto" when omitted.
+export function useAdminResetPasswordByNameMutation(vmName: string) {
+  return useMutation({
+    mutationFn: (params: { cluster: string; project: string; username?: string; mode?: ResetPasswordMode }) =>
+      http.post<ResetPasswordResult>(`/admin/vms/${vmName}/reset-password`, params),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
 

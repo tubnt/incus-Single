@@ -98,13 +98,49 @@ func (h *MetricsHandler) fetchVMs(r *http.Request, clusterName string) (map[stri
 	if !ok {
 		return nil, nil
 	}
-	text, err := client.RawGet(r.Context(), "/1.0/metrics")
-	if err != nil {
-		return nil, err
+
+	// Cluster `/1.0/metrics` only returns metrics for VMs on the local Incus node
+	// of whichever member services the request — so a 5-node cluster can only
+	// surface ~1/5 of the VMs through a single fetch. Fan out across cluster
+	// members and merge the per-node metric maps so the admin overview sees
+	// every running instance regardless of placement.
+	members, mErr := client.GetClusterMembers(r.Context())
+	allVMs := make(map[string]*VMMetric)
+
+	if mErr != nil || len(members) == 0 {
+		// Single-node cluster or members lookup failed → fall back to root path.
+		text, err := client.RawGet(r.Context(), "/1.0/metrics")
+		if err != nil {
+			return nil, err
+		}
+		allVMs = parseMetricsForAllVMs(text)
+	} else {
+		for _, raw := range members {
+			var member struct {
+				ServerName string `json:"server_name"`
+				Status     string `json:"status"`
+			}
+			if err := json.Unmarshal(raw, &member); err != nil || member.ServerName == "" {
+				continue
+			}
+			if member.Status != "" && member.Status != "Online" {
+				// Offline / evacuated nodes won't have live metrics — skip silently
+				// so a transient outage doesn't block the rest of the dashboard.
+				continue
+			}
+			text, err := client.RawGet(r.Context(), "/1.0/metrics?target="+member.ServerName)
+			if err != nil {
+				slog.Warn("metrics fetch per-node failed", "cluster", clusterName, "node", member.ServerName, "error", err)
+				continue
+			}
+			for name, metric := range parseMetricsForAllVMs(text) {
+				allVMs[name] = metric
+			}
+		}
 	}
-	vms := parseMetricsForAllVMs(text)
-	h.cache.set(clusterName, vms)
-	return vms, nil
+
+	h.cache.set(clusterName, allVMs)
+	return allVMs, nil
 }
 
 func (h *MetricsHandler) VMMetrics(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -161,17 +163,7 @@ func Load() (*Config, error) {
 				{Name: "default", Access: "internal", Description: "Default project"},
 				{Name: "customers", Access: "public", Description: "Customer VMs"},
 			},
-			IPPools: func() []IPPoolConfig {
-				if r := envOr("CLUSTER_IP_RANGE", ""); r != "" {
-					return []IPPoolConfig{{
-						CIDR:    envOr("CLUSTER_IP_CIDR", "202.151.179.224/27"),
-						Gateway: envOr("CLUSTER_IP_GATEWAY", "202.151.179.225"),
-						Range:   r,
-						VLAN:    376,
-					}}
-				}
-				return nil
-			}(),
+			IPPools: loadIPPools(),
 		})
 	}
 
@@ -218,4 +210,33 @@ func mustEnv(key string) string {
 		os.Exit(1)
 	}
 	return v
+}
+
+// loadIPPools supports two shapes:
+//
+//  1. CLUSTER_IP_POOLS_JSON — JSON array of {cidr,gateway,range,vlan};
+//     preferred for multi-segment deploys (PLAN-021 Phase F).
+//  2. Legacy single-pool CLUSTER_IP_CIDR/GATEWAY/RANGE env vars — kept so
+//     existing single-segment deploys keep working without env-file churn.
+//
+// Returns nil when nothing is configured so tests/dev builds can boot without
+// a public pool.
+func loadIPPools() []IPPoolConfig {
+	if raw := envOr("CLUSTER_IP_POOLS_JSON", ""); raw != "" {
+		var pools []IPPoolConfig
+		if err := json.Unmarshal([]byte(raw), &pools); err != nil {
+			slog.Warn("CLUSTER_IP_POOLS_JSON parse failed, ignoring", "error", err)
+		} else if len(pools) > 0 {
+			return pools
+		}
+	}
+	if r := envOr("CLUSTER_IP_RANGE", ""); r != "" {
+		return []IPPoolConfig{{
+			CIDR:    envOr("CLUSTER_IP_CIDR", "202.151.179.224/27"),
+			Gateway: envOr("CLUSTER_IP_GATEWAY", "202.151.179.225"),
+			Range:   r,
+			VLAN:    376,
+		}}
+	}
+	return nil
 }

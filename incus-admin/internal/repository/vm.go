@@ -31,10 +31,11 @@ func (r *VMRepo) Create(ctx context.Context, vm *model.VM) error {
 func (r *VMRepo) GetByID(ctx context.Context, id int64) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms WHERE id = $1`, id,
 	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
 		&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
+		&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
 		&vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -47,7 +48,7 @@ func (r *VMRepo) ListByUser(ctx context.Context, userID int64) ([]model.VM, erro
 		// Users never need to see `gone` rows — the instance is unreachable
 		// and they can't act on it. Admins see them via the admin list page
 		// (ListPaged) so they can force-delete.
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms WHERE user_id = $1 AND status NOT IN ('deleted','gone') ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -68,7 +69,7 @@ func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, 
 		return nil, 0, fmt.Errorf("count vms: %w", err)
 	}
 
-	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms WHERE status != 'deleted' ORDER BY id DESC`
 	args := []any{}
 	if limit > 0 {
@@ -91,9 +92,11 @@ func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, 
 func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms WHERE name = $1 AND status != 'deleted' LIMIT 1`, name,
-	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password, &vm.CreatedAt, &vm.UpdatedAt)
+	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
+		&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+		&vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -171,7 +174,7 @@ func (r *VMRepo) Delete(ctx context.Context, id int64) error {
 // still materialising it. Does not include status='gone' or 'deleted' rows.
 func (r *VMRepo) ListActiveForReconcile(ctx context.Context, clusterID int64, cutoff time.Time) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms
 		 WHERE cluster_id = $1
 		   AND status IN ('creating','running','stopped','migrating')
@@ -285,7 +288,7 @@ func (r *VMRepo) UpdateNodeByName(ctx context.Context, clusterID int64, name str
 // Ordered by updated_at DESC so the freshest drift shows first.
 func (r *VMRepo) ListGone(ctx context.Context) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
 		 FROM vms WHERE status = 'gone' ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list gone vms: %w", err)
@@ -310,10 +313,43 @@ func scanVMs(rows *sql.Rows) ([]model.VM, error) {
 		var vm model.VM
 		if err := rows.Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
 			&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
+			&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
 			&vm.CreatedAt, &vm.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan vm: %w", err)
 		}
 		vms = append(vms, vm)
 	}
 	return vms, rows.Err()
+}
+
+// SetRescueState atomically transitions a VM from 'normal' to 'rescue' and
+// records the snapshot name. Returns (false, nil) when the row wasn't in
+// 'normal' state so the caller can convert to 409 (already-in-rescue).
+func (r *VMRepo) SetRescueState(ctx context.Context, vmID int64, snapshotName string) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE vms SET rescue_state = 'rescue', rescue_started_at = NOW(), rescue_snapshot_name = $1, updated_at = NOW()
+		 WHERE id = $2 AND rescue_state = 'normal'`,
+		snapshotName, vmID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("set rescue state: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// ClearRescueState transitions 'rescue' back to 'normal' and clears the
+// snapshot name + started_at. Idempotent: already-normal rows return
+// (false, nil) without error.
+func (r *VMRepo) ClearRescueState(ctx context.Context, vmID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE vms SET rescue_state = 'normal', rescue_started_at = NULL, rescue_snapshot_name = NULL, updated_at = NOW()
+		 WHERE id = $1 AND rescue_state = 'rescue'`,
+		vmID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("clear rescue state: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
 }

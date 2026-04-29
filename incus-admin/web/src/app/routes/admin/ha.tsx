@@ -174,9 +174,11 @@ function NodeRow({
               if (ok) onEvacuate();
             }}
             disabled={pending}
-            className="px-3 py-1 text-xs bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
+            aria-label={`Evacuate node ${node.server_name}`}
+            data-testid={`evacuate-node-${node.server_name}`}
+            className="px-3 py-1 text-xs border border-destructive bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
           >
-            {pending ? t("admin.evacuating") : t("admin.evacuate")}
+            {pending ? t("admin.evacuating") : `⚠ ${t("admin.evacuate")}`}
           </button>
         )}
       </td>

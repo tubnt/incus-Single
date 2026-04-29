@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -198,7 +199,14 @@ func UserFromEmail(userLookup func(ctx context.Context, email string) (int64, st
 
 			userID, role, err := userLookup(r.Context(), email)
 			if err != nil {
-				slog.Error("user lookup failed", "email", email, "error", err)
+				// 客户端取消（关闭浏览器/超时/导航离开）会让 DB query 返回 context canceled。
+				// 这不是真错误，记 DEBUG 即可，不要打 ERROR 噪音；此时 client 已断开，
+				// 写不写 response 不重要，但保持原 500 兜底以防代码路径被 unit test 触发。
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					slog.Debug("user lookup aborted by client", "email", email, "error", err)
+				} else {
+					slog.Error("user lookup failed", "email", email, "error", err)
+				}
 				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 				return
 			}

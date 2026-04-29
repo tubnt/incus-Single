@@ -133,14 +133,24 @@ function ProductRow({ product, onEdit }: { product: Product; onEdit: () => void 
           <button
             onClick={() => toggleMutation.mutate({ active: !product.active })}
             disabled={toggleMutation.isPending}
+            aria-label={
+              product.active
+                ? `Deactivate product ${product.slug}`
+                : `Activate product ${product.slug}`
+            }
+            data-testid={
+              product.active
+                ? `deactivate-product-${product.slug}`
+                : `activate-product-${product.slug}`
+            }
             className={`px-2 py-1 text-xs rounded border ${
               product.active
-                ? "border-destructive/30 text-destructive hover:bg-destructive/10"
+                ? "border-destructive text-destructive hover:bg-destructive/10"
                 : "border-success/30 text-success hover:bg-success/10"
             }`}
           >
             {product.active
-              ? t("admin.products.deactivate", "下架")
+              ? `⚠ ${t("admin.products.deactivate", "下架")}`
               : t("admin.products.activate", "上架")}
           </button>
         </div>
