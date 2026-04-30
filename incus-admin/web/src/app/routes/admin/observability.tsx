@@ -51,7 +51,7 @@ function ObservabilityPage() {
             <Card key={d.id}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-[590]">{d.label}</h3>
+                  <h3 className="font-strong">{d.label}</h3>
                   <div className="flex gap-2">
                     {d.embeddable ? (
                       <Button
@@ -68,7 +68,7 @@ function ObservabilityPage() {
                       href={d.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 h-7 rounded-md px-2.5 text-xs font-[510] bg-surface-2 text-text-tertiary hover:bg-surface-3 transition-colors"
+                      className="inline-flex items-center gap-1.5 h-7 rounded-md px-2.5 text-xs font-emphasis bg-surface-2 text-text-tertiary hover:bg-surface-3 transition-colors"
                     >
                       <ExternalLink size={12} aria-hidden="true" />
                       {t("admin.observability.open")}
@@ -99,7 +99,7 @@ function ObservabilityPage() {
 
         <Alert variant="info">
           <AlertDescription>
-            <span className="font-[590]">
+            <span className="font-strong">
               {t("admin.observability.accessNoteTitle")}
             </span>
             <br />

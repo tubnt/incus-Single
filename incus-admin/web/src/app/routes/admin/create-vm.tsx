@@ -86,7 +86,7 @@ function CreateVMPage() {
         {result ? (
           <Card className="border-status-success/30 bg-status-success/8">
             <CardContent className="p-4 space-y-3">
-              <div className="font-[590] text-sm text-status-success">
+              <div className="font-strong text-sm text-status-success">
                 {t("admin.vmCreated", { defaultValue: "VM 创建成功" })}
               </div>
               <div className="space-y-2">
@@ -161,7 +161,7 @@ function CreateVMPage() {
                             className="absolute top-1.5 right-1.5 text-accent"
                           />
                         ) : null}
-                        <div className="font-[510] text-sm">{p.label}</div>
+                        <div className="font-emphasis text-sm">{p.label}</div>
                         <div className="text-caption text-text-tertiary mt-1">
                           {p.cpu}C / {(p.memory_mb / 1024).toFixed(0)}G / {p.disk_gb}G
                         </div>
@@ -268,7 +268,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-4 py-1.5 border-b border-border last:border-b-0">
       <span className="text-text-tertiary">{label}</span>
-      <span className="font-[510] text-right truncate">{value}</span>
+      <span className="font-emphasis text-right truncate">{value}</span>
     </div>
   );
 }

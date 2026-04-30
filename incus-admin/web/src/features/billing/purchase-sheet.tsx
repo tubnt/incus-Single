@@ -196,7 +196,7 @@ function SpecRow({ product }: { product: Product }) {
       {cells.map((c) => (
         <div key={c.label}>
           <div className="text-caption text-text-tertiary">{c.label}</div>
-          <div className="font-[510] tabular-nums">{c.value}</div>
+          <div className="font-emphasis tabular-nums">{c.value}</div>
         </div>
       ))}
     </div>

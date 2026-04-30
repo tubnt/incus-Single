@@ -40,7 +40,7 @@ export function DialogContent({
         className={cn(
           "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
           "rounded-xl border border-border bg-surface-elevated",
-          "p-6 shadow-[var(--shadow-dialog)] outline-none",
+          "p-6 shadow-dialog outline-none",
           "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
           "data-[starting-style]:scale-95 data-[ending-style]:scale-95",
           "transition-all duration-150",
@@ -79,7 +79,7 @@ export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElem
 export function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseDialog.Title
-      className={cn("text-h3 font-[590] text-foreground", className)}
+      className={cn("text-h3 font-strong text-foreground", className)}
       {...props}
     />
   );

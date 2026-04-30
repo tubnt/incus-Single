@@ -21,7 +21,7 @@ export function TabsTrigger({ className, ...props }: ComponentProps<typeof BaseT
     <BaseTabs.Tab
       className={cn(
         "relative -mb-px inline-flex items-center gap-2 px-3 py-2",
-        "text-sm font-[510] text-muted-foreground",
+        "text-sm font-emphasis text-muted-foreground",
         "border-b-2 border-transparent transition-colors",
         "hover:text-foreground",
         "data-[selected]:text-foreground data-[selected]:border-[color:var(--accent)]",

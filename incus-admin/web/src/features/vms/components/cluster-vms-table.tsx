@@ -161,7 +161,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
               cluster: clusterName,
               project: row.original.project ?? "customers",
             } as any}
-            className="font-mono font-[510] text-foreground hover:text-accent transition-colors"
+            className="font-mono font-emphasis text-foreground hover:text-accent transition-colors"
           >
             {row.original.name}
           </Link>
@@ -222,7 +222,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
   return (
     <section className="flex flex-col gap-3">
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-h3 font-[590] text-foreground">
+        <h2 className="text-h3 font-strong text-foreground">
           {displayName}
         </h2>
         <span className="text-caption text-text-tertiary">
@@ -253,7 +253,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
           data={vms}
           isLoading={isLoading}
           getRowId={(row) => row.name}
-          tableId="admin.cluster-vms"
+          tableId={`admin.cluster-vms.${clusterName}`}
           enableRowSelection
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}

@@ -70,4 +70,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-017 Firewall ingress/egress 双向规则**](OPS-017.md) `P2`
 - [x] [**OPS-018 Floating IP portal attach/detach + Admin VM firewall bind**](OPS-018.md) `P2`
 - [x] [**OPS-019 杂项打磨：lint / i18n / stateful / Bug#4 / log / audit**](OPS-019.md) `P3`
-- [ ] [**OPS-020 前端 arbitrary value 全量替换为 @theme utility 直引**](OPS-020.md) `P3`
+- [x] [**OPS-020 前端 arbitrary value 全量替换为 @theme utility 直引**](OPS-020.md) `P3`

@@ -51,7 +51,7 @@ export function SelectContent({
           className={cn(
             "z-50 max-h-[--available-height] min-w-[var(--anchor-width)]",
             "rounded-lg border border-border bg-surface-elevated p-1",
-            "shadow-[var(--shadow-dialog)] outline-none",
+            "shadow-dialog outline-none",
             "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
             "data-[starting-style]:scale-95 data-[ending-style]:scale-95",
             "transition-all duration-100",
@@ -94,7 +94,7 @@ export function SelectGroupLabel({
 }: ComponentProps<typeof BaseSelect.GroupLabel>) {
   return (
     <BaseSelect.GroupLabel
-      className={cn("px-2 py-1.5 text-label font-[510] text-text-tertiary", className)}
+      className={cn("px-2 py-1.5 text-label font-emphasis text-text-tertiary", className)}
       {...props}
     />
   );

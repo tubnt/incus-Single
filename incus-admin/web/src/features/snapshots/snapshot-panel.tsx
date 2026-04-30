@@ -63,7 +63,7 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm font-[510] flex items-center gap-1.5">
+        <h4 className="text-sm font-emphasis flex items-center gap-1.5">
           <Camera size={14} aria-hidden="true" />
           {t("snapshot.title", { defaultValue: "快照" })} ({snapshots.length})
         </h4>

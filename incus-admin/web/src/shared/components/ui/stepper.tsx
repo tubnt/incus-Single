@@ -60,13 +60,13 @@ export function Stepper({
                 "group inline-flex items-center gap-2 rounded-md px-2 py-1.5",
                 "text-sm transition-colors",
                 interactive ? "cursor-pointer hover:bg-surface-2" : "cursor-default",
-                isActive ? "text-foreground font-[510]" : "text-text-tertiary",
+                isActive ? "text-foreground font-emphasis" : "text-text-tertiary",
               )}
             >
               <span
                 className={cn(
                   "inline-flex size-6 items-center justify-center rounded-full",
-                  "text-label font-[510] shrink-0",
+                  "text-label font-emphasis shrink-0",
                   isDone && "bg-status-success text-text-primary",
                   isActive && !isDone && "bg-primary text-primary-foreground",
                   !isActive && !isDone && "border border-border bg-surface-1 text-text-tertiary",

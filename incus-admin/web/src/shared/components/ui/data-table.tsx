@@ -7,7 +7,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -123,13 +123,28 @@ export function DataTable<TData>({
 }: DataTableProps<TData>) {
   const { t } = useTranslation();
 
-  // 列宽状态（仅 tableId 提供时启用持久化；否则纯 in-memory，组件销毁丢失）
+  // 列宽状态（仅 tableId 提供时启用持久化；否则纯 in-memory，组件销毁丢失）。
+  // columnResizeMode='onChange' 在每帧 mousemove 都更新 colSizing，因此 LS 写入必须节流，
+  // 否则拖拽期间会同步 IO 阻塞主线程（每秒 60+ 次 stringify + setItem）。
   const [colSizing, setColSizing] = useState<ColumnSizingState>(() =>
     tableId ? loadColSizing(tableId) : {},
   );
+  const persistTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!tableId) return;
-    saveColSizing(tableId, colSizing);
+    if (persistTimerRef.current != null) window.clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = window.setTimeout(() => {
+      saveColSizing(tableId, colSizing);
+      persistTimerRef.current = null;
+    }, 300);
+    return () => {
+      if (persistTimerRef.current != null) {
+        window.clearTimeout(persistTimerRef.current);
+        // 卸载前 flush 一次，避免拖拽中切页丢失最后一次调整
+        saveColSizing(tableId, colSizing);
+        persistTimerRef.current = null;
+      }
+    };
   }, [tableId, colSizing]);
 
   const table = useReactTable({

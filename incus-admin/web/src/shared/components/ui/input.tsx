@@ -15,7 +15,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
         "transition-colors",
         "focus:outline-none focus:border-[color:var(--accent)]",
         "disabled:opacity-50 disabled:cursor-not-allowed",
-        "file:border-0 file:bg-transparent file:text-sm file:font-[510] file:text-foreground",
+        "file:border-0 file:bg-transparent file:text-sm file:font-emphasis file:text-foreground",
         className,
       )}
       {...props}

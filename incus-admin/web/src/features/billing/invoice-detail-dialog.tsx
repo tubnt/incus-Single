@@ -24,14 +24,14 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
         <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,32rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-lg p-5 outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:scale-95 transition-all">
-          <Dialog.Title className="text-base font-[590] text-foreground">
+          <Dialog.Title className="text-base font-strong text-foreground">
             {t("invoice.detailTitle", { defaultValue: "发票详情" })} #{invoice?.id ?? ""}
           </Dialog.Title>
 
           {invoice ? (
             <div className="mt-4 space-y-4 text-sm">
               <section>
-                <h3 className="font-[510] mb-2">{t("invoice.sectionInvoice", { defaultValue: "发票信息" })}</h3>
+                <h3 className="font-emphasis mb-2">{t("invoice.sectionInvoice", { defaultValue: "发票信息" })}</h3>
                 <Row label={t("billing.amount")} value={formatCurrency(invoice.amount, invoice.currency)} mono />
                 <Row label={t("billing.status")} value={invoice.status} />
                 <Row
@@ -41,7 +41,7 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
               </section>
 
               <section>
-                <h3 className="font-[510] mb-2">{t("invoice.sectionOrder", { defaultValue: "关联订单" })}</h3>
+                <h3 className="font-emphasis mb-2">{t("invoice.sectionOrder", { defaultValue: "关联订单" })}</h3>
                 {order ? (
                   <>
                     <Row label="#" value={String(order.id)} mono />
@@ -58,7 +58,7 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
               </section>
 
               <section>
-                <h3 className="font-[510] mb-2">{t("invoice.sectionProduct", { defaultValue: "产品规格" })}</h3>
+                <h3 className="font-emphasis mb-2">{t("invoice.sectionProduct", { defaultValue: "产品规格" })}</h3>
                 {product ? (
                   <>
                     <Row label={t("product.name", { defaultValue: "名称" })} value={product.name} />
@@ -83,7 +83,7 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded text-sm font-[510] bg-primary text-primary-foreground hover:opacity-90"
+              className="px-3 py-1.5 rounded text-sm font-emphasis bg-primary text-primary-foreground hover:opacity-90"
               autoFocus
             >
               {t("common.close", { defaultValue: "关闭" })}

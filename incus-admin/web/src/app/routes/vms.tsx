@@ -49,7 +49,9 @@ function MyVMs() {
 
   const [sheetKind, setSheetKind] = useState<SheetKind>(null);
   const [sheetVM, setSheetVM] = useState<VMService | null>(null);
-  const [hlIdx, setHlIdx] = useState<number>(-1);
+  // 高亮锁定到 VM ID，避免 useMyVMsQuery 后台 refetch 重排数组时
+  // 数字索引指到不同 VM 的 race（用户按 Enter 跳错详情）
+  const [hlVmId, setHlVmId] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const closeSheet = () => setSheetKind(null);
@@ -66,32 +68,36 @@ function MyVMs() {
         if (target.isContentEditable) return;
         if (target.closest("[role='dialog'], [cmdk-input]")) return;
       }
+      const curIdx =
+        hlVmId != null ? services.findIndex((v) => v.id === hlVmId) : -1;
       if (e.key === "j") {
         e.preventDefault();
-        setHlIdx((i) => Math.min(services.length - 1, (i < 0 ? -1 : i) + 1));
+        const next = Math.min(services.length - 1, (curIdx < 0 ? -1 : curIdx) + 1);
+        setHlVmId(services[next]?.id ?? null);
       } else if (e.key === "k") {
         e.preventDefault();
-        setHlIdx((i) => Math.max(0, (i < 0 ? services.length : i) - 1));
-      } else if (e.key === "Enter" && hlIdx >= 0 && hlIdx < services.length) {
+        const next = Math.max(0, (curIdx < 0 ? services.length : curIdx) - 1);
+        setHlVmId(services[next]?.id ?? null);
+      } else if (e.key === "Enter" && hlVmId != null) {
         e.preventDefault();
-        navigate({ to: "/vm-detail", search: { id: services[hlIdx]!.id } as any });
+        navigate({ to: "/vm-detail", search: { id: hlVmId } as any });
       } else if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
         navigate({ to: "/billing" });
       } else if (e.key === "Escape") {
-        setHlIdx(-1);
+        setHlVmId(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [services, hlIdx, navigate]);
+  }, [services, hlVmId, navigate]);
 
   // 焦点滚动跟踪
   useEffect(() => {
-    if (hlIdx < 0) return;
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-vm-row='${hlIdx}']`);
+    if (hlVmId == null) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-vm-id='${hlVmId}']`);
     el?.scrollIntoView({ block: "nearest" });
-  }, [hlIdx]);
+  }, [hlVmId]);
 
   useCommandActions(
     () => [
@@ -139,12 +145,11 @@ function MyVMs() {
           />
         ) : (
           <div className="flex flex-col gap-1.5" ref={listRef}>
-            {services.map((vm, idx) => (
+            {services.map((vm) => (
               <VMCard
                 key={vm.id}
                 vm={vm}
-                index={idx}
-                highlighted={idx === hlIdx}
+                highlighted={vm.id === hlVmId}
                 onOpenSheet={(kind) => {
                   setSheetVM(vm);
                   setSheetKind(kind);
@@ -205,12 +210,10 @@ function MyVMs() {
 
 function VMCard({
   vm,
-  index,
   highlighted,
   onOpenSheet,
 }: {
   vm: VMService;
-  index: number;
   highlighted: boolean;
   onOpenSheet: (k: NonNullable<SheetKind>) => void;
 }) {
@@ -237,7 +240,7 @@ function VMCard({
    */
   return (
     <Card
-      data-vm-row={index}
+      data-vm-id={vm.id}
       className={cn(
         "group/vm hover:bg-surface-secondary/40 transition-colors",
         // Linear 风键盘高亮：左侧 2px accent indicator + 轻底色
@@ -250,7 +253,7 @@ function VMCard({
           <Link
             to="/vm-detail"
             search={{ id: vm.id } as any}
-            className="text-body font-mono font-[590] text-foreground hover:text-accent transition-colors truncate"
+            className="text-body font-mono font-strong text-foreground hover:text-accent transition-colors truncate"
           >
             {vm.name}
           </Link>
@@ -290,7 +293,7 @@ function VMCard({
                 <button
                   type="button"
                   aria-label={t("vm.moreActions", { defaultValue: "更多操作" })}
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-[510] text-foreground hover:bg-surface-2 transition-colors"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs font-emphasis text-foreground hover:bg-surface-2 transition-colors"
                 >
                   <MoreHorizontal size={14} aria-hidden="true" />
                 </button>

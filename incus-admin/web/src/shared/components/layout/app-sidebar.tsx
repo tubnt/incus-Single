@@ -63,7 +63,7 @@ export function AppSidebar({
       {/* Logo + 折叠按钮 */}
       <div className="flex h-14 items-center justify-between px-3 border-b border-border">
         {showLabels ? (
-          <Link to="/" className="font-[590] text-base text-foreground tracking-tight">
+          <Link to="/" className="font-strong text-base text-foreground tracking-tight">
             IncusAdmin
           </Link>
         ) : null}
@@ -152,7 +152,7 @@ function NavLinkRow({ item, active, showLabels, onNavigate, inset }: NavLinkRowP
       onClick={onNavigate}
       title={!showLabels ? t(item.key) : undefined}
       className={cn(
-        "group relative flex items-center gap-2.5 mx-2 rounded-md text-sm font-[510] transition-colors",
+        "group relative flex items-center gap-2.5 mx-2 rounded-md text-sm font-emphasis transition-colors",
         inset ? "pl-6 pr-3 py-1" : "px-3 py-1",
         active
           ? "text-foreground bg-surface-2"

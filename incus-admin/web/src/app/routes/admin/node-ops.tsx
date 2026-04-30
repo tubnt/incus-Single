@@ -100,7 +100,7 @@ function NodeOpsPage() {
         {output && (
           <Card className="overflow-hidden">
             <div className="px-4 py-2 bg-surface-2/40 flex items-center justify-between border-b border-border">
-              <span className="text-sm font-[510]">{t("common.output")}</span>
+              <span className="text-sm font-emphasis">{t("common.output")}</span>
               <Button
                 variant="link"
                 size="sm"

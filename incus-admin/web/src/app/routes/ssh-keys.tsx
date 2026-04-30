@@ -182,7 +182,7 @@ function KeyCard({ sshKey }: { sshKey: SSHKey }) {
     <Card>
       <CardContent className="p-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="font-[510] truncate">{sshKey.name}</div>
+          <div className="font-emphasis truncate">{sshKey.name}</div>
           <div className="text-caption font-mono text-text-tertiary mt-1 truncate">
             {sshKey.fingerprint}
           </div>

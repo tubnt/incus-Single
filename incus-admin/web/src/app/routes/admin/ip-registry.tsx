@@ -62,13 +62,13 @@ function IPRegistryPage() {
             <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
               <thead className="bg-surface-1 border-b border-border">
                 <tr>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("admin.ipRegistry.ip", { defaultValue: "IP Address" })}
                   </th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">VM</th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("vm.status")}</th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("vm.node")}</th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">VM</th>
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("vm.status")}</th>
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("vm.node")}</th>
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("admin.ipRegistry.clusterProject", {
                       defaultValue: "Cluster / Project",
                     })}

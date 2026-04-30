@@ -289,7 +289,7 @@ function PriorityBadge({ priority }: { priority: string }) {
     low: "text-text-tertiary",
     normal: "text-foreground",
     high: "text-status-warning",
-    urgent: "text-status-error font-[590]",
+    urgent: "text-status-error font-strong",
   };
   return <span className={cn("text-caption", cls[priority] ?? "")}>{priority}</span>;
 }
@@ -314,7 +314,7 @@ function TicketRow({
           {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         </TableCell>
         <TableCell>{tk.id}</TableCell>
-        <TableCell className="font-[510] text-foreground">{tk.subject}</TableCell>
+        <TableCell className="font-emphasis text-foreground">{tk.subject}</TableCell>
         <TableCell>
           <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>
         </TableCell>
@@ -389,7 +389,7 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
             )}
           >
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-caption font-[510]">
+              <span className="text-caption font-emphasis">
                 {m.is_staff
                   ? t("ticket.staff", { defaultValue: "客服" })
                   : t("ticket.me", { defaultValue: "我" })}

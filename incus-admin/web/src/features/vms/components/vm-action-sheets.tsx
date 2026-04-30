@@ -167,7 +167,7 @@ function ReinstallForm({
         })}
       </div>
       <div className="space-y-1.5">
-        <label className="text-sm font-[510] text-foreground">
+        <label className="text-sm font-emphasis text-foreground">
           {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
         </label>
         <TemplatePicker

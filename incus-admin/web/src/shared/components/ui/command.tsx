@@ -73,7 +73,7 @@ export function CommandGroup({
       className={cn(
         "overflow-hidden p-1 text-foreground",
         "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5",
-        "[&_[cmdk-group-heading]]:text-label [&_[cmdk-group-heading]]:font-[510]",
+        "[&_[cmdk-group-heading]]:text-label [&_[cmdk-group-heading]]:font-emphasis",
         "[&_[cmdk-group-heading]]:text-text-tertiary",
         className,
       )}

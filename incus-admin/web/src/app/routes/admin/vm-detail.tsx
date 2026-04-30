@@ -386,7 +386,7 @@ function VMDetailPage() {
           </SheetHeader>
           <SheetBody className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-[510]">
+              <label className="text-sm font-emphasis">
                 {t("admin.targetNode", { defaultValue: "目标节点" })}
               </label>
               <NodePicker
@@ -427,7 +427,7 @@ function VMDetailPage() {
               <AlertDescription>{t("vm.reinstallWarning")}</AlertDescription>
             </Alert>
             <div className="space-y-1.5">
-              <label className="text-sm font-[510]">
+              <label className="text-sm font-emphasis">
                 {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
               </label>
               <TemplatePicker
@@ -466,7 +466,7 @@ function VMDetailPage() {
               })}
             </p>
             <div className="space-y-1.5">
-              <label className="text-sm font-[510]">
+              <label className="text-sm font-emphasis">
                 {t("vm.resetPwdMode", { defaultValue: "模式" })}
               </label>
               <Select value={resetPwdMode} onValueChange={(v) => setResetPwdMode(String(v) as ResetPasswordMode)}>

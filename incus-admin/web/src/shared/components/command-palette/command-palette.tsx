@@ -122,7 +122,7 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
           className={cn(
             "fixed left-1/2 top-[20%] z-50 -translate-x-1/2",
             "w-[min(92vw,40rem)] rounded-xl border border-border bg-surface-elevated",
-            "shadow-[var(--shadow-dialog)] outline-none overflow-hidden",
+            "shadow-dialog outline-none overflow-hidden",
             "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
             "data-[starting-style]:scale-95 data-[ending-style]:scale-95",
             "transition-all duration-150",

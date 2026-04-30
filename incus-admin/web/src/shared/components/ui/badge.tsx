@@ -10,7 +10,7 @@ import { cn } from "@/shared/lib/utils";
 const badgeVariants = cva(
   cn(
     "inline-flex items-center gap-1 rounded-pill border",
-    "text-label font-[510] tracking-tight whitespace-nowrap",
+    "text-label font-emphasis tracking-tight whitespace-nowrap",
     "px-2.5 py-0.5",
   ),
   {

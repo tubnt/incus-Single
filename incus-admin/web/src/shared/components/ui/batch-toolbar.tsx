@@ -50,7 +50,7 @@ export function BatchToolbar({
         "flex flex-wrap items-center gap-2",
         // Linear 浮层视觉：xl 圆角 + 半透明 elevated + 模糊背景 + 浮层阴影
         "rounded-xl border border-border bg-surface-elevated/95 backdrop-blur-md",
-        "shadow-[var(--shadow-floating)] px-3 py-2",
+        "shadow-floating px-3 py-2",
         // 进入动画
         "animate-in fade-in slide-in-from-bottom-2 duration-150",
         // 在小屏上略缩窄两侧 padding，并让按钮组允许换行
@@ -66,7 +66,7 @@ export function BatchToolbar({
       >
         <X size={14} aria-hidden="true" />
       </Button>
-      <span className="text-sm font-[510] text-foreground">
+      <span className="text-sm font-emphasis text-foreground">
         {t("batchToolbar.selected", {
           defaultValue: "已选 {{count}} 项",
           count,

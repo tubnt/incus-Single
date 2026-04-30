@@ -1,5 +1,23 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [feat+refactor]
+
+PLAN-024 代码审查（pma-cr）跟进修复 + OPS-020 arbitrary value 全量替换为 `@theme` utility 直引。
+
+**pma-cr 修复**（3 个 HIGH/MEDIUM）：
+- **HIGH** `data-table.tsx`：列宽 `columnResizeMode='onChange'` 在每帧 mousemove 都更新 colSizing，`useEffect` 同步写 localStorage 会高频 IO 阻塞主线程。改为 300ms debounce + 卸载前 flush 一次（保留拖拽实时跟手 + LS 写节流）
+- **MEDIUM** `cluster-vms-table.tsx`：`tableId="admin.cluster-vms"` 在多 cluster 渲染时多 instance 共享同一 LS key（用户在 cluster A 改宽度，cluster B 视觉不同步）。改为 `admin.cluster-vms.${clusterName}` 每 cluster 独立列宽
+- **MEDIUM** 用户端 `vms.tsx`：j/k 键盘高亮用数字索引 `hlIdx`，`useMyVMsQuery` 后台 refetch 重排数组期间按 Enter 会跳到错位 VM。改用 `hlVmId: number | null`（按 VM ID 锁定），渲染时 `findIndex(v => v.id === hlVmId)` 还原行号
+
+**OPS-020 全量替换**（~180 处，~60 文件）：
+- `shadow-[var(--shadow-X)]` → `shadow-X`（dialog/floating/ring/elevated/inset）
+- `font-[510]` → `font-emphasis`、`font-[590]` → `font-strong`
+- `hover:bg-[color:var(--accent-hover)]` → `hover:bg-accent-hover`（先在 `@theme inline` 暴露 `--color-accent-hover: var(--accent-hover)`）
+
+**验证**：typecheck 0 / vitest 37/37 / build OK / CSS 中 `.shadow-{floating,dialog,ring}` `.font-{emphasis,strong}` `.hover\:bg-accent-hover` 全部按 token 正确生成。
+
+---
+
 ## 2026-04-30 [docs+sync]
 
 PLAN-022 / PLAN-023 / PLAN-024 git 同步收口 —— 把已部署到生产 sha `27b7fd8ed180`

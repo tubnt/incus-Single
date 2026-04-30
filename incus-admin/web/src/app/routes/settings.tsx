@@ -36,7 +36,7 @@ function SettingsPage() {
                   type="button"
                   onClick={() => i18n.changeLanguage(lang.code)}
                   className={cn(
-                    "h-9 px-4 rounded-md text-sm font-[510] border transition-colors",
+                    "h-9 px-4 rounded-md text-sm font-emphasis border transition-colors",
                     i18n.language === lang.code
                       ? "border-primary bg-primary/10 text-foreground"
                       : "border-border bg-surface-1 hover:bg-surface-2 text-foreground",
@@ -63,7 +63,7 @@ function SettingsPage() {
                   type="button"
                   onClick={() => setTheme(opt.value)}
                   className={cn(
-                    "h-9 px-4 rounded-md text-sm font-[510] border transition-colors",
+                    "h-9 px-4 rounded-md text-sm font-emphasis border transition-colors",
                     theme === opt.value
                       ? "border-primary bg-primary/10 text-foreground"
                       : "border-border bg-surface-1 hover:bg-surface-2 text-foreground",

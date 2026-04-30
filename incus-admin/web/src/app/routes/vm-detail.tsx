@@ -332,7 +332,7 @@ function UserVMDetailPage() {
               <AlertDescription>{t("vm.reinstallWarning")}</AlertDescription>
             </Alert>
             <div className="space-y-1.5">
-              <label className="text-sm font-[510]">
+              <label className="text-sm font-emphasis">
                 {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
               </label>
               <TemplatePicker
@@ -368,7 +368,7 @@ function UserVMDetailPage() {
               })}
             </p>
             <div className="space-y-1.5">
-              <label className="text-sm font-[510]">
+              <label className="text-sm font-emphasis">
                 {t("vm.resetPwdMode", { defaultValue: "模式" })}
               </label>
               <Select value={resetPwdMode} onValueChange={(v) => setResetPwdMode(String(v) as ResetPasswordMode)}>
@@ -402,7 +402,7 @@ function InfoCard({ label, value, mono }: { label: string; value: string; mono?:
     <Card>
       <CardContent className="p-3">
         <div className="text-caption text-text-tertiary">{label}</div>
-        <div className={cn("text-sm font-[510] mt-0.5", mono && "font-mono")}>{value}</div>
+        <div className={cn("text-sm font-emphasis mt-0.5", mono && "font-mono")}>{value}</div>
       </CardContent>
     </Card>
   );
@@ -444,7 +444,7 @@ function PortalFirewallPanel({ vmID }: { vmID: number }) {
   return (
     <div className="space-y-4">
       <section className="space-y-2">
-        <h3 className="text-sm font-[510]">
+        <h3 className="text-sm font-emphasis">
           {t("vm.firewall.bound", { defaultValue: "已绑定的防火墙组" })}
         </h3>
         {boundGroups.length === 0 ? (
@@ -474,7 +474,7 @@ function PortalFirewallPanel({ vmID }: { vmID: number }) {
       </section>
 
       <section className="space-y-2">
-        <h3 className="text-sm font-[510]">
+        <h3 className="text-sm font-emphasis">
           {t("vm.firewall.available", { defaultValue: "可绑定的防火墙组" })}
         </h3>
         {availableGroups.length === 0 ? (
@@ -530,7 +530,7 @@ function FirewallGroupRow({
     <Card>
       <CardContent className="p-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-[510] text-sm">{g.name}</div>
+          <div className="font-emphasis text-sm">{g.name}</div>
           <div className="text-caption text-text-tertiary font-mono">{g.slug}</div>
           {g.description ? (
             <div className="text-caption text-text-tertiary mt-0.5">{g.description}</div>

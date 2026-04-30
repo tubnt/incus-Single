@@ -92,7 +92,7 @@ function APITokensPage() {
         {revealedToken ? (
           <Card className="border-status-success/30 bg-status-success/8">
             <CardContent className="p-4 space-y-3">
-              <div className="font-[510] text-sm">
+              <div className="font-emphasis text-sm">
                 {t("apiToken.createdSaveNow", {
                   defaultValue: "Token 创建成功！请立即保存，此后不再显示。",
                 })}
@@ -265,7 +265,7 @@ function TokenCard({
     <Card>
       <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="font-[510] truncate">{token.name}</div>
+          <div className="font-emphasis truncate">{token.name}</div>
           <div className="text-caption text-text-tertiary mt-1">
             {t("apiToken.createdAt", { defaultValue: "创建于" })}{" "}
             {new Date(token.created_at).toLocaleDateString()}

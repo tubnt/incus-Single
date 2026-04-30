@@ -94,7 +94,7 @@ export function StatusPill({
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-pill border",
-        "px-2.5 py-0.5 text-label font-[510] tracking-tight whitespace-nowrap",
+        "px-2.5 py-0.5 text-label font-emphasis tracking-tight whitespace-nowrap",
         tone[status],
         className,
       )}

@@ -78,7 +78,7 @@ export function AppHeader({
       {shadowMode ? (
         <div className="flex flex-1 items-center gap-2 min-w-0">
           <UserX size={16} className="shrink-0" aria-hidden="true" />
-          <span className="text-sm font-[510] truncate">
+          <span className="text-sm font-emphasis truncate">
             {t("shadow.bannerPrefix", { defaultValue: "正以用户身份操作" })}: {actingAs.target_email}
           </span>
           <span className="hidden md:inline text-caption opacity-80 truncate">
@@ -88,7 +88,7 @@ export function AppHeader({
           <form method="POST" action="/shadow/exit" className="ml-auto">
             <button
               type="submit"
-              className="px-3 py-1 text-caption bg-white/20 hover:bg-white/30 rounded-md font-[510]"
+              className="px-3 py-1 text-caption bg-white/20 hover:bg-white/30 rounded-md font-emphasis"
             >
               {t("shadow.exit", { defaultValue: "退出 Shadow" })}
             </button>

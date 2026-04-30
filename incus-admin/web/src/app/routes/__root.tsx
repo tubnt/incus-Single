@@ -26,7 +26,7 @@ function isWorkspacePath(pathname: string): boolean {
 function NotFound() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
-      <div className="text-display font-[510] text-text-tertiary">404</div>
+      <div className="text-display font-emphasis text-text-tertiary">404</div>
       <p className="text-muted-foreground">页面不存在</p>
       <a href="/" className={cn(buttonVariants({ variant: "primary" }))}>回到首页</a>
     </div>
@@ -59,7 +59,7 @@ function RootLayout() {
   if (isError || !user) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
-        <h1 className="text-h1 font-[510]">IncusAdmin</h1>
+        <h1 className="text-h1 font-emphasis">IncusAdmin</h1>
         <p className="text-muted-foreground">请登录以继续</p>
         <a
           href="/oauth2/start?rd=/"
@@ -80,7 +80,7 @@ function RootLayout() {
         theme="system"
         toastOptions={{
           classNames: {
-            toast: "border border-border bg-surface-elevated text-foreground shadow-[var(--shadow-dialog)]",
+            toast: "border border-border bg-surface-elevated text-foreground shadow-dialog",
           },
         }}
       />

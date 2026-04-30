@@ -39,7 +39,7 @@ export function Breadcrumb({ items, className }: BreadcrumbProps) {
                 {item.label}
               </Link>
             ) : (
-              <span className={cn(last && "text-foreground font-[510]")}>
+              <span className={cn(last && "text-foreground font-emphasis")}>
                 {item.label}
               </span>
             )}

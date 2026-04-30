@@ -115,10 +115,10 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
         <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
           <thead className="border-b border-border">
             <tr>
-              <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Node</th>
-              <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Status</th>
-              <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Message</th>
-              <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">Actions</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Node</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Status</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Message</th>
+              <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -141,10 +141,10 @@ function StatBlock({ label, children }: { label: string; children: React.ReactNo
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="text-caption text-text-tertiary uppercase tracking-wide font-[510]">
+        <div className="text-caption text-text-tertiary uppercase tracking-wide font-emphasis">
           {label}
         </div>
-        <div className="text-h3 font-[510] mt-1 tabular-nums">
+        <div className="text-h3 font-emphasis mt-1 tabular-nums">
           {children}
         </div>
       </CardContent>
@@ -294,15 +294,15 @@ function HistoryPanel({
         <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
           <thead className="bg-surface-1 border-b border-border">
             <tr>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colTime")}</th>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colCluster")}</th>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colNode")}</th>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colTrigger")}</th>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colActor")}</th>
-              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colVMCount")}</th>
-              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colStatus")}</th>
-              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colDuration")}</th>
-              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary"></th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colTime")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colCluster")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colNode")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colTrigger")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colActor")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colVMCount")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colStatus")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colDuration")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary"></th>
             </tr>
           </thead>
           <tbody>
@@ -463,8 +463,8 @@ function EventDetailDialog({
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-elevated border border-border rounded-xl shadow-[var(--shadow-dialog)] p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-          <Dialog.Title className="text-h3 font-[590] mb-4">
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-elevated border border-border rounded-xl shadow-dialog p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
+          <Dialog.Title className="text-h3 font-strong mb-4">
             {t("ha.detailTitle", { id })}
           </Dialog.Title>
           {isLoading && <Skeleton className="h-32" />}
@@ -490,12 +490,12 @@ function EventDetailDialog({
               </div>
               {event.error && (
                 <div className="rounded-md border border-status-error/30 bg-status-error/8 p-3 text-sm">
-                  <div className="font-[590] text-status-error mb-1">{t("ha.errorHeading")}</div>
+                  <div className="font-strong text-status-error mb-1">{t("ha.errorHeading")}</div>
                   <code className="text-caption break-all">{event.error}</code>
                 </div>
               )}
               <div>
-                <div className="text-sm font-[510] mb-2">
+                <div className="text-sm font-emphasis mb-2">
                   {t("ha.evacuatedVMsHeading")} ({event.evacuated_vms?.length ?? 0})
                 </div>
                 {(event.evacuated_vms?.length ?? 0) === 0 ? (
@@ -505,10 +505,10 @@ function EventDetailDialog({
                     <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
                       <thead className="bg-surface-1 border-b border-border">
                         <tr>
-                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">ID</th>
-                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmName")}</th>
-                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmFrom")}</th>
-                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmTo")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">ID</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmName")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmFrom")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmTo")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -528,7 +528,7 @@ function EventDetailDialog({
             </div>
           )}
           <div className="flex justify-end mt-6">
-            <Dialog.Close className={cn("px-4 h-9 rounded-md text-sm font-[510] bg-surface-1 border border-border hover:bg-surface-2 transition-colors")}>
+            <Dialog.Close className={cn("px-4 h-9 rounded-md text-sm font-emphasis bg-surface-1 border border-border hover:bg-surface-2 transition-colors")}>
               {t("common.close")}
             </Dialog.Close>
           </div>

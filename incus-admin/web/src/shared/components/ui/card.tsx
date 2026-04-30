@@ -17,7 +17,7 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
         //   shadow = ring L3 (0,0,0,0.2 inset 1px) 增强边界，避免卡片边界
         //   在近黑底上"塌陷"
         "rounded-lg border border-border bg-surface-3 text-card-foreground",
-        "shadow-[var(--shadow-ring)]",
+        "shadow-ring",
         className,
       )}
       {...props}
@@ -38,7 +38,7 @@ export const CardTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "text-h3 font-[590] text-foreground",
+        "text-h3 font-strong text-foreground",
         className,
       )}
       {...props}

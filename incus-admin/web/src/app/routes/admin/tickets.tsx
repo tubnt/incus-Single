@@ -117,7 +117,7 @@ function TicketRow({ ticket: tk, isOpen, onToggle }: { ticket: Ticket; isOpen: b
       <TableRow>
         <TableCell>{tk.id}</TableCell>
         <TableCell className="text-xs">{tk.user_id}</TableCell>
-        <TableCell className="font-[510]">{tk.subject}</TableCell>
+        <TableCell className="font-emphasis">{tk.subject}</TableCell>
         <TableCell>
           <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>
         </TableCell>
@@ -169,7 +169,7 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
             )}
           >
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-[510]">
+              <span className="text-xs font-emphasis">
                 {m.is_staff
                   ? t("ticket.staff", { defaultValue: "客服" })
                   : `${t("admin.user", { defaultValue: "用户" })} #${m.user_id}`}

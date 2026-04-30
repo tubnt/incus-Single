@@ -189,7 +189,7 @@ function ProductRow({
   return (
     <TableRow>
       <TableCell>
-        <div className="font-[510]">{product.name}</div>
+        <div className="font-emphasis">{product.name}</div>
         <div className="text-xs text-muted-foreground">{product.slug}</div>
       </TableCell>
       <TableCell className="text-muted-foreground">

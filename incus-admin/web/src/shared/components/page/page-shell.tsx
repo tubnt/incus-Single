@@ -42,7 +42,7 @@ export function PageHeader({
       {breadcrumbs && breadcrumbs.length > 0 ? <Breadcrumb items={breadcrumbs} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-h1 font-[510] text-foreground">
+          <h1 className="text-h1 font-emphasis text-foreground">
             {title}
           </h1>
           {description ? (

@@ -181,17 +181,17 @@ function FloatingIPsPage() {
                       aria-label={t("dataTable.selectAll", { defaultValue: "全选" })}
                     />
                   </th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">IP</th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">IP</th>
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("admin.floatingIPs.status", { defaultValue: "状态" })}
                   </th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("admin.floatingIPs.boundVM", { defaultValue: "绑定 VM" })}
                   </th>
-                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("admin.floatingIPs.description", { defaultValue: "说明" })}
                   </th>
-                  <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">
+                  <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">
                     {t("common.actions", { defaultValue: "操作" })}
                   </th>
                 </tr>

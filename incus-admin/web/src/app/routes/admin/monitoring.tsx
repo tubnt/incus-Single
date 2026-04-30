@@ -137,10 +137,10 @@ function SummaryCards({ vms }: { vms: VMMetric[] }) {
       {cards.map((c) => (
         <Card key={c.label}>
           <CardContent className="p-4">
-            <div className="text-caption font-[510] text-text-tertiary uppercase tracking-wide mb-1">
+            <div className="text-caption font-emphasis text-text-tertiary uppercase tracking-wide mb-1">
               {c.label}
             </div>
-            <div className="text-h3 font-[510] tabular-nums text-foreground">
+            <div className="text-h3 font-emphasis tabular-nums text-foreground">
               {c.value}
             </div>
           </CardContent>
@@ -305,7 +305,7 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
               type="button"
               onClick={() => setSort(s)}
               className={cn(
-                "px-2.5 h-7 rounded-md text-label font-[510] transition-colors",
+                "px-2.5 h-7 rounded-md text-label font-emphasis transition-colors",
                 sort === s
                   ? "bg-primary text-primary-foreground"
                   : "bg-surface-2 text-text-tertiary hover:bg-surface-3",
@@ -321,11 +321,11 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
           <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
             <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 font-[510] text-label text-text-tertiary">VM</th>
-                <th className="text-right px-4 py-2 font-[510] text-label text-text-tertiary">CPU</th>
-                <th className="text-right px-4 py-2 font-[510] text-label text-text-tertiary">{t("monitoring.sortMem")}</th>
-                <th className="text-right px-4 py-2 font-[510] text-label text-text-tertiary">{t("monitoring.sortDisk")}</th>
-                <th className="text-right px-4 py-2 font-[510] text-label text-text-tertiary">{t("monitoring.networkColumn")}</th>
+                <th className="text-left px-4 py-2 font-emphasis text-label text-text-tertiary">VM</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">CPU</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.sortMem")}</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.sortDisk")}</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.networkColumn")}</th>
               </tr>
             </thead>
             <tbody>
@@ -370,7 +370,7 @@ function UsageBadge({ pct }: { pct: number }) {
   return (
     <span
       className={cn(
-        "inline-block rounded-pill border px-1.5 py-0.5 text-label font-[510] tabular-nums",
+        "inline-block rounded-pill border px-1.5 py-0.5 text-label font-emphasis tabular-nums",
         tone,
       )}
     >

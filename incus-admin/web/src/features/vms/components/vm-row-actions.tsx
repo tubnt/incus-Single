@@ -153,8 +153,8 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
             from: "admin",
           } as any}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md h-7 px-2.5 text-xs font-[510]",
-            "bg-primary text-primary-foreground hover:bg-[color:var(--accent-hover)]",
+            "inline-flex items-center gap-1.5 rounded-md h-7 px-2.5 text-xs font-emphasis",
+            "bg-primary text-primary-foreground hover:bg-accent-hover",
           )}
         >
           <TerminalIcon size={12} aria-hidden="true" />

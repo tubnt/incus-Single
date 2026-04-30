@@ -63,7 +63,7 @@ export function SheetContent({
         style={sizeStyle}
         className={cn(
           "fixed z-50 flex flex-col bg-surface-elevated outline-none",
-          "border-border shadow-[var(--shadow-dialog)]",
+          "border-border shadow-dialog",
           positionClass,
           side === "right" && "border-l",
           side === "left" && "border-r",
@@ -124,7 +124,7 @@ export function SheetFooter({ className, ...props }: HTMLAttributes<HTMLDivEleme
 export function SheetTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseDialog.Title
-      className={cn("text-h3 font-[590] text-foreground", className)}
+      className={cn("text-h3 font-strong text-foreground", className)}
       {...props}
     />
   );

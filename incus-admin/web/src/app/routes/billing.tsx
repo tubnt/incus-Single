@@ -91,7 +91,7 @@ function BillingPage() {
         {credentials ? (
           <Card className="border-status-success/30 bg-status-success/8">
             <CardContent className="p-4 space-y-3">
-              <div className="flex items-center gap-2 text-status-success font-[590]">
+              <div className="flex items-center gap-2 text-status-success font-strong">
                 <Plus size={16} aria-hidden="true" />
                 {t("billing.vmCreatedTitle", { defaultValue: "VM 创建成功" })}
               </div>
@@ -116,7 +116,7 @@ function BillingPage() {
         ) : null}
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] text-foreground">
+          <h2 className="text-h3 font-strong text-foreground">
             {t("billing.products")}
           </h2>
           {products.length === 0 ? (
@@ -138,7 +138,7 @@ function BillingPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] text-foreground">
+          <h2 className="text-h3 font-strong text-foreground">
             {t("billing.orders")}
           </h2>
           {orders.length === 0 ? (
@@ -166,7 +166,7 @@ function BillingPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] text-foreground">
+          <h2 className="text-h3 font-strong text-foreground">
             {t("billing.invoices")}
           </h2>
           {invoices.length === 0 ? (
@@ -230,10 +230,10 @@ function BalanceCard({ balance }: { balance: number }) {
     <Card>
       <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <div className="text-caption text-text-tertiary uppercase tracking-wide font-[510]">
+          <div className="text-caption text-text-tertiary uppercase tracking-wide font-emphasis">
             {t("billing.balance", { defaultValue: "账户余额" })}
           </div>
-          <div className="text-h2 font-[510] font-mono mt-1 tabular-nums">
+          <div className="text-h2 font-emphasis font-mono mt-1 tabular-nums">
             ${balance.toFixed(2)}
           </div>
           <div className="text-caption text-text-tertiary mt-1">
@@ -267,13 +267,13 @@ function ProductCard({
     <Card className="flex flex-col">
       <CardContent className="p-4 flex flex-col gap-3 flex-1">
         <div>
-          <div className="font-[590] tracking-tight">{p.name}</div>
+          <div className="font-strong tracking-tight">{p.name}</div>
           <div className="text-caption text-text-tertiary mt-0.5">
             {p.cpu}C · {(p.memory_mb / 1024).toFixed(0)}G RAM · {p.disk_gb}G SSD
           </div>
         </div>
         <div className="flex items-baseline gap-1">
-          <span className="text-h2 font-[510]">
+          <span className="text-h2 font-emphasis">
             {formatCurrency(p.price_monthly, p.currency)}
           </span>
           <span className="text-caption text-text-tertiary">/mo</span>

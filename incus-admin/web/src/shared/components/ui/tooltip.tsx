@@ -25,7 +25,7 @@ export function TooltipContent({
         <BaseTooltip.Popup
           className={cn(
             "z-50 rounded-md border border-border bg-surface-elevated",
-            "px-2 py-1 text-label text-foreground shadow-[var(--shadow-dialog)]",
+            "px-2 py-1 text-label text-foreground shadow-dialog",
             "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
             "transition-opacity duration-100",
             className,

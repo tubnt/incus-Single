@@ -123,7 +123,7 @@ function NodeCard({
       >
         <div className="flex items-center gap-4">
           <div>
-            <div className="font-[590]">{node.server_name}</div>
+            <div className="font-strong">{node.server_name}</div>
             <div className="text-xs text-muted-foreground">
               {node.cluster} &middot; {node.url}
             </div>
@@ -258,7 +258,7 @@ function NodeDetail({
 
           {/* 实例列表 */}
           <div>
-            <h4 className="text-sm font-[590] mb-2">
+            <h4 className="text-sm font-strong mb-2">
               {t("admin.nodes.instances", "节点实例")} ({instances.length})
             </h4>
             {instances.length === 0 ? (
@@ -270,13 +270,13 @@ function NodeDetail({
                 <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
                   <thead className="bg-surface-1 border-b border-border">
                     <tr>
-                      <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceName", "实例名")}
                       </th>
-                      <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceType", "类型")}
                       </th>
-                      <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceStatus", "状态")}
                       </th>
                     </tr>
@@ -317,7 +317,7 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="font-[510]">{value}</div>
+      <div className="font-emphasis">{value}</div>
     </div>
   );
 }

@@ -53,7 +53,7 @@ function ConsolePage() {
     if (!cluster) missing.push("cluster");
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
-        <div className="text-h3 font-[590] text-foreground">参数缺失</div>
+        <div className="text-h3 font-strong text-foreground">参数缺失</div>
         <div className="text-text-tertiary text-sm">
           缺少: <span className="font-mono">{missing.join(", ")}</span>
         </div>
@@ -83,13 +83,13 @@ function ConsolePage() {
         <Link
           to={backUrl as any}
           aria-label="返回"
-          className="inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-sm font-[510] text-text-secondary hover:bg-surface-2 hover:text-foreground transition-colors"
+          className="inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-sm font-emphasis text-text-secondary hover:bg-surface-2 hover:text-foreground transition-colors"
         >
           <ArrowLeft size={14} aria-hidden="true" />
           <span className="hidden sm:inline">返回</span>
         </Link>
         <div className="flex-1 min-w-0 truncate text-center sm:text-left">
-          <span className="font-mono font-[510] text-foreground">{vm}</span>
+          <span className="font-mono font-emphasis text-foreground">{vm}</span>
           <span className="ml-2 text-caption text-text-tertiary hidden md:inline">
             {cluster} / {project}
           </span>

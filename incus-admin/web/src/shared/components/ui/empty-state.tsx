@@ -33,7 +33,7 @@ export function EmptyState({
           <Icon size={18} aria-hidden="true" />
         </span>
       ) : null}
-      <h3 className="text-body font-[510] text-foreground">{title}</h3>
+      <h3 className="text-body font-emphasis text-foreground">{title}</h3>
       {description ? (
         <p className="mt-1 max-w-md text-caption text-text-tertiary">{description}</p>
       ) : null}
@@ -66,7 +66,7 @@ export function ErrorState({
         className,
       )}
     >
-      <h3 className="text-sm font-[590] text-status-error">{title}</h3>
+      <h3 className="text-sm font-strong text-status-error">{title}</h3>
       {description ? (
         <p className="mt-1 text-small text-muted-foreground">{description}</p>
       ) : null}
@@ -75,7 +75,7 @@ export function ErrorState({
           type="button"
           onClick={retry}
           className={cn(
-            "mt-3 inline-flex h-8 items-center rounded-md px-3 text-sm font-[510]",
+            "mt-3 inline-flex h-8 items-center rounded-md px-3 text-sm font-emphasis",
             "border border-border bg-surface-1 text-foreground",
             "hover:bg-surface-2 transition-colors",
           )}

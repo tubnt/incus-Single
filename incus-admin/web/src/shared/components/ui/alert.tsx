@@ -60,7 +60,7 @@ export function AlertTitle({
   return (
     <h5
       className={cn(
-        "mb-1 text-sm font-[590] leading-none tracking-tight text-foreground",
+        "mb-1 text-sm font-strong leading-none tracking-tight text-foreground",
         className,
       )}
       {...props}

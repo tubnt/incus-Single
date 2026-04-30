@@ -140,9 +140,9 @@ function ActionLink({
       to={to as any}
       search={search as any}
       className={cn(
-        "inline-flex items-center gap-2 rounded-md px-3.5 h-9 text-sm font-[510] transition-colors",
+        "inline-flex items-center gap-2 rounded-md px-3.5 h-9 text-sm font-emphasis transition-colors",
         highlighted
-          ? "bg-primary text-primary-foreground hover:bg-[color:var(--accent-hover)]"
+          ? "bg-primary text-primary-foreground hover:bg-accent-hover"
           : "border border-border bg-surface-1 text-foreground hover:bg-surface-2",
       )}
     >
@@ -165,12 +165,12 @@ function StatCard({
     <Card>
       <CardContent className="p-5">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-caption font-[510] text-text-tertiary uppercase tracking-wide">
+          <span className="text-caption font-emphasis text-text-tertiary uppercase tracking-wide">
             {title}
           </span>
           <span className="text-text-tertiary">{icon}</span>
         </div>
-        <div className="mt-1 text-h2 font-[510] tabular-nums text-foreground">
+        <div className="mt-1 text-h2 font-emphasis tabular-nums text-foreground">
           {value}
         </div>
       </CardContent>

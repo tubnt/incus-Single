@@ -85,7 +85,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
     <Card className="overflow-hidden">
       <div className="p-4 flex items-center justify-between border-b border-border">
         <div>
-          <h3 className="font-[590] text-lg">{cluster.display_name || cluster.name}</h3>
+          <h3 className="font-strong text-lg">{cluster.display_name || cluster.name}</h3>
           <div className="text-sm text-muted-foreground mt-1">
             {cluster.api_url} · {nodes.length} nodes
           </div>
@@ -98,12 +98,12 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
           <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
             <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Node</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Status</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">CPU</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Memory</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Free %</th>
-                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">Actions</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Node</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Status</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">CPU</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Memory</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Free %</th>
+                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Actions</th>
               </tr>
             </thead>
             <tbody>

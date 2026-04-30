@@ -11,7 +11,7 @@ import { cn } from "@/shared/lib/utils";
 const buttonVariants = cva(
   cn(
     "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md",
-    "text-sm font-[510] transition-colors",
+    "text-sm font-emphasis transition-colors",
     "focus-visible:outline-none disabled:opacity-50 disabled:pointer-events-none",
     // svg 图标默认尺寸
     "[&_svg]:size-4 [&_svg]:shrink-0",
@@ -20,7 +20,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // 主品牌（CTA），DESIGN.md Brand Indigo
-        primary: "bg-primary text-primary-foreground hover:bg-[color:var(--accent-hover)]",
+        primary: "bg-primary text-primary-foreground hover:bg-accent-hover",
         // ghost：默认按钮（DESIGN.md §4 "Ghost Button"）
         // bg rgba 0.02 + solid border #23252a (border-primary) — DESIGN.md spec
         // 明确说 ghost 边框是 solid 暗色，不是 rgba 半透明白。

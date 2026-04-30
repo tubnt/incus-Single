@@ -133,15 +133,15 @@ function StoragePage() {
             {osds.length > 0 && (
               <Card className="overflow-x-auto">
                 <div className="px-4 py-3 border-b border-border bg-surface-2/40">
-                  <h3 className="font-[590] text-sm">{t("storage.osdListTitle")} ({osds.length})</h3>
+                  <h3 className="font-strong text-sm">{t("storage.osdListTitle")} ({osds.length})</h3>
                 </div>
                 <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
                   <thead className="bg-surface-1 border-b border-border">
                     <tr>
-                      <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">OSD</th>
-                      <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.status")}</th>
-                      <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.weight")}</th>
-                      <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("common.actions")}</th>
+                      <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">OSD</th>
+                      <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("storage.status")}</th>
+                      <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">{t("storage.weight")}</th>
+                      <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">{t("common.actions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -158,7 +158,7 @@ function StoragePage() {
             {hosts.length > 0 && (
               <Card>
                 <CardContent className="p-4 pt-4">
-                  <h3 className="font-[590] text-sm mb-3">{t("storage.hostsTitle")} ({hosts.length})</h3>
+                  <h3 className="font-strong text-sm mb-3">{t("storage.hostsTitle")} ({hosts.length})</h3>
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {hosts.map((h) => (
                       <div key={h.id} className="border border-border rounded p-3 text-center">
@@ -209,7 +209,7 @@ function PoolSection() {
     <>
       <Card className="overflow-x-auto">
         <div className="px-4 py-3 border-b border-border bg-surface-2/40 flex items-center justify-between">
-          <h3 className="font-[590] text-sm">{t("storage.poolsTitle")} ({poolList.length})</h3>
+          <h3 className="font-strong text-sm">{t("storage.poolsTitle")} ({poolList.length})</h3>
           <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
             {t("storage.createPool")}
           </Button>
@@ -219,12 +219,12 @@ function PoolSection() {
           <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
             <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Pool</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.poolTypeLabel")}</th>
-                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">Size</th>
-                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">PGs</th>
-                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Apps</th>
-                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("common.actions")}</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Pool</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("storage.poolTypeLabel")}</th>
+                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Size</th>
+                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">PGs</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Apps</th>
+                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -389,7 +389,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
     <Card>
       <CardContent className="p-4 pt-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`text-lg font-[590] mt-1 ${color ?? ""}`}>{value}</div>
+        <div className={`text-lg font-strong mt-1 ${color ?? ""}`}>{value}</div>
       </CardContent>
     </Card>
   );

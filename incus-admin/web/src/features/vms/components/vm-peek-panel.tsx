@@ -69,7 +69,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
       className={cn(
         "fixed right-0 top-0 z-30 h-screen w-[min(92vw,24rem)]",
         "flex flex-col bg-surface-elevated border-l border-border",
-        "shadow-[var(--shadow-floating)]",
+        "shadow-floating",
         "animate-in slide-in-from-right-2 fade-in duration-150",
       )}
     >
@@ -78,7 +78,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <StatusPill status={status}>{vm.status}</StatusPill>
-            <span className="font-mono font-[590] text-foreground text-body truncate">
+            <span className="font-mono font-strong text-foreground text-body truncate">
               {vm.name}
             </span>
           </div>
@@ -130,7 +130,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
               <Link
                 to="/console"
                 search={{ vm: vm.name, cluster, project, from: "admin" } as any}
-                className="inline-flex items-center gap-1.5 rounded-md h-8 px-3 text-sm font-[510] bg-primary text-primary-foreground hover:bg-[color:var(--accent-hover)] transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md h-8 px-3 text-sm font-emphasis bg-primary text-primary-foreground hover:bg-accent-hover transition-colors"
               >
                 <TerminalIcon size={12} aria-hidden="true" />
                 {t("vm.console")}
@@ -180,7 +180,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
         <Link
           to="/admin/vm-detail"
           search={{ name: vm.name, cluster, project } as any}
-          className="inline-flex w-full items-center justify-between gap-2 rounded-md px-3 h-9 text-sm font-[510] border border-border bg-surface-1 text-foreground hover:bg-surface-2 transition-colors"
+          className="inline-flex w-full items-center justify-between gap-2 rounded-md px-3 h-9 text-sm font-emphasis border border-border bg-surface-1 text-foreground hover:bg-surface-2 transition-colors"
         >
           <span className="inline-flex items-center gap-2">
             <ExternalLink size={12} aria-hidden="true" />
@@ -200,7 +200,7 @@ function DefList({ children }: { children: React.ReactNode }) {
 function DefRow({ label, value }: { label: React.ReactNode; value: React.ReactNode }) {
   return (
     <>
-      <dt className="text-text-tertiary text-caption uppercase tracking-wide font-[510]">{label}</dt>
+      <dt className="text-text-tertiary text-caption uppercase tracking-wide font-emphasis">{label}</dt>
       <dd className="text-foreground min-w-0 break-words">{value}</dd>
     </>
   );

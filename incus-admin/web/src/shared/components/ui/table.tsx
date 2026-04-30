@@ -50,7 +50,7 @@ export const TableFooter = forwardRef<HTMLTableSectionElement, HTMLAttributes<HT
   ({ className, ...props }, ref) => (
     <tfoot
       ref={ref}
-      className={cn("border-t border-border bg-surface-1 font-[510]", className)}
+      className={cn("border-t border-border bg-surface-1 font-emphasis", className)}
       {...props}
     />
   ),
@@ -77,7 +77,7 @@ export const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLT
     <th
       ref={ref}
       className={cn(
-        "h-9 px-3 text-left align-middle text-label font-[510] text-text-tertiary",
+        "h-9 px-3 text-left align-middle text-label font-emphasis text-text-tertiary",
         "[&:has([role=checkbox])]:pr-0",
         className,
       )}

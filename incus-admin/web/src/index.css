@@ -191,6 +191,8 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent-bg);
   --color-accent-foreground: var(--accent-fg);
+  /* Accent hover：primary 按钮 / 链接 hover 态（OPS-020 暴露给 bg-accent-hover utility） */
+  --color-accent-hover: var(--accent-hover);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);

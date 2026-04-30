@@ -553,7 +553,7 @@ function QuotaEditor({ userId, onClose }: { userId: number; onClose: () => void 
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-[590]">{t("admin.userQuotaTitle", { defaultValue: "用户配额" })} (ID: {userId})</h4>
+        <h4 className="text-sm font-strong">{t("admin.userQuotaTitle", { defaultValue: "用户配额" })} (ID: {userId})</h4>
         <Button variant="link" size="sm" onClick={onClose}>
           {t("common.close", { defaultValue: "关闭" })}
         </Button>
