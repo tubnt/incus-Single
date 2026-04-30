@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,9 +117,21 @@ func applyMigrations(ctx context.Context, db *sql.DB, dir string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, string(body)); err != nil {
+		// migration 文件用 goose 风格注释分隔 Up / Down section，但本 helper
+		// 不依赖 goose 库，只跑 Up；遇到 `-- +goose Down` 立即截断，避免一口气
+		// 把刚建好的表 DROP 掉。
+		up := extractGooseUp(string(body))
+		if _, err := db.ExecContext(ctx, up); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func extractGooseUp(body string) string {
+	const downMarker = "-- +goose Down"
+	if idx := strings.Index(body, downMarker); idx >= 0 {
+		return body[:idx]
+	}
+	return body
 }
