@@ -27,6 +27,8 @@ type OrderHandler struct {
 	// PLAN-025：异步 provisioning 入口。jobs == nil 时回退同步路径（保留无异步运行时的部署兜底）。
 	jobs    *jobs.Runtime
 	jobRepo *repository.ProvisioningJobRepo
+	// OPS-021：quota 强制。nil 时跳过检查（向后兼容；管理员可后续显式注入）
+	quotas *repository.QuotaRepo
 }
 
 func NewOrderHandler(orders *repository.OrderRepo, products *repository.ProductRepo, vmSvc *service.VMService, vmRepo *repository.VMRepo, sshKeys *repository.SSHKeyRepo, clusters *cluster.Manager) *OrderHandler {
@@ -37,6 +39,12 @@ func NewOrderHandler(orders *repository.OrderRepo, products *repository.ProductR
 func (h *OrderHandler) WithJobs(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo) *OrderHandler {
 	h.jobs = rt
 	h.jobRepo = jobRepo
+	return h
+}
+
+// WithQuotas 注入 quota repo 启用购买前 quota 强制（OPS-021）。
+func (h *OrderHandler) WithQuotas(q *repository.QuotaRepo) *OrderHandler {
+	h.quotas = q
 	return h
 }
 
@@ -174,6 +182,22 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	if err != nil || order == nil || order.UserID != userID {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "order not found"})
 		return
+	}
+
+	// OPS-021：quota 强制 —— 在 PayWithBalance 之前 pre-check，超限直接 402 不扣款。
+	// quotas 为 nil 时跳过（向后兼容老部署 / 测试环境）；用户没有 quota 行也跳过
+	// （admin 未设置等价于不限制）。注意只对 VM 资源做 best-effort 估算 ——
+	// product 必须存在才能计资源消耗；找不到 product 让原 PayWithBalance 流程兜底。
+	if h.quotas != nil {
+		if product, _ := h.products.GetByID(r.Context(), order.ProductID); product != nil {
+			if quotaErr := h.checkQuota(r.Context(), userID, product); quotaErr != nil {
+				writeJSON(w, http.StatusPaymentRequired, map[string]any{
+					"error":   "quota_exceeded",
+					"message": quotaErr.Error(),
+				})
+				return
+			}
+		}
 	}
 
 	if err := h.orders.PayWithBalance(r.Context(), orderID); err != nil {
@@ -451,4 +475,51 @@ func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, 
 		slog.Error("mark order cancelled failed", "order", order.ID, "error", err)
 	}
 	slog.Warn("order payment rolled back", "order", order.ID, "reason", reason)
+}
+
+// checkQuota 在 PayWithBalance 之前对 user+product 做 quota 预检查。
+// 返回 nil 表示通过；返回 err 表示触限，msg 直接对用户展示。
+//
+// 策略：sql.ErrNoRows（用户未设 quota 行）→ 跳过 = 不限制（admin 未配置等价于
+// 不限）。任何其他 DB 错误 → 跳过 + slog.Warn（避免 quota 系统故障阻塞付款）。
+//
+// 检查 4 个轴：max_vms / max_vcpus / max_ram_mb / max_disk_gb。当前 VMs 用
+// repo.ListByUser 的 active 行（含 creating/running 等非删除态）；新购的
+// 1+CPU+RAM+Disk 加上去做对比。
+func (h *OrderHandler) checkQuota(ctx context.Context, userID int64, product *model.Product) error {
+	q, err := h.quotas.GetByUserID(ctx, userID)
+	if err != nil {
+		// no row 或临时 DB 错都放行；前者是设计行为，后者宁可通过也不阻挡付款
+		slog.Debug("quota lookup skipped", "user_id", userID, "error", err)
+		return nil
+	}
+	if q == nil {
+		return nil
+	}
+	vms, err := h.vmRepo.ListByUser(ctx, userID)
+	if err != nil {
+		slog.Warn("quota usage query failed; allowing purchase", "user_id", userID, "error", err)
+		return nil
+	}
+	curVMs := len(vms)
+	curCPU, curRAM, curDisk := 0, 0, 0
+	for _, vm := range vms {
+		curCPU += vm.CPU
+		curRAM += vm.MemoryMB
+		curDisk += vm.DiskGB
+	}
+
+	if q.MaxVMs > 0 && curVMs+1 > q.MaxVMs {
+		return fmt.Errorf("超出 VM 数量配额（当前 %d，购买后将达 %d，上限 %d）", curVMs, curVMs+1, q.MaxVMs)
+	}
+	if q.MaxVCPUs > 0 && curCPU+product.CPU > q.MaxVCPUs {
+		return fmt.Errorf("超出 vCPU 配额（当前 %d，新增 %d，上限 %d）", curCPU, product.CPU, q.MaxVCPUs)
+	}
+	if q.MaxRAMMB > 0 && curRAM+product.MemoryMB > q.MaxRAMMB {
+		return fmt.Errorf("超出内存配额（当前 %d MB，新增 %d MB，上限 %d MB）", curRAM, product.MemoryMB, q.MaxRAMMB)
+	}
+	if q.MaxDiskGB > 0 && curDisk+product.DiskGB > q.MaxDiskGB {
+		return fmt.Errorf("超出磁盘配额（当前 %d GB，新增 %d GB，上限 %d GB）", curDisk, product.DiskGB, q.MaxDiskGB)
+	}
+	return nil
 }

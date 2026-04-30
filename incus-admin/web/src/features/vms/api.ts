@@ -145,14 +145,6 @@ export function useVMActionMutation(vmId: number) {
   });
 }
 
-export function useCreateVMMutation() {
-  return useMutation({
-    mutationFn: (params: { name?: string; cpu: number; memory_mb: number; disk_gb: number; os_image: string }) =>
-      http.post("/portal/services", params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
-  });
-}
-
 export function useClusterVMsQuery(clusterName: string, refetchIntervalMs = 10_000) {
   return useQuery({
     queryKey: vmKeys.clusterList(clusterName),
@@ -319,10 +311,22 @@ export interface ReinstallVMParams {
   os_image?: string;
 }
 
+// OPS-021：admin reinstall 与 portal 一致返 202 + job_id（异步），同步 200 + 密码
+// 路径作为 jobs runtime 缺失时的兜底。前端按 job_id 是否存在分流。
+export interface AdminReinstallResult {
+  status: string;
+  // 异步路径
+  job_id?: number;
+  vm_id?: number;
+  // 同步兜底
+  password?: string;
+  username?: string;
+}
+
 export function useReinstallVMMutation() {
   return useMutation({
     mutationFn: (params: ReinstallVMParams) =>
-      http.post<{ status: string; password: string; username: string }>(
+      http.post<AdminReinstallResult>(
         `/admin/vms/${params.name}/reinstall`,
         {
           cluster: params.cluster,

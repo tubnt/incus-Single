@@ -35,6 +35,7 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**REFACTOR-002 Refactor backend to pma-go standards**](REFACTOR-002.md) `P1`
 - [x] [**INFRA-001 Enable VM auto-failover with cluster healing**](INFRA-001.md) `P1`
 - [x] [**INFRA-002 Build cluster node management UI and automation**](INFRA-002.md) `P1`
+- [x] [**OPS-021 PLAN-025/026 后续 cleanup（死代码 / 一致性 / quota）**](OPS-021.md) `P2`
 - [ ] [**INFRA-003 Add standalone Incus host management**](INFRA-003.md) `P2`
 - [x] [**QA-001 Fix 6 QA bugs from browser testing**](QA-001.md) `P2`
 - [x] [**UX-001 UI/UX completeness per PLAN-007**](UX-001.md) `P1`
