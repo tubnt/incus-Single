@@ -531,8 +531,10 @@ func jobsHandlerOrNil(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo,
 // PLAN-027 / INFRA-003：DB 行 → config.ClusterConfig 转换。
 //   - ip_pools_json 反序列化到 []config.IPPoolConfig
 //   - kind 不放进 ClusterConfig（Manager 不区分；UI 通过 DB query 拿 kind 展示）
-//   - projects 暂时维持空数组（projects 是 env 配的高级字段，DB 里没有专门列；
-//     若未来需要可以扩 projects_json 列）
+//   - projects: clusters 表暂时没专门列，按约定从 default + DefaultProject
+//     兜底（去重）。env-bootstrap 路径硬编码 [default, customers]；DB-load
+//     必须保持一致语义，否则 ListClusterVMs / 跨 project 列表会漏 customers
+//     里的 VM（OPS-027 修复）。未来扩 projects_jsonb 列时这块兜底自然让位。
 func clusterFromDB(c model.Cluster) (config.ClusterConfig, error) {
 	cc := config.ClusterConfig{
 		Name:           c.Name,
@@ -544,6 +546,7 @@ func clusterFromDB(c model.Cluster) (config.ClusterConfig, error) {
 		StoragePool:    c.StoragePool,
 		Network:        c.Network,
 		DefaultProject: c.DefaultProject,
+		Projects:       defaultProjectsFor(c.DefaultProject),
 	}
 	if s := strings.TrimSpace(c.IPPoolsJSON); s != "" {
 		if err := json.Unmarshal([]byte(s), &cc.IPPools); err != nil {
@@ -551,6 +554,23 @@ func clusterFromDB(c model.Cluster) (config.ClusterConfig, error) {
 		}
 	}
 	return cc, nil
+}
+
+// defaultProjectsFor 给 DB-load 的 cluster 兜底 project 列表。always 包含
+// "default"；DefaultProject 不为空且 != "default" 时再加它。顺序保证 default
+// 在前，与 env-bootstrap 路径 (config.go:168) 完全等价。
+func defaultProjectsFor(defaultProject string) []config.ProjectConfig {
+	out := []config.ProjectConfig{
+		{Name: "default", Access: "internal", Description: "Default project"},
+	}
+	if defaultProject != "" && defaultProject != "default" {
+		out = append(out, config.ProjectConfig{
+			Name:        defaultProject,
+			Access:      "public",
+			Description: defaultProject + " VMs",
+		})
+	}
+	return out
 }
 
 // upsertEnvClusters 启动时把 env 配置的 cluster 持久化到 DB（含 cert/key/ca/
