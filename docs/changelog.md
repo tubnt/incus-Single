@@ -1,5 +1,24 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [ci+merge]
+
+PR #1（PLAN-022/023/024 + OPS-020 + CR 修复）合并到 main，并修通 5 个 pre-existing CI 雷点 —— main 上 GitHub Actions CI 第一次三 job 全绿。
+
+**CI 修复**：
+- `ci.yml` 三 job 互相独立 → frontend upload `web-dist` artifact，backend-unit / backend-integration `actions/download-artifact@v4` 下载到 `incus-admin/internal/server/dist`，否则 `//go:embed all:dist` 找不到目录直接 build fail
+- `internal/testhelper/postgres.go::applyMigrations` 直接 ExecContext goose 双向 SQL → 表创建后立刻被 `DROP TABLE IF EXISTS` 自删；新增 `extractGooseUp` 按 `-- +goose Down` marker 截断只跑 Up
+- 集成测试 seed SQL 列名长期偏离 schema：`clusters.endpoint` → `api_url`（3 处）、`products.price` → `price_monthly`（2 处）、`transactions WHERE order_id` → `WHERE user_id + type='refund'`（schema 没有 `order_id` 列，生产 `AdjustBalance` 也不写）
+- 这些 bug 在本机 testcontainers 因 Docker bridge 不可达 `t.Skip` 时被掩盖；GitHub Actions ubuntu-latest 一上来就暴露
+
+**PR + 合并**：
+- 创建 `release/plan-022-024` branch（4 commit）+ CI fix 3 commit
+- `gh pr merge 1 --merge --delete-branch`，本地 main fast-forward 到 origin/main
+- 生产 vmc.5ok.co dist sha `3f7d599e9b72`，systemd active
+
+**docs-sync**：随后执行 `/doc-sync`，同步 4 条 Serena 记忆（migration 列表 / OPS-020 token 直引规则 / Go 工具链路径 1.23.4 / PR + CI 检查项）+ 新增 `~/.claude/projects/-workspace-incus/memory/ci_pitfalls.md` 跨会话 feedback。
+
+---
+
 ## 2026-04-30 [feat+refactor]
 
 PLAN-024 代码审查（pma-cr）跟进修复 + OPS-020 arbitrary value 全量替换为 `@theme` utility 直引。
