@@ -1,5 +1,20 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [refactor]
+
+OPS-021 — PLAN-025/026 后续 cleanup（4 项打包）：
+
+1. **死代码清理**：`VMHandler.CreateService`（POST /portal/services）handler 自 PLAN-005 立项就存在但 `Routes()` 从未注册其路由；前端 `useCreateVMMutation` 仅有定义无任何组件引用。删两端避免误读为"用户可绕开订单直创 VM"。purchase-sheet 走 OrderHandler.Pay 才是真正的购买入口。生产 curl POST /portal/services 现在返 405 确认已下线。
+2. **AdminVMHandler.ReinstallVM 异步化**：与 portal reinstall 一致走 jobs runtime + SSE，返 202 + job_id。前端 `vm-action-sheets.tsx::ReinstallForm` 接 `useJobStream` 实时显示 6 步进度，完成后 `SecretReveal` 一次性给新密码。`focus:border-[color:var(--accent)]` arbitrary value 顺手换成 `focus:border-ring` token。jobs runtime 缺失时同步路径兜底保留。
+3. **Quota 强制（OPS-021 核心安全修复）**：`OrderHandler.Pay` 在 `PayWithBalance` 之前 pre-check 4 个轴（`max_vms` / `max_vcpus` / `max_ram_mb` / `max_disk_gb`），超限直接 402 + 中文 message，**不扣款**。先前漏洞：`QuotaRepo` 存在但 handler 从不调用，用户余额够即可无限下单。policy：`quotas` 注入 nil 跳过（向后兼容）；用户无 quota 行视为不限制（admin 决定何时启用）；用户主动设置非零上限 → 强制。
+4. **Changelog + auto-memory + INFRA-002 同步收口**。
+
+**测试**：`go vet` clean / `go test ./...` 全绿 / 前端 tsc 0 / vitest 37/37 / build OK / 生产 systemd active。
+
+**范围外**：vms.password DB 加密（OPS-022 单立）、cluster-env.sh 自动同步（OPS 小任务单立）、INFRA-003 standalone host（PLAN-027）。
+
+---
+
 ## 2026-04-30 [feat]
 
 PLAN-026 / INFRA-002 — 集群节点管理 UI + 自动化落地。复用 PLAN-025 的 jobs runtime + SSE，把"添加节点"和"移除节点"两个长流程编排进入异步 job 体系。admin 在 `/admin/node-join` 填表 + 测 SSH → 提交 → 实时看 9 阶段进度；移除走节点详情卡的 destructive 按钮 + step-up + 二次输节点名确认 → 7 阶段进度。

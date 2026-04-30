@@ -320,7 +320,8 @@ func main() {
 
 	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)
 	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
-	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr)
+	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr).
+		WithQuotas(quotaRepo) // OPS-021：购买前 quota 强制
 	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr)
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)

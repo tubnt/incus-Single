@@ -1,7 +1,10 @@
 import type {IncusInstance} from "@/features/vms/api";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useJobQuery } from "@/features/jobs/api";
+import { JobProgress } from "@/features/jobs/components/job-progress";
+import { useJobStream } from "@/features/jobs/use-job-stream";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import {
@@ -113,6 +116,27 @@ function ReinstallForm({
   const [slug, setSlug] = useState<string>(DEFAULT_TEMPLATE_SLUG);
   const mutation = useReinstallVMMutation();
   const [credentials, setCredentials] = useState<{ username: string; password: string } | null>(null);
+  const [jobId, setJobId] = useState<number | null>(null);
+
+  // OPS-021：admin reinstall 现在 202 + job_id（异步）走 SSE；同步路径仅 jobs runtime 缺失时兜底。
+  const stream = useJobStream(jobId);
+  const jobQuery = useJobQuery(stream.terminal != null ? jobId : null);
+  useEffect(() => {
+    if (stream.terminal !== "succeeded") return;
+    const result = jobQuery.data?.result;
+    if (!result?.password) return;
+    setCredentials({
+      username: result.username ?? "ubuntu",
+      password: result.password,
+    });
+    toast.success(t("vm.reinstallDone", { defaultValue: "重装完成" }));
+  }, [stream.terminal, jobQuery.data, t]);
+  useEffect(() => {
+    if (stream.terminal === "failed" || stream.terminal === "partial") {
+      const lastFailed = stream.steps.slice().reverse().find((s) => s.status === "failed");
+      toast.error(lastFailed?.detail ?? t("vm.reinstallFailed", "重装失败"));
+    }
+  }, [stream.terminal, stream.steps, t]);
 
   const run = async () => {
     const ok = await confirm({
@@ -130,8 +154,15 @@ function ReinstallForm({
       { name: vm.name, cluster, project, template_slug: slug },
       {
         onSuccess: (data) => {
-          setCredentials({ username: data.username, password: data.password });
-          toast.success(t("vm.reinstallDone", { defaultValue: "重装完成" }));
+          if (data.job_id) {
+            setJobId(data.job_id);
+            toast.info(t("vm.reinstallStarted", { defaultValue: "重装已开始，进度展示中..." }));
+            return;
+          }
+          if (data.password && data.username) {
+            setCredentials({ username: data.username, password: data.password });
+            toast.success(t("vm.reinstallDone", { defaultValue: "重装完成" }));
+          }
         },
         onError: (err) => toast.error((err as Error).message),
       },
@@ -159,6 +190,21 @@ function ReinstallForm({
     );
   }
 
+  if (jobId != null) {
+    return (
+      <div className="space-y-3">
+        <JobProgress steps={stream.steps} />
+        {stream.terminal != null
+          ? null
+          : (
+              <div className="text-caption text-text-tertiary">
+                {t("admin.nodes.add.progressHint", "进度实时更新中。可关闭本页稍后回来查看")}
+              </div>
+            )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-status-error/30 bg-status-error/8 p-3 text-sm text-status-error">
@@ -173,7 +219,7 @@ function ReinstallForm({
         <TemplatePicker
           value={slug}
           onChange={setSlug}
-          className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground focus:outline-none focus:border-[color:var(--accent)]"
+          className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground focus:outline-none focus:border-ring"
         />
       </div>
       <SheetFooter className="-mx-6 -mb-5 mt-4">

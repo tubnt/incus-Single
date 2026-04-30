@@ -296,101 +296,11 @@ func (h *VMHandler) VMAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *VMHandler) CreateService(w http.ResponseWriter, r *http.Request) {
-	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
-	if userID == 0 {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
-	var req struct {
-		Name     string `json:"name"      validate:"omitempty,safename"`
-		CPU      int    `json:"cpu"       validate:"gte=0,lte=32"`
-		MemoryMB int    `json:"memory_mb" validate:"gte=0,lte=65536"`
-		DiskGB   int    `json:"disk_gb"   validate:"gte=0,lte=2000"`
-		OSImage  string `json:"os_image"  validate:"omitempty,max=200"`
-	}
-	if !decodeAndValidate(w, r, &req) {
-		return
-	}
-	if req.CPU <= 0 { req.CPU = 2 }
-	if req.MemoryMB <= 0 { req.MemoryMB = 2048 }
-	if req.DiskGB <= 0 { req.DiskGB = 50 }
-	if req.OSImage == "" { req.OSImage = "images:ubuntu/24.04/cloud" }
-
-	sshKeys, _ := h.sshKeys.GetByUser(r.Context(), userID)
-
-	if h.clusters == nil || len(h.clusters.List()) == 0 {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no clusters available"})
-		return
-	}
-
-	client := h.clusters.List()[0]
-	cc, _ := h.clusters.ConfigByName(client.Name)
-
-	ip, gateway, cidr := "", "", ""
-	if len(cc.IPPools) > 0 {
-		p := cc.IPPools[0]
-		gateway = p.Gateway
-		cidr = extractCIDR(p.CIDR)
-		ip = pickNextIP(r.Context(), h.vmSvc, client.Name, cc.DefaultProject, p.Range)
-	}
-	if ip == "" {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs"})
-		return
-	}
-
-	defPool := cc.StoragePool
-	if defPool == "" { defPool = "ceph-pool" }
-	defNet := cc.Network
-	if defNet == "" { defNet = "br-pub" }
-
-	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
-		ClusterName: client.Name,
-		Project:     cc.DefaultProject,
-		UserID:      userID,
-		VMName:      req.Name,
-		CPU:         req.CPU,
-		MemoryMB:    req.MemoryMB,
-		DiskGB:      req.DiskGB,
-		OSImage:     req.OSImage,
-		SSHKeys:     sshKeys,
-		IP:          ip,
-		Gateway:     gateway,
-		SubnetCIDR:  cidr,
-		StoragePool: defPool,
-		Network:     defNet,
-	})
-	if err != nil {
-		slog.Error("user create VM failed", "user_id", userID, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-		return
-	}
-
-	vm := &model.VM{
-		Name:      result.VMName,
-		ClusterID: h.clusters.IDByName(client.Name),
-		UserID:    userID,
-		Status:    model.VMStatusRunning,
-		CPU:       req.CPU,
-		MemoryMB:  req.MemoryMB,
-		DiskGB:    req.DiskGB,
-		OSImage:   req.OSImage,
-		Node:      result.Node,
-		Password:  &result.Password,
-	}
-	if result.IP != "" {
-		vm.IP = &result.IP
-	}
-	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
-		slog.Error("vm row insert failed", "name", result.VMName, "error", err)
-	} else {
-		attachIPToVM(r.Context(), result.IP, vm.ID)
-	}
-	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{"name": result.VMName, "ip": result.IP})
-
-	writeJSON(w, http.StatusCreated, result)
-}
+// OPS-021：原 VMHandler.CreateService（POST /portal/services）已删除。
+// 该 handler 函数从 PLAN-005 立项以来虽存在于代码中，但 Routes() 方法从
+// 未注册其路由；前端 useCreateVMMutation 也仅有定义无引用。purchase-sheet 走
+// OrderHandler.Pay（订单驱动 VM 创建）才是真正的用户购买入口。删除避免
+// 将来误读为"用户可绕开订单直接创建 VM"。
 
 // findClusterName resolves the DB cluster_id to its config name via the manager map.
 // Falls back to the first available cluster for legacy rows where the id predates seeding.
@@ -1306,15 +1216,74 @@ func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {
 	resolved.Project = req.Project
 	resolved.VMName = vmName
 
+	// OPS-021：admin reinstall 与 portal reinstall 一致走 jobs runtime + SSE。
+	// 兜底同步路径在 jobs runtime 缺失时保留（DB-only 测试 / 老配置）。
+	if h.jobs != nil && h.jobRepo != nil {
+		client, ok := h.clusters.Get(req.Cluster)
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+			return
+		}
+		if perr := service.ProbeImageServer(r.Context(), resolved.ServerURL); perr != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": fmt.Sprintf("镜像服务器 %s 不可达，已取消重装以保护原 VM 数据: %v", resolved.ServerURL, perr),
+			})
+			return
+		}
+		if perr := service.PrePullImage(r.Context(), client, resolved.Project, resolved.ServerURL, resolved.Protocol, resolved.ImageSource); perr != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{
+				"error": fmt.Sprintf("镜像 %s 预拉取失败，已取消重装以保护原 VM 数据: %v", resolved.ImageSource, perr),
+			})
+			return
+		}
+
+		userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+		clusterID := h.clusters.IDByName(req.Cluster)
+		vmID := h.vmIDByName(r.Context(), vmName)
+		var vmIDPtr *int64
+		if vmID > 0 {
+			vmIDPtr = &vmID
+		}
+
+		job, jerr := h.jobRepo.Create(r.Context(), model.JobKindVMReinstall, userID, clusterID, nil, vmIDPtr, vmName)
+		if jerr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + jerr.Error()})
+			return
+		}
+		if eerr := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+			Project:     resolved.Project,
+			ImageSource: resolved.ImageSource,
+			ServerURL:   resolved.ServerURL,
+			Protocol:    resolved.Protocol,
+			DefaultUser: resolved.DefaultUser,
+		}); eerr != nil {
+			_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+eerr.Error())
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue: " + eerr.Error()})
+			return
+		}
+
+		auditDetails := map[string]any{"name": vmName, "source": resolved.ImageSource, "user": resolved.DefaultUser, "job_id": job.ID, "admin": true}
+		if req.TemplateSlug != "" {
+			auditDetails["template_slug"] = req.TemplateSlug
+		}
+		audit(r.Context(), r, "vm.reinstall", "vm", vmID, auditDetails)
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"status": "provisioning",
+			"job_id": job.ID,
+			"vm_id":  vmID,
+		})
+		return
+	}
+
+	// 兜底：jobs runtime 未注入 → 同步原路径
 	result, err := h.vmSvc.Reinstall(r.Context(), resolved)
 	if err != nil {
 		slog.Error("reinstall VM failed", "vm", vmName, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-
 	slog.Info("vm reinstalled", "vm", vmName, "source", resolved.ImageSource)
-	auditDetails := map[string]any{"name": vmName, "source": resolved.ImageSource, "user": resolved.DefaultUser}
+	auditDetails := map[string]any{"name": vmName, "source": resolved.ImageSource, "user": resolved.DefaultUser, "admin": true}
 	if req.TemplateSlug != "" {
 		auditDetails["template_slug"] = req.TemplateSlug
 	}
