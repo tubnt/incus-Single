@@ -1,8 +1,10 @@
 import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAdminOrdersQuery } from "@/features/billing/api";
+import { useAdminProductsQuery } from "@/features/products/api";
+import { useAdminUsersQuery } from "@/features/users/api";
 import {
   PageContent,
   PageHeader,
@@ -31,8 +33,22 @@ function AdminOrdersPage() {
   const { t } = useTranslation();
   const [page, setPage] = useState<PageParams>({ limit: 50, offset: 0 });
   const { data, isLoading } = useAdminOrdersQuery(page);
+  // OPS-028 P3.2：把 user_id / product_id 映射成 email / 产品名（admin 视角
+  // 不必让运维记数字）。用 limit=200 一次拉够 — 用户+产品数量级很小。
+  const usersQuery = useAdminUsersQuery({ limit: 200, offset: 0 });
+  const productsQuery = useAdminProductsQuery({ limit: 200, offset: 0 });
   const orders = data?.orders ?? [];
   const total = data?.total ?? orders.length;
+  const userEmail = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const u of usersQuery.data?.users ?? []) m.set(u.id, u.email);
+    return m;
+  }, [usersQuery.data]);
+  const productName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of productsQuery.data?.products ?? []) m.set(p.id, p.name);
+    return m;
+  }, [productsQuery.data]);
 
   return (
     <PageShell>
@@ -69,9 +85,11 @@ function AdminOrdersPage() {
                   {orders.map((o) => (
                     <TableRow key={o.id}>
                       <TableCell>{o.id}</TableCell>
-                      <TableCell className="text-xs">#{o.user_id}</TableCell>
                       <TableCell className="text-xs">
-                        #{o.product_id}
+                        {userEmail.get(o.user_id) ?? `#${o.user_id}`}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {productName.get(o.product_id) ?? `#${o.product_id}`}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
                         {formatCurrency(o.amount, o.currency)}

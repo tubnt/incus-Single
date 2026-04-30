@@ -1,7 +1,7 @@
 import type {Ticket} from "@/features/tickets/api";
 import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
 
@@ -10,6 +10,7 @@ import {
   useTicketDetailQuery,
   useUpdateTicketStatusMutation
 } from "@/features/tickets/api";
+import { useAdminUsersQuery } from "@/features/users/api";
 import {
   PageContent,
   PageHeader,
@@ -56,6 +57,13 @@ function AdminTicketsPage() {
   const [page, setPage] = useState<PageParams>({ limit: 50, offset: 0 });
 
   const { data, isLoading } = useAdminTicketsQuery(page);
+  // OPS-028 P3.3：把 user_id 映射成 email
+  const usersQuery = useAdminUsersQuery({ limit: 200, offset: 0 });
+  const userEmail = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const u of usersQuery.data?.users ?? []) m.set(u.id, u.email);
+    return m;
+  }, [usersQuery.data]);
   const tickets = data?.tickets ?? [];
   const total = data?.total ?? tickets.length;
 
@@ -89,6 +97,7 @@ function AdminTicketsPage() {
                     <TicketRow
                       key={tk.id}
                       ticket={tk}
+                      userEmail={userEmail.get(tk.user_id)}
                       isOpen={selected === tk.id}
                       onToggle={() => setSelected(selected === tk.id ? null : tk.id)}
                     />
@@ -110,13 +119,13 @@ function AdminTicketsPage() {
   );
 }
 
-function TicketRow({ ticket: tk, isOpen, onToggle }: { ticket: Ticket; isOpen: boolean; onToggle: () => void }) {
+function TicketRow({ ticket: tk, userEmail, isOpen, onToggle }: { ticket: Ticket; userEmail?: string; isOpen: boolean; onToggle: () => void }) {
   const { t } = useTranslation();
   return (
     <>
       <TableRow>
         <TableCell>{tk.id}</TableCell>
-        <TableCell className="text-xs">{tk.user_id}</TableCell>
+        <TableCell className="text-xs">{userEmail ?? `#${tk.user_id}`}</TableCell>
         <TableCell className="font-emphasis">{tk.subject}</TableCell>
         <TableCell>
           <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>

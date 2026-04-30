@@ -32,6 +32,16 @@ import {
 } from "@/shared/components/ui/select";
 import { cn } from "@/shared/lib/utils";
 
+// OPS-028 L2：从 pub IP 末位推算内网 IP placeholder。pub IP 不合法时返
+// 回空字符串（input 渲染空 placeholder，等用户输完 pub IP 才显示）。
+function derivedInternalIP(prefix: "10.0.10" | "10.0.20" | "10.0.30", pubIP: string): string {
+  const parts = pubIP.split(".");
+  if (parts.length !== 4) return "";
+  const last = parts[3];
+  if (!last || !/^\d+$/.test(last)) return "";
+  return `${prefix}.${last}`;
+}
+
 export const Route = createFileRoute("/admin/node-join")({
   component: NodeJoinPage,
 });
@@ -278,15 +288,27 @@ function NodeJoinPage() {
                       <FormField label={t("admin.nodes.add.bridgeName", "桥接名（默认 br-pub）")}>
                         <Input value={bridgeName} onChange={(e) => setBridgeName(e.target.value)} placeholder="br-pub" />
                       </FormField>
+                      {/* OPS-028 L2：placeholder 跟着 publicIP 末位走，运维不用心算 */}
                       <FormField label={t("admin.nodes.add.mgmtIP", "mgmt IP（默认按 pub IP 末位推算）")}>
-                        <Input value={mgmtIP} onChange={(e) => setMgmtIP(e.target.value)} placeholder="10.0.10.6" />
+                        <Input value={mgmtIP} onChange={(e) => setMgmtIP(e.target.value)} placeholder={derivedInternalIP("10.0.10", publicIP)} />
                       </FormField>
                       <FormField label={t("admin.nodes.add.cephPubIP", "Ceph public IP（默认推算 10.0.20.X）")}>
-                        <Input value={cephPubIP} onChange={(e) => setCephPubIP(e.target.value)} placeholder="10.0.20.6" />
+                        <Input value={cephPubIP} onChange={(e) => setCephPubIP(e.target.value)} placeholder={derivedInternalIP("10.0.20", publicIP)} />
                       </FormField>
                       <FormField label={t("admin.nodes.add.cephClusterIP", "Ceph cluster IP（默认推算 10.0.30.X）")}>
-                        <Input value={cephClusterIP} onChange={(e) => setCephClusterIP(e.target.value)} placeholder="10.0.30.6" />
+                        <Input value={cephClusterIP} onChange={(e) => setCephClusterIP(e.target.value)} placeholder={derivedInternalIP("10.0.30", publicIP)} />
                       </FormField>
+                      {skipNetwork && !mgmtIP
+                        ? (
+                            <div className="rounded-md border border-status-warning/30 bg-status-warning/8 p-2 text-xs text-status-warning">
+                              {t(
+                                "admin.nodes.add.skipNetworkWarn",
+                                "skip-network 模式下 mgmt IP 为空将走 pub IP 末位推算（{{ip}}）；如不一致请显式填入。",
+                                { ip: derivedInternalIP("10.0.10", publicIP) || "—" },
+                              )}
+                            </div>
+                          )
+                        : null}
                     </div>
                   </details>
 

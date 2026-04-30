@@ -178,8 +178,8 @@ function BillingPage() {
                   <TableRow className="hover:bg-transparent">
                     <TableHead>#</TableHead>
                     <TableHead>{t("invoice.order", { defaultValue: "Order" })}</TableHead>
-                    <TableHead className="text-right">{t("invoice.amount")}</TableHead>
-                    <TableHead>{t("invoice.status")}</TableHead>
+                    <TableHead className="text-right">{t("invoice.amount", { defaultValue: "Amount" })}</TableHead>
+                    <TableHead>{t("invoice.status", { defaultValue: "Status" })}</TableHead>
                     <TableHead>{t("invoice.paidAt", { defaultValue: "支付时间" })}</TableHead>
                     <TableHead className="text-right">{t("vm.actions")}</TableHead>
                   </TableRow>

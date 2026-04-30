@@ -269,7 +269,7 @@ func (h *ClusterMgmtHandler) NodeDetail(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"node":      resp.Metadata,
-		"instances": nodeInstances,
+		"instances": redactInstanceList(nodeInstances),
 	})
 }
 
@@ -409,9 +409,11 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		SSHKeyFile   string `json:"ssh_key_file"   validate:"omitempty,max=512"`
 		Role         string `json:"role"           validate:"omitempty,oneof=osd mon-mgr-osd"`
 		// OPS-026 / PLAN-028：拓扑覆盖（可选；不传走 cluster-env.sh 默认）
-		NICPrimary    string `json:"nic_primary"      validate:"omitempty,max=64"`
-		NICCluster    string `json:"nic_cluster"      validate:"omitempty,max=64"`
-		BridgeName    string `json:"bridge_name"      validate:"omitempty,max=64"`
+		// OPS-028 L1：safename 双重防御 —— shellQuote 已防 injection，safename
+		// 限制 charset 让奇怪输入早死于 422 而不是远端脚本失败
+		NICPrimary    string `json:"nic_primary"      validate:"omitempty,safename,max=64"`
+		NICCluster    string `json:"nic_cluster"      validate:"omitempty,safename,max=64"`
+		BridgeName    string `json:"bridge_name"      validate:"omitempty,safename,max=64"`
 		MgmtIP        string `json:"mgmt_ip"          validate:"omitempty,ip"`
 		CephPubIP     string `json:"ceph_pub_ip"      validate:"omitempty,ip"`
 		CephClusterIP string `json:"ceph_cluster_ip"  validate:"omitempty,ip"`

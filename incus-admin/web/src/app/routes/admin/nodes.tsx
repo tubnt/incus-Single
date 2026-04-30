@@ -8,7 +8,7 @@ import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
 
-  clusterEnvScriptURL,
+  downloadClusterEnvScript,
   nodeKeys,
   useAdminNodeDetailQuery,
   useAdminNodesQuery,
@@ -54,18 +54,19 @@ function NodesPage() {
             >
               {t("admin.nodes.joinWizard", "+ 加入节点")}
             </Link>
-            {/* OPS-024 C2：下载 cluster-env.sh（路由 step-up gated，浏览器
-                直链触发新 OIDC round-trip 是预期；下载后 ops 在 cluster
-                bootstrap 节点放到 cluster/configs/ 覆盖原 file） */}
+            {/* OPS-024 C2 + OPS-028 P3.4：下载 cluster-env.sh。改用 fetch
+                走 stepUp 401 拦截 → 跳 OIDC，避免浏览器直链落到 step-up JSON
+                响应裸页。下载后 ops 在 cluster bootstrap 节点放到
+                cluster/configs/ 覆盖原 file。*/}
             {nodes.length > 0
               ? (
-                  <a
-                    href={clusterEnvScriptURL(nodes[0]!.cluster)}
-                    download
-                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadClusterEnvScript(nodes[0]!.cluster)}
                   >
                     {t("admin.nodes.downloadEnvScript", "下载 cluster-env.sh")}
-                  </a>
+                  </Button>
                 )
               : null}
             <Button
