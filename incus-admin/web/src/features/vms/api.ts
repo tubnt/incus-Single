@@ -345,13 +345,36 @@ export interface AdminCreateVMParams {
   disk_gb: number;
   os_image: string;
   project: string;
+  // OPS-024 B2：1..16；省略或 1 走单 VM 路径返 vm_name + password。
+  count?: number;
 }
 
-export interface AdminCreateVMResult {
+export interface AdminCreateVMItem {
+  job_id: number;
+  vm_id: number;
   vm_name: string;
   ip: string;
-  username: string;
-  password: string;
+}
+
+// 异步 + batch 后的真实响应：单 VM 仍带 vm_name/password 字段；batch (count>1)
+// 走 status="provisioning" + items[]。同步兜底（jobs runtime 缺失）走 status=
+// "created" + 立即填 password。前端按 status / job_id / items 三种字段判断分流。
+export interface AdminCreateVMResult {
+  status?: string;
+  // 单 VM 异步路径
+  job_id?: number;
+  vm_id?: number;
+  vm_name?: string;
+  ip?: string;
+  // 同步兜底
+  username?: string;
+  password?: string;
+  // batch
+  count?: number;
+  items?: AdminCreateVMItem[];
+  // 部分失败时
+  failed_at?: number;
+  error?: string;
 }
 
 export function useAdminCreateVMMutation(clusterName: string) {

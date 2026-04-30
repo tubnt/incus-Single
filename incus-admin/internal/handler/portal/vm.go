@@ -913,9 +913,15 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		Project      string   `json:"project"        validate:"omitempty,safename"`
 		SSHKeys      []string `json:"ssh_keys"       validate:"omitempty,dive,max=8192"`
 		TargetUserID int64    `json:"target_user_id" validate:"gte=0"`
+		// OPS-024 B2：count 为空 / 1 表示单 VM；2..16 一次性入队多个 jobs。
+		// 上限 16 防止 admin 误操作 IP 池一次性耗尽。
+		Count int `json:"count" validate:"omitempty,gte=1,lte=16"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
+	}
+	if req.Count == 0 {
+		req.Count = 1
 	}
 
 	if req.CPU == 0 { req.CPU = 2 }
@@ -929,13 +935,6 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 	network := cc.Network
 	if network == "" { network = "br-pub" }
 
-	ip, gateway, cidr, err := allocateIP(r.Context(), cc, 0)
-	if err != nil {
-		slog.Error("allocate IP failed", "cluster", clusterName, "error", err)
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs: " + err.Error()})
-		return
-	}
-
 	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
 	if req.TargetUserID > 0 {
 		userID = req.TargetUserID
@@ -946,8 +945,20 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		req.SSHKeys = sshKeys
 	}
 
+	// OPS-024 B2：sync fallback 不支持 batch（兜底路径少用 + sync 阻塞 N*30s 不友好）
+	if (h.jobs == nil || h.jobRepo == nil) && req.Count > 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "batch create requires async jobs runtime"})
+		return
+	}
+
 	if h.jobs == nil || h.jobRepo == nil {
-		// 兜底：未注入 jobs runtime 时同步路径
+		// 兜底：未注入 jobs runtime 时同步路径（count == 1）
+		ip, gateway, cidr, ipErr := allocateIP(r.Context(), cc, 0)
+		if ipErr != nil {
+			slog.Error("allocate IP failed", "cluster", clusterName, "error", ipErr)
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs: " + ipErr.Error()})
+			return
+		}
 		result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
 			ClusterName: clusterName,
 			Project:     req.Project,
@@ -994,66 +1005,86 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 异步路径
+	// 异步路径：循环 count 次。任一步失败 → 已成功的保留（每个 job 独立）+ 当前步报 error。
 	clusterID := h.clusters.IDByName(clusterName)
-	vmName := service.GenerateVMName()
-
-	ipRef := ip
-	vm := &model.VM{
-		Name:      vmName,
-		ClusterID: clusterID,
-		UserID:    userID,
-		Status:    model.VMStatusCreating,
-		CPU:       req.CPU,
-		MemoryMB:  req.MemoryMB,
-		DiskGB:    req.DiskGB,
-		OSImage:   req.OSImage,
-		IP:        &ipRef,
+	type batchItem struct {
+		JobID  int64  `json:"job_id"`
+		VMID   int64  `json:"vm_id"`
+		VMName string `json:"vm_name"`
+		IP     string `json:"ip"`
 	}
-	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
-		// IP 已分配 → release
-		_ = ipAddrRepo.Release(r.Context(), ip)
-		slog.Error("vm row insert failed (admin)", "name", vmName, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "vm row create failed: " + err.Error()})
+	results := make([]batchItem, 0, req.Count)
+	for i := 0; i < req.Count; i++ {
+		ip, gateway, cidr, ipErr := allocateIP(r.Context(), cc, 0)
+		if ipErr != nil {
+			slog.Error("allocate IP failed in batch", "cluster", clusterName, "i", i, "error", ipErr)
+			if len(results) > 0 {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"status": "partial", "items": results, "failed_at": i, "error": ipErr.Error(),
+				})
+				return
+			}
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "no available IPs: " + ipErr.Error()})
+			return
+		}
+		vmName := service.GenerateVMName()
+		ipRef := ip
+		vm := &model.VM{
+			Name: vmName, ClusterID: clusterID, UserID: userID, Status: model.VMStatusCreating,
+			CPU: req.CPU, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB, OSImage: req.OSImage, IP: &ipRef,
+		}
+		if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+			_ = ipAddrRepo.Release(r.Context(), ip)
+			slog.Error("vm row insert failed (admin batch)", "name", vmName, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"status": "partial", "items": results, "failed_at": i, "error": "vm row: " + err.Error(),
+			})
+			return
+		}
+		attachIPToVM(r.Context(), ip, vm.ID)
+
+		job, err := h.jobRepo.Create(r.Context(), model.JobKindVMCreate, userID, clusterID, nil, &vm.ID, vmName)
+		if err != nil {
+			_ = ipAddrRepo.Release(r.Context(), ip)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"status": "partial", "items": results, "failed_at": i, "error": "create job: " + err.Error(),
+			})
+			return
+		}
+		if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+			Project: req.Project, CPU: req.CPU, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB,
+			OSImage: req.OSImage, SSHKeys: req.SSHKeys,
+			IP: ip, Gateway: gateway, SubnetCIDR: cidr,
+			StoragePool: pool, Network: network,
+		}); err != nil {
+			_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+			_ = ipAddrRepo.Release(r.Context(), ip)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"status": "partial", "items": results, "failed_at": i, "error": "enqueue: " + err.Error(),
+			})
+			return
+		}
+		results = append(results, batchItem{JobID: job.ID, VMID: vm.ID, VMName: vmName, IP: ip})
+		audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{
+			"name": vmName, "ip": ip, "admin": true, "job_id": job.ID, "batch": req.Count > 1, "batch_idx": i,
+		})
+	}
+
+	// 单 VM 兼容：保留旧响应字段；多 VM 返 items 数组。
+	if req.Count == 1 && len(results) == 1 {
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"status":  "provisioning",
+			"job_id":  results[0].JobID,
+			"vm_id":   results[0].VMID,
+			"vm_name": results[0].VMName,
+			"ip":      results[0].IP,
+		})
 		return
 	}
-	attachIPToVM(r.Context(), ip, vm.ID)
-
-	job, err := h.jobRepo.Create(r.Context(), model.JobKindVMCreate, userID, clusterID, nil, &vm.ID, vmName)
-	if err != nil {
-		_ = ipAddrRepo.Release(r.Context(), ip)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
-		return
-	}
-
-	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
-		Project:     req.Project,
-		CPU:         req.CPU,
-		MemoryMB:    req.MemoryMB,
-		DiskGB:      req.DiskGB,
-		OSImage:     req.OSImage,
-		SSHKeys:     req.SSHKeys,
-		IP:          ip,
-		Gateway:     gateway,
-		SubnetCIDR:  cidr,
-		StoragePool: pool,
-		Network:     network,
-	}); err != nil {
-		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
-		_ = ipAddrRepo.Release(r.Context(), ip)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue job: " + err.Error()})
-		return
-	}
-
-	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{
-		"name": vmName, "ip": ip, "admin": true, "job_id": job.ID,
-	})
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"status":  "provisioning",
-		"job_id":  job.ID,
-		"vm_id":   vm.ID,
-		"vm_name": vmName,
-		"ip":      ip,
+		"status": "provisioning",
+		"count":  len(results),
+		"items":  results,
 	})
 }
 

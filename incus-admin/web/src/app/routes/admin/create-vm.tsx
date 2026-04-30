@@ -38,6 +38,8 @@ function CreateVMPage() {
   const [preset, setPreset] = useState(1);
   const [osImage, setOsImage] = useState<string>(DEFAULT_OS_IMAGE);
   const [project, setProject] = useState("");
+  // OPS-024 B2：批量创建 1..16
+  const [count, setCount] = useState(1);
 
   const { data: clustersData } = useClustersQuery();
   const clusters = clustersData?.clusters ?? [];
@@ -63,12 +65,13 @@ function CreateVMPage() {
         disk_gb: selected.disk_gb,
         os_image: osImage,
         project,
+        count: count > 1 ? count : undefined,
       },
       { onSuccess: (data) => setResult(data) },
     );
   };
 
-  const submitDisabled = createMutation.isPending || !clusterName || !project;
+  const submitDisabled = createMutation.isPending || !clusterName || !project || count < 1 || count > 16;
 
   return (
     <PageShell>
@@ -83,37 +86,74 @@ function CreateVMPage() {
         })}
       />
       <PageContent>
-        {result ? (
-          <Card className="border-status-success/30 bg-status-success/8">
-            <CardContent className="p-4 space-y-3">
-              <div className="font-strong text-sm text-status-success">
-                {t("admin.vmCreated", { defaultValue: "VM 创建成功" })}
-              </div>
-              <div className="space-y-2">
-                <SecretReveal label={t("vm.name")} value={result.vm_name} inline={false} />
-                <SecretReveal label={t("vm.ip")} value={result.ip ?? ""} inline={false} autoMaskMs={0} />
-                <SecretReveal label={t("vm.username")} value={result.username} inline={false} />
-                <SecretReveal label={t("vm.password")} value={result.password} inline={false} />
-              </div>
-              <p className="text-caption text-text-tertiary">
-                {t("admin.savePwdHint", {
-                  defaultValue: "请保存以上凭据 —— 密码仅显示一次。",
-                })}
-              </p>
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    setResult(null);
-                    navigate({ to: "/admin/vms" });
-                  }}
-                >
-                  {t("admin.goToAllVms", { defaultValue: "前往 VM 列表" })}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
+        {result
+          ? (
+              <Card className="border-status-success/30 bg-status-success/8">
+                <CardContent className="p-4 space-y-3">
+                  <div className="font-strong text-sm text-status-success">
+                    {result.items && result.items.length > 0
+                      ? t("admin.vmsCreated", { defaultValue: "已入队 {{n}} 台 VM", n: result.items.length })
+                      : t("admin.vmCreated", { defaultValue: "VM 创建成功" })}
+                  </div>
+                  {result.items && result.items.length > 0
+                    ? (
+                        <div className="space-y-2">
+                          <p className="text-caption text-text-tertiary">
+                            {t("admin.batchProvisioningHint", {
+                              defaultValue: "异步入队，进度可在「订单」/「VM 列表」逐台查看：",
+                            })}
+                          </p>
+                          <ul className="space-y-1 text-caption font-mono">
+                            {result.items.map((it) => (
+                              <li key={it.job_id} className="flex justify-between">
+                                <span>{it.vm_name}</span>
+                                <span className="text-text-tertiary">job #{it.job_id} · {it.ip}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
+                    : (
+                        <div className="space-y-2">
+                          <SecretReveal label={t("vm.name")} value={result.vm_name ?? ""} inline={false} />
+                          <SecretReveal label={t("vm.ip")} value={result.ip ?? ""} inline={false} autoMaskMs={0} />
+                          {result.username
+                            ? <SecretReveal label={t("vm.username")} value={result.username} inline={false} />
+                            : null}
+                          {result.password
+                            ? <SecretReveal label={t("vm.password")} value={result.password} inline={false} />
+                            : null}
+                          {result.job_id
+                            ? (
+                                <p className="text-caption text-text-tertiary">
+                                  {t("admin.asyncHint", {
+                                    defaultValue: "异步创建中，job #{{id}}。完成后密码会通过 SSE 流送达。",
+                                    id: result.job_id,
+                                  })}
+                                </p>
+                              )
+                            : (
+                                <p className="text-caption text-text-tertiary">
+                                  {t("admin.savePwdHint", { defaultValue: "请保存以上凭据 —— 密码仅显示一次。" })}
+                                </p>
+                              )}
+                        </div>
+                      )}
+                  <div className="flex justify-end">
+                    <Button
+                      variant="primary"
+                      onClick={() => {
+                        setResult(null);
+                        navigate({ to: "/admin/vms" });
+                      }}
+                    >
+                      {t("admin.goToAllVms", { defaultValue: "前往 VM 列表" })}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          : null}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 max-w-5xl">
           <div className="lg:col-span-2 space-y-4">
@@ -126,7 +166,7 @@ function CreateVMPage() {
                   <ClusterPicker
                     value={clusterName}
                     onChange={setClusterName}
-                    className="w-full h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-[color:var(--accent)]"
+                    className="w-full h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-ring"
                   />
                 </CardContent>
               </Card>
@@ -180,7 +220,7 @@ function CreateVMPage() {
                 <OsImagePicker
                   value={osImage}
                   onChange={setOsImage}
-                  className="w-full h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-[color:var(--accent)]"
+                  className="w-full h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-ring"
                 />
               </CardContent>
             </Card>
@@ -196,6 +236,37 @@ function CreateVMPage() {
                   value={project}
                   onChange={setProject}
                 />
+              </CardContent>
+            </Card>
+
+            {/* OPS-024 B2：批量创建 1..16 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-h3">{t("admin.batchCount", { defaultValue: "批量数量（1..16）" })}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  step={1}
+                  value={count}
+                  onChange={(e) => {
+                    const n = Number.parseInt(e.target.value, 10);
+                    setCount(Number.isNaN(n) ? 1 : Math.min(16, Math.max(1, n)));
+                  }}
+                  className="w-32 h-9 rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-ring"
+                />
+                {count > 1
+                  ? (
+                      <p className="text-caption text-text-tertiary mt-2">
+                        {t("admin.batchCountHint", {
+                          defaultValue: "将一次性入队 {{n}} 个 VM job；每个独立 IP / 独立进度。完成后通过订单 / VM 列表查看。",
+                          n: count,
+                        })}
+                      </p>
+                    )
+                  : null}
               </CardContent>
             </Card>
           </div>

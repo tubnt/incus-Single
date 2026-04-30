@@ -47,6 +47,9 @@ var sensitiveRoutes = []sensitiveRoute{
 	// PLAN-026 / INFRA-002 节点 add/remove —— 物理 SSH 编排，step-up 必须
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes$`)},
 	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+$`)},
+	// OPS-024 D2 maintenance + C2 env-script 暴露集群拓扑，step-up 必须
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+/maintenance$`)},
+	{method: http.MethodGet, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/env-script$`)},
 }
 
 func isSensitive(method, path string) bool {
