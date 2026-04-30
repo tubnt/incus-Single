@@ -239,7 +239,16 @@
         "progressTitle": "移除节点进度",
         "done": "节点 {{name}} 已移除",
         "failed": "移除失败"
-      }
+      },
+      "maintenance": {
+        "enter": "维护模式",
+        "exit": "退出维护",
+        "enterTitle": "进入维护模式",
+        "exitTitle": "退出维护模式",
+        "enterMessage": "把 {{name}} 设为维护模式：新建 VM 不再放置到此节点，但已有 VM 保留。要 evacuate 现有 VM 请用上方按钮。",
+        "exitMessage": "恢复 {{name}} 的常规调度（新建 VM 可放置到本节点）。"
+      },
+      "downloadEnvScript": "下载 cluster-env.sh"
     },
     "observability": {
       "accessNoteBody": "这些面板位于集群内网 (10.0.20.0/24)，需要 WireGuard VPN 或 SSH 隧道才能访问。嵌入视图仅在浏览器可达集群网络时有效。",

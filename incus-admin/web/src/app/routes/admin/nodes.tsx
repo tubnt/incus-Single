@@ -8,10 +8,12 @@ import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
 
+  clusterEnvScriptURL,
   nodeKeys,
   useAdminNodeDetailQuery,
   useAdminNodesQuery,
   useNodeEvacuateMutation,
+  useNodeMaintenanceMutation,
   useNodeRestoreMutation,
   useRemoveNodeMutation
 } from "@/features/nodes/api";
@@ -52,6 +54,20 @@ function NodesPage() {
             >
               {t("admin.nodes.joinWizard", "+ 加入节点")}
             </Link>
+            {/* OPS-024 C2：下载 cluster-env.sh（路由 step-up gated，浏览器
+                直链触发新 OIDC round-trip 是预期；下载后 ops 在 cluster
+                bootstrap 节点放到 cluster/configs/ 覆盖原 file） */}
+            {nodes.length > 0
+              ? (
+                  <a
+                    href={clusterEnvScriptURL(nodes[0]!.cluster)}
+                    download
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    {t("admin.nodes.downloadEnvScript", "下载 cluster-env.sh")}
+                  </a>
+                )
+              : null}
             <Button
               variant="ghost"
               size="sm"
@@ -182,6 +198,7 @@ function NodeDetail({
   const evacuateMutation = useNodeEvacuateMutation(clusterName, nodeName);
   const restoreMutation = useNodeRestoreMutation(clusterName, nodeName);
   const removeMutation = useRemoveNodeMutation(clusterName);
+  const maintenanceMutation = useNodeMaintenanceMutation(clusterName, nodeName);
 
   // PLAN-026 remove SSE 监听
   const removeStream = useJobStream(removeJobId);
@@ -274,6 +291,49 @@ function NodeDetail({
                 )?.message ?? "操作失败"}
               </span>
             )}
+
+            {/* OPS-024 D2 软维护切换：scheduler.instance = manual / all */}
+            {(() => {
+              const sched = (() => {
+                if (!nodeInfo) return "all";
+                const cfg = nodeInfo.config as Record<string, string> | undefined;
+                return (cfg?.["scheduler.instance"] ?? "all").toLowerCase();
+              })();
+              const isMaint = sched === "manual";
+              return (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={maintenanceMutation.isPending}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: isMaint
+                        ? t("admin.nodes.maintenance.exitTitle", "退出维护模式")
+                        : t("admin.nodes.maintenance.enterTitle", "进入维护模式"),
+                      message: isMaint
+                        ? t("admin.nodes.maintenance.exitMessage", {
+                            defaultValue: "恢复 {{name}} 的常规调度（新建 VM 可放置到本节点）。",
+                            name: nodeName,
+                          })
+                        : t("admin.nodes.maintenance.enterMessage", {
+                            defaultValue: "把 {{name}} 设为维护模式：新建 VM 不再放置到此节点，但已有 VM 保留。要 evacuate 现有 VM 请用上方按钮。",
+                            name: nodeName,
+                          }),
+                    });
+                    if (!ok) return;
+                    maintenanceMutation.mutate(!isMaint, {
+                      onError: (err) => toast.error((err as Error).message),
+                    });
+                  }}
+                >
+                  {maintenanceMutation.isPending
+                    ? t("common.processing", "处理中...")
+                    : isMaint
+                      ? t("admin.nodes.maintenance.exit", "退出维护")
+                      : t("admin.nodes.maintenance.enter", "维护模式")}
+                </Button>
+              );
+            })()}
 
             {/* PLAN-026 移除节点：destructive，先 evacuate VM 再 leave Incus / Ceph */}
             {removeJobId == null && (

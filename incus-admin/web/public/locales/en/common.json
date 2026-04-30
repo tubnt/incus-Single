@@ -237,7 +237,16 @@
         "progressTitle": "Remove progress",
         "done": "Node {{name}} removed",
         "failed": "Remove failed"
-      }
+      },
+      "maintenance": {
+        "enter": "Maintenance",
+        "exit": "Exit Maintenance",
+        "enterTitle": "Enter Maintenance Mode",
+        "exitTitle": "Exit Maintenance Mode",
+        "enterMessage": "Mark {{name}} as maintenance: new VMs will skip this node; existing VMs stay. Use Evacuate above to migrate existing.",
+        "exitMessage": "Restore {{name}} to regular scheduling (new VMs may land here)."
+      },
+      "downloadEnvScript": "Download cluster-env.sh"
     },
     "observability": {
       "accessNoteBody": "These dashboards are on the cluster internal network (10.0.20.0/24). Access requires WireGuard VPN or SSH tunnel. The embedded view only works if your browser can reach the cluster network.",

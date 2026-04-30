@@ -1,5 +1,20 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [feat]
+
+OPS-024 — admin batch VM create / cluster-env.sh 自动生成 / 节点 maintenance mode（用户决策）：
+
+- **B2 admin batch create**：`POST /admin/clusters/{name}/vms` 接 `count: 1..16` 字段。多 VM 分别 allocate IP + INSERT vms row + 入队 jobs runner + 返 `items[]: {job_id, vm_id, vm_name, ip}`。中途失败返 `partial` + `failed_at` 已成功的不回滚。前端 admin create-vm 页加数量输入 + 批量结果展示 list。
+- **C2 cluster-env.sh 生成**：`GET /admin/clusters/{name}/env-script`，step-up gated（加入 sensitive routes）。读 `incus cluster members` API → 按 5ok.co 拓扑约定（mgmt 10.0.10.X / ceph 10.0.20.X / pub 202.151.179.X 共用 mgmt IP 末位）反推 `CLUSTER_NODES` 数组。返回 `Content-Type: text/x-shellscript` 触发浏览器下载。前端 admin nodes 页加"下载 cluster-env.sh"按钮。生成内容附 `# WARN: ops should hand-verify` 提醒拓扑差异时人工核对。
+- **D2 maintenance mode**：`POST /admin/clusters/{name}/nodes/{node}/maintenance` `{enabled: bool}` → Incus `PATCH /1.0/cluster/members/{name} {config: {scheduler.instance: 'manual'|'all'}}`。enabled=true 防新放置但保留现有 VM；evacuate 是另一个独立按钮。前端 NodeDetail 卡 toggle，根据 `nodeInfo.config["scheduler.instance"]` 反映当前态。step-up 路由白名单 +1。
+- 顺手把 admin/create-vm.tsx 的 `focus:border-[color:var(--accent)]` arbitrary value 全部换为 `focus:border-ring` token，符合 DESIGN.md 纪律。
+
+**生产 vmc.5ok.co 实测**：部署后 `GET /api/admin/clusters/cn-sz-01/env-script` 返 401（step-up 拦截）；systemd active；后端 go vet/test 全绿；前端 tsc 0 / vitest 37/37 / build OK。
+
+**安全**：env-script 路由暴露集群拓扑信息，强制走 OIDC step-up（5min 时窗）+ admin 角色 + audit log。
+
+---
+
 ## 2026-04-30 [security]
 
 OPS-022 — `vms.password` DB 字段 AES-256-GCM 加密。先前明文存储，admin 直接 `psql` 查询或 `pg_dump` 备份能看到所有用户密码，前端"密码仅显示一次"文案对用户是误导。

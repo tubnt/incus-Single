@@ -167,6 +167,31 @@ export function useAddNodeMutation(clusterName: string) {
   });
 }
 
+// OPS-024 D2 maintenance mode toggle（Incus scheduler.instance = manual / all）
+export function useNodeMaintenanceMutation(clusterName: string, nodeName: string) {
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      http.post(`/admin/clusters/${clusterName}/nodes/${nodeName}/maintenance`, { enabled }, {
+        intent: {
+          action: "node.maintenance",
+          args: { cluster: clusterName, node: nodeName, enabled },
+          description: enabled
+            ? `把节点 ${nodeName} 设为维护模式（防新放置，保留现 VM）`
+            : `恢复节点 ${nodeName} 的常规调度`,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+      queryClient.invalidateQueries({ queryKey: clusterKeys.all });
+    },
+  });
+}
+
+// OPS-024 C2：cluster-env.sh 下载（通过 step-up 鉴权）
+export function clusterEnvScriptURL(clusterName: string): string {
+  return `/api/admin/clusters/${clusterName}/env-script`;
+}
+
 export function useRemoveNodeMutation(clusterName: string) {
   return useMutation({
     mutationFn: (params: { nodeName: string; leader?: string }) => {
