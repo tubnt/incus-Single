@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/incuscloud/incus-admin/internal/auth"
 	"github.com/incuscloud/incus-admin/internal/model"
 )
 
@@ -18,13 +20,48 @@ func NewVMRepo(db *sql.DB) *VMRepo {
 	return &VMRepo{db: db}
 }
 
+// encryptForWrite 把内存里的明文密码加密成 v1:... 形式给 INSERT/UPDATE 用。
+// nil → nil；空 *string → 空 *string；加密失败 → 退回原明文（保证业务不阻塞）+ warn。
+// OPS-022：encryption disabled 时 passthrough 原样返回。
+func encryptForWrite(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	if *p == "" {
+		return p
+	}
+	enc, err := auth.EncryptPassword(*p)
+	if err != nil {
+		slog.Warn("vm password encrypt failed; storing plaintext", "error", err)
+		return p
+	}
+	cp := enc
+	return &cp
+}
+
+// decryptOnRead 反向：DB 读出的 *string 如果是 v1:... 解密。失败 → 返回 nil
+// （前端 SecretReveal 会显示空，避免泄露错误密文给用户）+ warn。
+func decryptOnRead(p *string) *string {
+	if p == nil || *p == "" {
+		return p
+	}
+	dec, err := auth.DecryptPassword(*p)
+	if err != nil {
+		slog.Warn("vm password decrypt failed; returning nil", "error", err)
+		return nil
+	}
+	cp := dec
+	return &cp
+}
+
 func (r *VMRepo) Create(ctx context.Context, vm *model.VM) error {
+	encPwd := encryptForWrite(vm.Password) // OPS-022
 	return r.db.QueryRowContext(ctx,
 		`INSERT INTO vms (name, cluster_id, user_id, order_id, ip, status, cpu, memory_mb, disk_gb, os_image, node, password)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING id, created_at, updated_at`,
 		vm.Name, vm.ClusterID, vm.UserID, vm.OrderID, vm.IP,
-		vm.Status, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSImage, vm.Node, vm.Password,
+		vm.Status, vm.CPU, vm.MemoryMB, vm.DiskGB, vm.OSImage, vm.Node, encPwd,
 	).Scan(&vm.ID, &vm.CreatedAt, &vm.UpdatedAt)
 }
 
@@ -39,6 +76,9 @@ func (r *VMRepo) GetByID(ctx context.Context, id int64) (*model.VM, error) {
 		&vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if err == nil {
+		vm.Password = decryptOnRead(vm.Password) // OPS-022
 	}
 	return &vm, err
 }
@@ -103,6 +143,7 @@ func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) 
 	if err != nil {
 		return nil, fmt.Errorf("get vm by name: %w", err)
 	}
+	vm.Password = decryptOnRead(vm.Password) // OPS-022
 	return &vm, nil
 }
 
@@ -147,9 +188,13 @@ func (r *VMRepo) UpdateStatus(ctx context.Context, id int64, status string) erro
 }
 
 func (r *VMRepo) UpdatePassword(ctx context.Context, id int64, password string) error {
-	_, err := r.db.ExecContext(ctx,
+	enc, err := auth.EncryptPassword(password) // OPS-022
+	if err != nil {
+		return fmt.Errorf("encrypt password: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx,
 		`UPDATE vms SET password = $1, updated_at = $2 WHERE id = $3`,
-		password, time.Now(), id)
+		enc, time.Now(), id)
 	return err
 }
 
@@ -164,11 +209,15 @@ func (r *VMRepo) UpdateNode(ctx context.Context, id int64, node string) error {
 // password 写回。仅在 status='creating' 或 status='running'（重装情形）时改，
 // 防止把 admin 已手动转 'error' 的行又翻回 running。
 func (r *VMRepo) UpdateAfterProvision(ctx context.Context, id int64, node, password string) error {
-	_, err := r.db.ExecContext(ctx,
+	enc, err := auth.EncryptPassword(password) // OPS-022
+	if err != nil {
+		return fmt.Errorf("encrypt password: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx,
 		`UPDATE vms
 		 SET status = 'running', node = $1, password = $2, updated_at = $3
 		 WHERE id = $4 AND status IN ('creating','running')`,
-		node, password, time.Now(), id)
+		node, enc, time.Now(), id)
 	return err
 }
 
@@ -329,6 +378,7 @@ func scanVMs(rows *sql.Rows) ([]model.VM, error) {
 			&vm.CreatedAt, &vm.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan vm: %w", err)
 		}
+		vm.Password = decryptOnRead(vm.Password) // OPS-022
 		vms = append(vms, vm)
 	}
 	return vms, rows.Err()
