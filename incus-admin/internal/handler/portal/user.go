@@ -33,6 +33,8 @@ func NewUserHandler(repo *repository.UserRepo) *UserHandler {
 
 func (h *UserHandler) AdminRoutes(r chi.Router) {
 	r.Get("/users", h.ListUsers)
+	// PLAN-023 Phase C: batch 必须排在 /{id} 通配前。
+	r.Post("/users:batch", h.BatchUsers)
 	r.Get("/users/{id}", h.GetUser)
 	r.Put("/users/{id}/role", h.UpdateRole)
 	r.Post("/users/{id}/balance", h.TopUpBalance)

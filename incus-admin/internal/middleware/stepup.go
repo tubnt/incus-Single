@@ -33,6 +33,12 @@ type sensitiveRoute struct {
 var sensitiveRoutes = []sensitiveRoute{
 	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/vms/[^/]+$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms/[^/]+/migrate$`)},
+	// PLAN-023: batch operations are gated wholesale (step-up is per-session,
+	// not per-action; even start/stop batch requires recent reauth as it's
+	// admin-only and high blast radius).
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:batch$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/floating-ips:batch$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/users:batch$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+/evacuate$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+/restore$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/nodes/[^/]+/evacuate$`)},

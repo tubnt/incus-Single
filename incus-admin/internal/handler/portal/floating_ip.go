@@ -45,6 +45,8 @@ func (h *FloatingIPHandler) lookupClusterID(ctx context.Context, name string) (i
 func (h *FloatingIPHandler) AdminRoutes(r chi.Router) {
 	r.Get("/floating-ips", h.List)
 	r.Post("/floating-ips", h.Allocate)
+	// PLAN-023 Phase B: batch 必须排在 /{id} 通配前。
+	r.Post("/floating-ips:batch", h.BatchFloatingIPs)
 	r.Delete("/floating-ips/{id}", h.Release)
 	r.Post("/floating-ips/{id}/attach", h.Attach)
 	r.Post("/floating-ips/{id}/detach", h.Detach)
