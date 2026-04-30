@@ -25,11 +25,11 @@ func seedPaidOrderAndIP(t *testing.T, db *sql.DB, amount float64) (userID, order
 	}
 	var clusterID, productID int64
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO clusters (name, endpoint) VALUES ('c1','https://x') RETURNING id`).Scan(&clusterID); err != nil {
+		`INSERT INTO clusters (name, api_url) VALUES ('c1','https://x') RETURNING id`).Scan(&clusterID); err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO products (name, price, cpu, memory_mb, disk_gb) VALUES ('p',$1,1,1024,10) RETURNING id`,
+		`INSERT INTO products (name, price_monthly, cpu, memory_mb, disk_gb) VALUES ('p',$1,1,1024,10) RETURNING id`,
 		amount).Scan(&productID); err != nil {
 		t.Fatalf("seed product: %v", err)
 	}
@@ -103,11 +103,14 @@ func TestPay_RollbackOnIPAllocFail(t *testing.T) {
 		t.Errorf("ip.vm_id = %v, want NULL", vmID.Int64)
 	}
 
+	// transactions schema 没有 order_id 字段（生产 AdjustBalance 也不写
+	// order_id），用 user_id + type='refund' 取该用户最近一条退款记录即可。
+	_ = orderID
 	var refundAmount float64
 	var txType string
 	if err := db.QueryRow(
-		`SELECT amount, type FROM transactions WHERE user_id=$1 AND order_id=$2 ORDER BY id DESC LIMIT 1`,
-		userID, orderID).Scan(&refundAmount, &txType); err != nil {
+		`SELECT amount, type FROM transactions WHERE user_id=$1 AND type='refund' ORDER BY id DESC LIMIT 1`,
+		userID).Scan(&refundAmount, &txType); err != nil {
 		t.Fatalf("load refund tx: %v", err)
 	}
 	if refundAmount != amount {

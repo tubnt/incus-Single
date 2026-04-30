@@ -383,6 +383,8 @@ func (h *AdminVMHandler) Routes(r chi.Router) {
 	// at the handler level so a misclick in prod can never run it.
 	r.Post("/clusters/{name}/ha/chaos/simulate-node-down", h.ChaosSimulateNodeDown)
 	r.Get("/vms", h.ListAllVMs)
+	// PLAN-023: batch operations 必须排在 /{name} 通配前，避免 chi 把 ":batch" 当 vmName。
+	r.Post("/vms:batch", h.BatchVMs)
 	r.Put("/vms/{name}/state", h.ChangeVMState)
 	r.Post("/vms/{name}/reinstall", h.ReinstallVM)
 	r.Post("/vms/{name}/migrate", h.MigrateVM)

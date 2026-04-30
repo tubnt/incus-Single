@@ -3,7 +3,27 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuditLogsQuery } from "@/features/audit-logs/api";
 import { stripCidrSuffix, targetLabel } from "@/features/audit-logs/helpers";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Card } from "@/shared/components/ui/card";
+import { DownloadButton } from "@/shared/components/ui/download-button";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { FilterBar, FilterField } from "@/shared/components/ui/filter-bar";
+import { Input } from "@/shared/components/ui/input";
 import { Pagination } from "@/shared/components/ui/pagination";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { StatusPill } from "@/shared/components/ui/status";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/components/ui/table";
 
 export const Route = createFileRoute("/admin/audit-logs")({
   component: AuditLogsPage,
@@ -32,110 +52,121 @@ function AuditLogsPage() {
   const exportHref = `/api/admin/audit-logs/export${exportQuery ? `?${exportQuery}` : ""}`;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("admin.auditLogsTitle")}</h1>
-        <span className="text-xs text-muted-foreground">{t("admin.totalRows", { count: total })}</span>
-      </div>
-
-      <div className="flex flex-wrap gap-3 items-end mb-4 p-3 border border-border rounded-lg bg-muted/20">
-        <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditFromDate", { defaultValue: "起始日期" })}</label>
-          <input
-            type="date"
-            value={exportFrom}
-            onChange={(e) => setExportFrom(e.target.value)}
-            className="h-8 px-2 text-sm border border-border rounded bg-background"
-          />
-        </div>
-        <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditToDate", { defaultValue: "截止日期" })}</label>
-          <input
-            type="date"
-            value={exportTo}
-            onChange={(e) => setExportTo(e.target.value)}
-            className="h-8 px-2 text-sm border border-border rounded bg-background"
-          />
-        </div>
-        <div className="flex flex-col">
-          <label className="text-xs text-muted-foreground mb-1">{t("admin.auditActionPrefix", { defaultValue: "动作前缀" })}</label>
-          <input
-            type="text"
-            value={exportAction}
-            onChange={(e) => setExportAction(e.target.value)}
-            placeholder={t("admin.auditActionPlaceholder", { defaultValue: "如 vm. / node. / http." })}
-            className="h-8 px-2 text-sm border border-border rounded bg-background w-40"
-          />
-        </div>
-        <a
-          href={exportHref}
-          download
-          className="h-8 px-3 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 inline-flex items-center"
+    <PageShell>
+      <PageHeader
+        title={t("admin.auditLogsTitle")}
+        meta={
+          <span className="text-xs text-muted-foreground">
+            {t("admin.totalRows", { count: total })}
+          </span>
+        }
+      />
+      <PageContent>
+        <FilterBar
+          trailing={
+            <>
+              <DownloadButton href={exportHref}>
+                {t("admin.auditExportCsv", { defaultValue: "导出 CSV" })}
+              </DownloadButton>
+              <span className="text-xs text-muted-foreground">
+                {t("admin.auditExportHint", { defaultValue: "默认 30 天，最多 10 万行" })}
+              </span>
+            </>
+          }
         >
-          {t("admin.auditExportCsv", { defaultValue: "导出 CSV" })}
-        </a>
-        <span className="text-xs text-muted-foreground self-center">
-          {t("admin.auditExportHint", { defaultValue: "默认 30 天，最多 10 万行" })}
-        </span>
-      </div>
+          <FilterField
+            htmlFor="audit-from"
+            label={t("admin.auditFromDate", { defaultValue: "起始日期" })}
+          >
+            <Input
+              id="audit-from"
+              type="date"
+              value={exportFrom}
+              onChange={(e) => setExportFrom(e.target.value)}
+              className="h-8 w-40"
+            />
+          </FilterField>
+          <FilterField
+            htmlFor="audit-to"
+            label={t("admin.auditToDate", { defaultValue: "截止日期" })}
+          >
+            <Input
+              id="audit-to"
+              type="date"
+              value={exportTo}
+              onChange={(e) => setExportTo(e.target.value)}
+              className="h-8 w-40"
+            />
+          </FilterField>
+          <FilterField
+            htmlFor="audit-action"
+            label={t("admin.auditActionPrefix", { defaultValue: "动作前缀" })}
+          >
+            <Input
+              id="audit-action"
+              type="text"
+              value={exportAction}
+              onChange={(e) => setExportAction(e.target.value)}
+              placeholder={t("admin.auditActionPlaceholder", { defaultValue: "如 vm. / node. / http." })}
+              className="h-8 w-40"
+            />
+          </FilterField>
+        </FilterBar>
 
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading")}</div>
-      ) : logs.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {t("common.noData")}
-        </div>
-      ) : (
-        <>
-          <div className="border border-border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditTime")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditUser")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditAction")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditTarget")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditIp")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("admin.auditDetails")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id} className="border-t border-border">
-                    <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(log.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-2 text-xs">{log.user_id ?? "—"}</td>
-                    <td className="px-4 py-2">
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-primary/20 text-primary">
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-xs">
-                      {targetLabel(log)}
-                    </td>
-                    <td className="px-4 py-2 text-xs font-mono">{stripCidrSuffix(log.ip_address)}</td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground max-w-xs truncate">
-                      {log.details}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : logs.length === 0 ? (
+          <EmptyState title={t("common.noData")} />
+        ) : (
+          <>
+            <Card className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>{t("admin.auditTime")}</TableHead>
+                    <TableHead>{t("admin.auditUser")}</TableHead>
+                    <TableHead>{t("admin.auditAction")}</TableHead>
+                    <TableHead>{t("admin.auditTarget")}</TableHead>
+                    <TableHead>{t("admin.auditIp")}</TableHead>
+                    <TableHead>{t("admin.auditDetails")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(log.created_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-xs">{log.user_id ?? "—"}</TableCell>
+                      <TableCell>
+                        <StatusPill status="pending">{log.action}</StatusPill>
+                      </TableCell>
+                      <TableCell className="text-xs">{targetLabel(log)}</TableCell>
+                      <TableCell className="text-xs font-mono">
+                        {stripCidrSuffix(log.ip_address)}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
+                        {log.details}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
 
-          <Pagination
-            total={total}
-            limit={limit}
-            offset={offset}
-            onChange={(nextLimit, nextOffset) => {
-              setLimit(nextLimit);
-              setOffset(nextOffset);
-            }}
-            className="mt-3"
-          />
-        </>
-      )}
-    </div>
+            <Pagination
+              total={total}
+              limit={limit}
+              offset={offset}
+              onChange={(nextLimit, nextOffset) => {
+                setLimit(nextLimit);
+                setOffset(nextOffset);
+              }}
+              className="mt-3"
+            />
+          </>
+        )}
+      </PageContent>
+    </PageShell>
   );
 }

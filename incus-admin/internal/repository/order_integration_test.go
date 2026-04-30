@@ -24,11 +24,11 @@ func seedPayable(t *testing.T, db *sql.DB, balance, amount float64) (userID, ord
 	}
 	var clusterID, productID int64
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO clusters (name, endpoint) VALUES ('c','https://x') RETURNING id`).Scan(&clusterID); err != nil {
+		`INSERT INTO clusters (name, api_url) VALUES ('c','https://x') RETURNING id`).Scan(&clusterID); err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO products (name, price, cpu, memory_mb, disk_gb) VALUES ('p',$1,1,1024,10) RETURNING id`,
+		`INSERT INTO products (name, price_monthly, cpu, memory_mb, disk_gb) VALUES ('p',$1,1,1024,10) RETURNING id`,
 		amount).Scan(&productID); err != nil {
 		t.Fatalf("seed product: %v", err)
 	}

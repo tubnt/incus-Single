@@ -1,16 +1,25 @@
 import type {ClusterNode} from "@/features/nodes/api";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  
+
   nodeKeys,
   useAdminNodeDetailQuery,
   useAdminNodesQuery,
   useNodeEvacuateMutation,
   useNodeRestoreMutation
 } from "@/features/nodes/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button, buttonVariants } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { StatusPill } from "@/shared/components/ui/status";
 import { queryClient } from "@/shared/lib/query-client";
 
 export const Route = createFileRoute("/admin/nodes")({
@@ -27,61 +36,65 @@ function NodesPage() {
   const nodes = data?.nodes ?? [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("admin.nodes.title", "集群节点")}</h1>
-        <div className="flex gap-2">
-          <a
-            href="/admin/node-join"
-            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded hover:opacity-90"
-          >
-            {t("admin.nodes.joinWizard", "+ 加入节点")}
-          </a>
-          <button
-            onClick={() =>
-              queryClient.invalidateQueries({ queryKey: nodeKeys.all })
-            }
-            className="px-3 py-1.5 text-sm border border-border rounded hover:bg-muted"
-          >
-            {t("common.refresh", "刷新")}
-          </button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="text-muted-foreground">
-          {t("common.loading", "加载中...")}
-        </div>
-      ) : nodes.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {t("admin.nodes.empty", "未发现集群节点。请先添加集群连接。")}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {nodes.map((node) => (
-            <NodeCard
-              key={`${node.cluster}-${node.server_name}`}
-              node={node}
-              isSelected={
-                selectedNode === node.server_name &&
-                selectedCluster === node.cluster
+    <PageShell>
+      <PageHeader
+        title={t("admin.nodes.title", "集群节点")}
+        actions={
+          <div className="flex gap-2">
+            <Link
+              to="/admin/node-join"
+              className={buttonVariants({ variant: "primary", size: "sm" })}
+            >
+              {t("admin.nodes.joinWizard", "+ 加入节点")}
+            </Link>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                queryClient.invalidateQueries({ queryKey: nodeKeys.all })
               }
-              onSelect={() => {
-                if (
+            >
+              {t("common.refresh", "刷新")}
+            </Button>
+          </div>
+        }
+      />
+      <PageContent>
+        {isLoading ? (
+          <div className="text-muted-foreground">
+            {t("common.loading", "加载中...")}
+          </div>
+        ) : nodes.length === 0 ? (
+          <EmptyState
+            title={t("admin.nodes.empty", "未发现集群节点。请先添加集群连接。")}
+          />
+        ) : (
+          <div className="space-y-3">
+            {nodes.map((node) => (
+              <NodeCard
+                key={`${node.cluster}-${node.server_name}`}
+                node={node}
+                isSelected={
                   selectedNode === node.server_name &&
                   selectedCluster === node.cluster
-                ) {
-                  setSelectedNode(null);
-                } else {
-                  setSelectedNode(node.server_name);
-                  setSelectedCluster(node.cluster);
                 }
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+                onSelect={() => {
+                  if (
+                    selectedNode === node.server_name &&
+                    selectedCluster === node.cluster
+                  ) {
+                    setSelectedNode(null);
+                  } else {
+                    setSelectedNode(node.server_name);
+                    setSelectedCluster(node.cluster);
+                  }
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </PageContent>
+    </PageShell>
   );
 }
 
@@ -94,23 +107,23 @@ function NodeCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const statusColor =
+  const statusKind =
     node.status === "Online"
-      ? "bg-success/20 text-success"
+      ? "success"
       : node.status === "Evacuated"
-        ? "bg-warning/20 text-warning"
-        : "bg-destructive/20 text-destructive";
+        ? "warning"
+        : "error";
 
   return (
-    <div className="border border-border rounded-lg overflow-x-auto">
+    <Card className="overflow-x-auto">
       <button
         type="button"
         onClick={onSelect}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/20 transition-colors text-left"
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-2 transition-colors text-left"
       >
         <div className="flex items-center gap-4">
           <div>
-            <div className="font-semibold">{node.server_name}</div>
+            <div className="font-strong">{node.server_name}</div>
             <div className="text-xs text-muted-foreground">
               {node.cluster} &middot; {node.url}
             </div>
@@ -122,18 +135,14 @@ function NodeCard({
               {node.roles.map((role) => (
                 <span
                   key={role}
-                  className="px-1.5 py-0.5 text-xs bg-muted rounded"
+                  className="px-1.5 py-0.5 text-xs bg-surface-2 rounded"
                 >
                   {role}
                 </span>
               ))}
             </div>
           )}
-          <span
-            className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}
-          >
-            {node.status}
-          </span>
+          <StatusPill status={statusKind}>{node.status}</StatusPill>
           <span className="text-xs text-muted-foreground">
             {isSelected ? "▲" : "▼"}
           </span>
@@ -147,7 +156,7 @@ function NodeCard({
           nodeStatus={node.status}
         />
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -172,7 +181,7 @@ function NodeDetail({
   const nodeInfo = data?.node as Record<string, unknown> | undefined;
 
   return (
-    <div className="border-t border-border bg-muted/10 p-4">
+    <div className="border-t border-border bg-surface-2/40 p-4">
       {isLoading ? (
         <div className="text-sm text-muted-foreground">
           {t("common.loading", "加载中...")}
@@ -208,7 +217,9 @@ function NodeDetail({
           {/* 维护模式操作 */}
           <div className="flex items-center gap-3">
             {nodeStatus === "Online" ? (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={async () => {
                   const ok = await confirm({
                     title: t("deleteConfirm.evacuateTitle"),
@@ -218,26 +229,26 @@ function NodeDetail({
                   if (ok) evacuateMutation.mutate();
                 }}
                 disabled={evacuateMutation.isPending}
-                className="px-3 py-1.5 text-sm border border-warning/50 text-warning rounded hover:bg-warning/10 disabled:opacity-50"
               >
                 {evacuateMutation.isPending
                   ? t("admin.evacuating")
                   : t("admin.enterMaintenance")}
-              </button>
+              </Button>
             ) : nodeStatus === "Evacuated" ? (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => restoreMutation.mutate()}
                 disabled={restoreMutation.isPending}
-                className="px-3 py-1.5 text-sm border border-success/50 text-success rounded hover:bg-success/10 disabled:opacity-50"
               >
                 {restoreMutation.isPending
                   ? t("admin.nodes.restoring", "恢复中...")
                   : t("admin.nodes.restore", "恢复节点")}
-              </button>
+              </Button>
             ) : null}
 
             {(evacuateMutation.isError || restoreMutation.isError) && (
-              <span className="text-xs text-destructive">
+              <span className="text-xs text-status-error">
                 {(
                   (evacuateMutation.error ?? restoreMutation.error) as Error
                 )?.message ?? "操作失败"}
@@ -247,7 +258,7 @@ function NodeDetail({
 
           {/* 实例列表 */}
           <div>
-            <h4 className="text-sm font-semibold mb-2">
+            <h4 className="text-sm font-strong mb-2">
               {t("admin.nodes.instances", "节点实例")} ({instances.length})
             </h4>
             {instances.length === 0 ? (
@@ -256,16 +267,16 @@ function NodeDetail({
               </div>
             ) : (
               <div className="border border-border rounded overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/30">
+                <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+                  <thead className="bg-surface-1 border-b border-border">
                     <tr>
-                      <th className="text-left px-3 py-1.5 font-medium">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceName", "实例名")}
                       </th>
-                      <th className="text-left px-3 py-1.5 font-medium">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceType", "类型")}
                       </th>
-                      <th className="text-left px-3 py-1.5 font-medium">
+                      <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">
                         {t("admin.nodes.instanceStatus", "状态")}
                       </th>
                     </tr>
@@ -283,15 +294,11 @@ function NodeDetail({
                           {inst.type}
                         </td>
                         <td className="px-3 py-1.5">
-                          <span
-                            className={`px-1.5 py-0.5 rounded text-xs ${
-                              inst.status === "Running"
-                                ? "bg-success/20 text-success"
-                                : "bg-muted text-muted-foreground"
-                            }`}
+                          <StatusPill
+                            status={inst.status === "Running" ? "success" : "disabled"}
                           >
                             {inst.status}
-                          </span>
+                          </StatusPill>
                         </td>
                       </tr>
                     ))}
@@ -310,7 +317,7 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="font-medium">{value}</div>
+      <div className="font-emphasis">{value}</div>
     </div>
   );
 }

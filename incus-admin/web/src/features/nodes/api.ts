@@ -105,7 +105,17 @@ export function useHAStatusQuery(clusterName: string) {
 export function useHAEvacuateMutation(clusterName: string) {
   return useMutation({
     mutationFn: (nodeName: string) =>
-      http.post(`/admin/clusters/${clusterName}/nodes/${nodeName}/evacuate`),
+      http.post(
+        `/admin/clusters/${clusterName}/nodes/${nodeName}/evacuate`,
+        undefined,
+        {
+          intent: {
+            action: "node.evacuate",
+            args: { cluster: clusterName, node: nodeName },
+            description: `迁移节点 ${nodeName} 上所有 VM`,
+          },
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: nodeKeys.all });
       queryClient.invalidateQueries({ queryKey: clusterKeys.all });

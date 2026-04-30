@@ -1,7 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Camera, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/shared/components/ui/button";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { Input } from "@/shared/components/ui/input";
+import { Skeleton } from "@/shared/components/ui/skeleton";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
 import { snapshotPath } from "./snapshot-utils";
@@ -57,43 +61,58 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
   const snapshots = data?.snapshots ?? [];
 
   return (
-    <div className="p-4 bg-card/50 border-t border-border">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="font-medium text-sm">Snapshots ({snapshots.length})</h4>
-        <div className="flex gap-2">
-          <input
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-emphasis flex items-center gap-1.5">
+          <Camera size={14} aria-hidden="true" />
+          {t("snapshot.title", { defaultValue: "快照" })} ({snapshots.length})
+        </h4>
+        <div className="flex gap-2 items-center">
+          <Input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="snapshot name (optional)"
-            className="px-2 py-1 text-xs border border-border rounded bg-card w-48"
+            placeholder={t("snapshot.namePlaceholder", { defaultValue: "可选名称" })}
+            className="w-48 h-8"
           />
-          <button
-            onClick={() => createMutation.mutate(newName)}
+          <Button
+            size="sm"
+            variant="primary"
             disabled={createMutation.isPending}
-            className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded disabled:opacity-50"
+            onClick={() => createMutation.mutate(newName)}
           >
-            {createMutation.isPending ? "Creating..." : "+ Snapshot"}
-          </button>
+            <Plus size={12} aria-hidden="true" />
+            {createMutation.isPending
+              ? t("snapshot.creating", { defaultValue: "创建中..." })
+              : t("snapshot.create", { defaultValue: "新建快照" })}
+          </Button>
         </div>
       </div>
 
       {isLoading ? (
-        <div className="text-xs text-muted-foreground">Loading...</div>
+        <Skeleton className="h-24 w-full" />
       ) : snapshots.length === 0 ? (
-        <div className="text-xs text-muted-foreground">No snapshots yet.</div>
+        <div className="text-caption text-text-tertiary border border-dashed border-border rounded-md p-4 text-center">
+          {t("snapshot.empty", { defaultValue: "暂无快照" })}
+        </div>
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {snapshots.map((snap) => (
-            <div key={snap.name} className="flex items-center justify-between px-3 py-2 rounded border border-border text-xs">
+            <div
+              key={snap.name}
+              className="flex items-center justify-between px-3 py-2 rounded-md border border-border bg-surface-1 text-sm"
+            >
               <div>
                 <span className="font-mono">{snap.name}</span>
-                <span className="text-muted-foreground ml-2">
+                <span className="text-caption text-text-tertiary ml-2">
                   {new Date(snap.created_at).toLocaleString()}
                 </span>
               </div>
-              <div className="flex gap-1">
-                <button
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={restoreMutation.isPending}
                   onClick={async () => {
                     const ok = await confirm({
                       title: t("snapshot.restoreTitle"),
@@ -102,12 +121,16 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
                     });
                     if (ok) restoreMutation.mutate(snap.name);
                   }}
-                  disabled={restoreMutation.isPending}
-                  className="px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50"
                 >
+                  <RotateCcw size={12} aria-hidden="true" />
                   {t("snapshot.restore")}
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={deleteMutation.isPending}
+                  aria-label={t("snapshot.deleteAriaLabel", { name: snap.name, defaultValue: `Delete snapshot ${snap.name}` })}
+                  data-testid={`delete-snapshot-${snap.name}`}
                   onClick={async () => {
                     const ok = await confirm({
                       title: t("snapshot.deleteTitle"),
@@ -116,13 +139,10 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
                     });
                     if (ok) deleteMutation.mutate(snap.name);
                   }}
-                  disabled={deleteMutation.isPending}
-                  aria-label={t("snapshot.deleteAriaLabel", { name: snap.name, defaultValue: `Delete snapshot ${snap.name}` })}
-                  data-testid={`delete-snapshot-${snap.name}`}
-                  className="px-2 py-1 rounded bg-destructive/20 text-destructive hover:bg-destructive/30 disabled:opacity-50"
                 >
+                  <Trash2 size={12} aria-hidden="true" />
                   {t("common.delete")}
-                </button>
+                </Button>
               </div>
             </div>
           ))}

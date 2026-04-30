@@ -19,7 +19,7 @@ func seedHealingEvent(t *testing.T, db *sql.DB, repo *repository.HealingEventRep
 	ctx := context.Background()
 	var clusterID int64
 	if err := db.QueryRowContext(ctx,
-		`INSERT INTO clusters (name, endpoint) VALUES ($1, 'https://x') RETURNING id`,
+		`INSERT INTO clusters (name, api_url) VALUES ($1, 'https://x') RETURNING id`,
 		clusterName).Scan(&clusterID); err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}

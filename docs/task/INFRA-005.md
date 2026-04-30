@@ -1,9 +1,11 @@
 # INFRA-005 Observability iframe HTTPS reverse proxy
 
-- **status**: pending
+- **status**: wontdo
 - **priority**: P2
 - **owner**: claude
 - **createdAt**: 2026-04-17 16:45
+- **closedAt**: 2026-04-30
+- **closeReason**: PLAN-013 Phase C.3 已通过 Caddy 反代 + 前端相对路径完成同等目标；本任务已被覆盖。
 - **relatedPlan**: PLAN-013 (Phase C.3)
 
 ## Summary

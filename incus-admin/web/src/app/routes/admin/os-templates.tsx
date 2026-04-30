@@ -1,17 +1,53 @@
-import type {OSTemplate, OSTemplateFormData} from "@/features/templates/api";
+import type { OSTemplate, OSTemplateFormData } from "@/features/templates/api";
 import { createFileRoute } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
-  
   useAdminOSTemplatesQuery,
   useCreateOSTemplateMutation,
   useDeleteOSTemplateMutation,
-  useUpdateOSTemplateMutation
+  useUpdateOSTemplateMutation,
 } from "@/features/templates/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Alert, AlertDescription } from "@/shared/components/ui/alert";
+import { Button } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { StatusPill } from "@/shared/components/ui/status";
+import { Switch } from "@/shared/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/components/ui/table";
 
 export const Route = createFileRoute("/admin/os-templates")({
   component: OSTemplatesPage,
@@ -32,82 +68,115 @@ const EMPTY_FORM: OSTemplateFormData = {
 
 function OSTemplatesPage() {
   const { t } = useTranslation();
-  const [showCreate, setShowCreate] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<OSTemplate | null>(null);
 
   const { data, isLoading } = useAdminOSTemplatesQuery();
   const templates = data?.templates ?? [];
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">
-          {t("admin.osTemplates.title", "OS 镜像模板")}
-        </h1>
-        <button
-          onClick={() => {
-            setShowCreate(!showCreate);
-            setEditing(null);
-          }}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-        >
-          {showCreate ? t("common.cancel", "取消") : t("admin.osTemplates.add", "+ 添加模板")}
-        </button>
-      </div>
+  const sheetOpen = createOpen || editing !== null;
 
-      <p className="text-sm text-muted-foreground mb-4">
-        {t(
+  return (
+    <PageShell>
+      <PageHeader
+        title={t("admin.osTemplates.title", "OS 镜像模板")}
+        description={t(
           "admin.osTemplates.hint",
           "这里维护用户在创建 / 重装 VM 时可选的 OS 镜像。新增镜像无需改代码。",
         )}
-      </p>
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setEditing(null);
+              setCreateOpen(true);
+            }}
+          >
+            <Plus size={14} aria-hidden="true" />
+            {t("admin.osTemplates.add", "+ 添加模板")}
+          </Button>
+        }
+      />
+      <PageContent>
+        {isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : templates.length === 0 ? (
+          <EmptyState
+            title={t("admin.osTemplates.empty", "暂无模板。点击右上角添加。")}
+          />
+        ) : (
+          <Card className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>{t("admin.osTemplates.name", "名称")}</TableHead>
+                  <TableHead>Slug</TableHead>
+                  <TableHead>
+                    {t("admin.osTemplates.source", "镜像源")}
+                  </TableHead>
+                  <TableHead>
+                    {t("admin.osTemplates.defaultUser", "默认用户")}
+                  </TableHead>
+                  <TableHead className="text-right">
+                    {t("admin.osTemplates.sortOrder", "排序")}
+                  </TableHead>
+                  <TableHead>
+                    {t("admin.osTemplates.status", "状态")}
+                  </TableHead>
+                  <TableHead className="text-right">
+                    {t("admin.osTemplates.actions", "操作")}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {templates.map((tpl) => (
+                  <TemplateRow
+                    key={tpl.id}
+                    template={tpl}
+                    onEdit={() => {
+                      setCreateOpen(false);
+                      setEditing(tpl);
+                    }}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        )}
 
-      {showCreate && <TemplateForm onDone={() => setShowCreate(false)} />}
-
-      {editing && (
-        <TemplateForm template={editing} onDone={() => setEditing(null)} />
-      )}
-
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading", "加载中...")}</div>
-      ) : templates.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {t("admin.osTemplates.empty", "暂无模板。点击右上角添加。")}
-        </div>
-      ) : (
-        <div className="border border-border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/30">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">{t("admin.osTemplates.name", "名称")}</th>
-                <th className="text-left px-4 py-2 font-medium">Slug</th>
-                <th className="text-left px-4 py-2 font-medium">{t("admin.osTemplates.source", "镜像源")}</th>
-                <th className="text-left px-4 py-2 font-medium">{t("admin.osTemplates.defaultUser", "默认用户")}</th>
-                <th className="text-right px-4 py-2 font-medium">{t("admin.osTemplates.sortOrder", "排序")}</th>
-                <th className="text-left px-4 py-2 font-medium">{t("admin.osTemplates.status", "状态")}</th>
-                <th className="text-right px-4 py-2 font-medium">{t("admin.osTemplates.actions", "操作")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {templates.map((tpl) => (
-                <TemplateRow
-                  key={tpl.id}
-                  template={tpl}
-                  onEdit={() => {
-                    setEditing(tpl);
-                    setShowCreate(false);
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+        <Sheet
+          open={sheetOpen}
+          onOpenChange={(o) => {
+            if (!o) {
+              setCreateOpen(false);
+              setEditing(null);
+            }
+          }}
+        >
+          <SheetContent side="right" size="min(96vw, 36rem)">
+            {sheetOpen ? (
+              <TemplateForm
+                template={editing ?? undefined}
+                onDone={() => {
+                  setCreateOpen(false);
+                  setEditing(null);
+                }}
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      </PageContent>
+    </PageShell>
   );
 }
 
-function TemplateRow({ template, onEdit }: { template: OSTemplate; onEdit: () => void }) {
+function TemplateRow({
+  template,
+  onEdit,
+}: {
+  template: OSTemplate;
+  onEdit: () => void;
+}) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const toggleMutation = useUpdateOSTemplateMutation(template.id);
@@ -116,45 +185,49 @@ function TemplateRow({ template, onEdit }: { template: OSTemplate; onEdit: () =>
   const onDelete = async () => {
     const ok = await confirm({
       title: t("admin.osTemplates.deleteTitle", "删除模板"),
-      message: t(
-        "admin.osTemplates.deleteMessage",
-        { defaultValue: `确认删除模板「${template.name}」?`, name: template.name },
-      ),
+      message: t("admin.osTemplates.deleteMessage", {
+        defaultValue: `确认删除模板「${template.name}」?`,
+        name: template.name,
+      }),
       destructive: true,
     });
     if (!ok) return;
     deleteMutation.mutate(undefined, {
-      onSuccess: () => toast.success(t("admin.osTemplates.deleted", "已删除")),
+      onSuccess: () =>
+        toast.success(t("admin.osTemplates.deleted", "已删除")),
       onError: (err) => toast.error((err as Error).message),
     });
   };
 
   return (
-    <tr className="border-t border-border">
-      <td className="px-4 py-2 font-medium">{template.name}</td>
-      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{template.slug}</td>
-      <td className="px-4 py-2 font-mono text-xs">{template.source}</td>
-      <td className="px-4 py-2">{template.default_user}</td>
-      <td className="px-4 py-2 text-right font-mono">{template.sort_order}</td>
-      <td className="px-4 py-2">
-        <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${template.enabled ? "bg-success/20 text-success" : "bg-muted text-muted-foreground"}`}
-        >
+    <TableRow>
+      <TableCell className="font-emphasis">{template.name}</TableCell>
+      <TableCell className="font-mono text-xs text-muted-foreground">
+        {template.slug}
+      </TableCell>
+      <TableCell className="font-mono text-xs">{template.source}</TableCell>
+      <TableCell>{template.default_user}</TableCell>
+      <TableCell className="text-right font-mono">
+        {template.sort_order}
+      </TableCell>
+      <TableCell>
+        <StatusPill status={template.enabled ? "success" : "disabled"}>
           {template.enabled
             ? t("admin.osTemplates.enabled", "启用")
             : t("admin.osTemplates.disabled", "停用")}
-        </span>
-      </td>
-      <td className="px-4 py-2 text-right">
+        </StatusPill>
+      </TableCell>
+      <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onEdit}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-muted"
-          >
+          <Button variant="ghost" size="sm" onClick={onEdit}>
             {t("common.edit", "编辑")}
-          </button>
-          <button
-            onClick={() => toggleMutation.mutate({ enabled: !template.enabled })}
+          </Button>
+          <Button
+            variant={template.enabled ? "destructive" : "ghost"}
+            size="sm"
+            onClick={() =>
+              toggleMutation.mutate({ enabled: !template.enabled })
+            }
             disabled={toggleMutation.isPending}
             aria-label={
               template.enabled
@@ -166,28 +239,24 @@ function TemplateRow({ template, onEdit }: { template: OSTemplate; onEdit: () =>
                 ? `disable-os-template-${template.slug}`
                 : `enable-os-template-${template.slug}`
             }
-            className={`px-2 py-1 text-xs rounded border ${
-              template.enabled
-                ? "border-destructive text-destructive hover:bg-destructive/10"
-                : "border-success/30 text-success hover:bg-success/10"
-            }`}
           >
             {template.enabled
-              ? `⚠ ${t("admin.osTemplates.disable", "停用")}`
+              ? t("admin.osTemplates.disable", "停用")
               : t("admin.osTemplates.enable", "启用")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={onDelete}
             disabled={deleteMutation.isPending}
             aria-label={`Delete OS template ${template.slug}`}
             data-testid={`delete-os-template-${template.slug}`}
-            className="px-2 py-1 text-xs rounded border border-destructive text-destructive hover:bg-destructive/10"
           >
-            ⚠ {t("common.delete", "删除")}
-          </button>
+            {t("common.delete", "删除")}
+          </Button>
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -236,129 +305,158 @@ function TemplateForm({
     });
   };
 
-  const set = <K extends keyof OSTemplateFormData>(k: K, v: OSTemplateFormData[K]) =>
-    setForm({ ...form, [k]: v });
+  const set = <K extends keyof OSTemplateFormData>(
+    k: K,
+    v: OSTemplateFormData[K],
+  ) => setForm({ ...form, [k]: v });
 
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">
+    <>
+      <SheetHeader>
+        <SheetTitle>
           {isEdit
             ? t("admin.osTemplates.editTitle", "编辑模板")
             : t("admin.osTemplates.createTitle", "添加模板")}
-        </h3>
-        <button
-          onClick={onDone}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
+        </SheetTitle>
+      </SheetHeader>
+      <SheetBody>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ostpl-name">
+              {t("admin.osTemplates.name", "名称")}
+            </Label>
+            <Input
+              id="ostpl-name"
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Ubuntu 24.04 LTS"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ostpl-slug">Slug</Label>
+            <Input
+              id="ostpl-slug"
+              value={form.slug}
+              onChange={(e) => set("slug", e.target.value)}
+              placeholder="ubuntu-24-04"
+              className="font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label htmlFor="ostpl-source">
+              {t(
+                "admin.osTemplates.source",
+                "镜像源 (images:… 不含前缀)",
+              )}
+            </Label>
+            <Input
+              id="ostpl-source"
+              value={form.source}
+              onChange={(e) => set("source", e.target.value)}
+              placeholder="ubuntu/24.04/cloud"
+              className="font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ostpl-user">
+              {t("admin.osTemplates.defaultUser", "默认用户")}
+            </Label>
+            <Input
+              id="ostpl-user"
+              value={form.default_user}
+              onChange={(e) => set("default_user", e.target.value)}
+              placeholder="ubuntu"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ostpl-protocol">
+              {t("admin.osTemplates.protocol", "协议")}
+            </Label>
+            <Select
+              value={form.protocol}
+              onValueChange={(v) => set("protocol", String(v ?? "simplestreams"))}
+            >
+              <SelectTrigger id="ostpl-protocol">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="simplestreams">simplestreams</SelectItem>
+                <SelectItem value="incus">incus</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label htmlFor="ostpl-server">
+              {t("admin.osTemplates.serverUrl", "镜像服务器")}
+            </Label>
+            <Input
+              id="ostpl-server"
+              value={form.server_url}
+              onChange={(e) => set("server_url", e.target.value)}
+              className="font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ostpl-sort">
+              {t("admin.osTemplates.sortOrder", "排序")}
+            </Label>
+            <Input
+              id="ostpl-sort"
+              type="number"
+              value={form.sort_order}
+              onChange={(e) => set("sort_order", +e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-4 col-span-2 pt-1">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="ostpl-enabled"
+                checked={form.enabled}
+                onCheckedChange={(checked) => set("enabled", checked)}
+              />
+              <Label htmlFor="ostpl-enabled">
+                {t("admin.osTemplates.enabled", "启用")}
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="ostpl-rescue"
+                checked={form.supports_rescue}
+                onCheckedChange={(checked) => set("supports_rescue", checked)}
+              />
+              <Label htmlFor="ostpl-rescue">
+                {t("admin.osTemplates.supportsRescue", "支持救援模式")}
+              </Label>
+            </div>
+          </div>
+        </div>
+
+        {mutation.isError ? (
+          <Alert variant="error" className="mt-3">
+            <AlertDescription>
+              {(mutation.error as Error).message}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </SheetBody>
+      <SheetFooter>
+        <Button variant="ghost" onClick={onDone}>
           {t("common.cancel", "取消")}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("admin.osTemplates.name", "名称")}>
-          <input
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder="Ubuntu 24.04 LTS"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </Field>
-        <Field label="Slug">
-          <input
-            value={form.slug}
-            onChange={(e) => set("slug", e.target.value)}
-            placeholder="ubuntu-24-04"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm font-mono"
-          />
-        </Field>
-        <Field label={t("admin.osTemplates.source", "镜像源 (images:… 不含前缀)")}>
-          <input
-            value={form.source}
-            onChange={(e) => set("source", e.target.value)}
-            placeholder="ubuntu/24.04/cloud"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm font-mono"
-          />
-        </Field>
-        <Field label={t("admin.osTemplates.defaultUser", "默认用户")}>
-          <input
-            value={form.default_user}
-            onChange={(e) => set("default_user", e.target.value)}
-            placeholder="ubuntu"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </Field>
-        <Field label={t("admin.osTemplates.protocol", "协议")}>
-          <select
-            value={form.protocol}
-            onChange={(e) => set("protocol", e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          >
-            <option value="simplestreams">simplestreams</option>
-            <option value="incus">incus</option>
-          </select>
-        </Field>
-        <Field label={t("admin.osTemplates.serverUrl", "镜像服务器")}>
-          <input
-            value={form.server_url}
-            onChange={(e) => set("server_url", e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm font-mono"
-          />
-        </Field>
-        <Field label={t("admin.osTemplates.sortOrder", "排序")}>
-          <input
-            type="number"
-            value={form.sort_order}
-            onChange={(e) => set("sort_order", +e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </Field>
-        <div className="flex items-center gap-4 pt-6">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(e) => set("enabled", e.target.checked)}
-            />
-            {t("admin.osTemplates.enabled", "启用")}
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.supports_rescue}
-              onChange={(e) => set("supports_rescue", e.target.checked)}
-            />
-            {t("admin.osTemplates.supportsRescue", "支持救援模式")}
-          </label>
-        </div>
-      </div>
-
-      {mutation.isError && (
-        <div className="text-destructive text-sm">
-          {(mutation.error as Error).message}
-        </div>
-      )}
-
-      <button
-        onClick={onSubmit}
-        disabled={mutation.isPending || !form.name || !form.slug || !form.source}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
-      >
-        {mutation.isPending
-          ? t("common.saving", "保存中...")
-          : isEdit
-            ? t("common.save", "保存")
-            : t("admin.osTemplates.create", "创建模板")}
-      </button>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block text-xs">
-      <span className="text-muted-foreground mb-1 block">{label}</span>
-      {children}
-    </label>
+        </Button>
+        <Button
+          variant="primary"
+          onClick={onSubmit}
+          disabled={
+            mutation.isPending || !form.name || !form.slug || !form.source
+          }
+        >
+          {mutation.isPending
+            ? t("common.saving", "保存中...")
+            : isEdit
+              ? t("common.save", "保存")
+              : t("admin.osTemplates.create", "创建模板")}
+        </Button>
+      </SheetFooter>
+    </>
   );
 }

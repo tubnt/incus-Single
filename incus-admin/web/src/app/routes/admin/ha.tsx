@@ -1,26 +1,37 @@
 import type {HealingEvent, HealingListFilter, HealingStatus, HealingTrigger} from "@/features/healing/api";
 import type {HANodeInfo} from "@/features/nodes/api";
 import { Dialog } from "@base-ui-components/react/dialog";
-import { Tabs } from "@base-ui-components/react/tabs";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useClustersQuery } from "@/features/clusters/api";
 import { ClusterPicker } from "@/features/clusters/cluster-picker";
 import {
-  
-  
-  
-  
   useHealingEventDetailQuery,
-  useHealingEventsQuery
+  useHealingEventsQuery,
 } from "@/features/healing/api";
 import {
-  
   useHAEvacuateMutation,
-  useHAStatusQuery
+  useHAStatusQuery,
 } from "@/features/nodes/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button } from "@/shared/components/ui/button";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { StatusPill, type StatusKind } from "@/shared/components/ui/status";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/shared/components/ui/tabs";
+import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/ha")({
   component: HAPage,
@@ -39,91 +50,75 @@ function HAPage() {
   }, [clusterName, clusters]);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">HA Failover</h1>
-        {clusters.length > 1 && (
-          <ClusterPicker value={clusterName} onChange={setClusterName} />
-        )}
-      </div>
-
-      <Tabs.Root defaultValue="status">
-        <Tabs.List className="flex gap-1 border-b border-border mb-4">
-          <Tabs.Tab
-            value="status"
-            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground aria-selected:text-foreground aria-selected:border-b-2 aria-selected:border-primary -mb-px transition-colors"
-          >
-            {t("ha.tabStatus")}
-          </Tabs.Tab>
-          <Tabs.Tab
-            value="history"
-            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground aria-selected:text-foreground aria-selected:border-b-2 aria-selected:border-primary -mb-px transition-colors"
-          >
-            {t("ha.tabHistory")}
-          </Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel value="status">
-          <StatusPanel clusterName={clusterName} />
-        </Tabs.Panel>
-        <Tabs.Panel value="history">
-          <HistoryPanel clusterName={clusterName} clusters={clusters.map((c) => c.name)} />
-        </Tabs.Panel>
-      </Tabs.Root>
-    </div>
+    <PageShell>
+      <PageHeader
+        title={t("ha.title", { defaultValue: "HA 故障切换" })}
+        description={t("ha.description", {
+          defaultValue: "节点状态、healing 事件历史和手动迁移。",
+        })}
+        actions={
+          clusters.length > 1 ? (
+            <ClusterPicker value={clusterName} onChange={setClusterName} />
+          ) : null
+        }
+      />
+      <PageContent>
+        <Tabs defaultValue="status">
+          <TabsList>
+            <TabsTrigger value="status">{t("ha.tabStatus")}</TabsTrigger>
+            <TabsTrigger value="history">{t("ha.tabHistory")}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="status">
+            <StatusPanel clusterName={clusterName} />
+          </TabsContent>
+          <TabsContent value="history">
+            <HistoryPanel
+              clusterName={clusterName}
+              clusters={clusters.map((c) => c.name)}
+            />
+          </TabsContent>
+        </Tabs>
+      </PageContent>
+    </PageShell>
   );
 }
 
 function StatusPanel({ clusterName }: { clusterName: string }) {
-  const { t } = useTranslation();
   const { data: ha, isLoading } = useHAStatusQuery(clusterName);
   const evacuateMutation = useHAEvacuateMutation(clusterName);
 
   if (isLoading) {
-    return <div className="text-muted-foreground">{t("common.loading")}</div>;
+    return <Skeleton className="h-32" />;
   }
   if (!ha) {
-    return (
-      <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-        No cluster configured.
-      </div>
-    );
+    return <EmptyState title="No cluster configured." />;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
-        <div className="border border-border rounded-lg bg-card p-4">
-          <div className="text-xs text-muted-foreground">HA Status</div>
-          <div className="text-lg font-bold mt-1">
-            {ha.ha_enabled ? (
-              <span className="text-success">Enabled</span>
-            ) : (
-              <span className="text-destructive">Disabled</span>
-            )}
-          </div>
-        </div>
-        <div className="border border-border rounded-lg bg-card p-4">
-          <div className="text-xs text-muted-foreground">Storage</div>
-          <div className="text-lg font-bold mt-1">{ha.storage}</div>
-        </div>
-        <div className="border border-border rounded-lg bg-card p-4">
-          <div className="text-xs text-muted-foreground">Nodes</div>
-          <div className="text-lg font-bold mt-1">{ha.nodes.length}</div>
-        </div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <StatBlock label="HA Status">
+          {ha.ha_enabled ? (
+            <span className="text-status-success">Enabled</span>
+          ) : (
+            <span className="text-status-error">Disabled</span>
+          )}
+        </StatBlock>
+        <StatBlock label="Storage">{ha.storage}</StatBlock>
+        <StatBlock label="Nodes">{ha.nodes.length}</StatBlock>
       </div>
-      <div className="text-xs text-muted-foreground">
+      <div className="text-caption text-text-tertiary">
         healing_threshold: {ha.healing_threshold}s
       </div>
 
-      <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30">
+      <div className="rounded-lg border border-border bg-surface-1 overflow-x-auto">
+        <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+          <thead className="border-b border-border">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Node</th>
-              <th className="text-left px-4 py-2 font-medium">Status</th>
-              <th className="text-left px-4 py-2 font-medium">Message</th>
-              <th className="text-right px-4 py-2 font-medium">Actions</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Node</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Status</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Message</th>
+              <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -142,6 +137,21 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
   );
 }
 
+function StatBlock({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-caption text-text-tertiary uppercase tracking-wide font-emphasis">
+          {label}
+        </div>
+        <div className="text-h3 font-emphasis mt-1 tabular-nums">
+          {children}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function NodeRow({
   node,
   onEvacuate,
@@ -156,17 +166,20 @@ function NodeRow({
   const isOnline = node.status === "Online" || node.status === "ONLINE";
 
   return (
-    <tr className="border-t border-border">
+    <tr className="group/row border-t border-border">
       <td className="px-4 py-2 font-mono">{node.server_name}</td>
       <td className="px-4 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${isOnline ? "bg-success/20 text-success" : "bg-destructive/20 text-destructive"}`}>
-          {node.status}
-        </span>
+        <StatusPill status={isOnline ? "success" : "error"}>{node.status}</StatusPill>
       </td>
-      <td className="px-4 py-2 text-muted-foreground text-xs">{node.message}</td>
-      <td className="px-4 py-2 text-right">
-        {isOnline && (
-          <button
+      <td className="px-4 py-2 text-text-tertiary text-caption">{node.message}</td>
+      <td className="px-4 py-2 text-right opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
+        {isOnline ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={pending}
+            aria-label={`Evacuate node ${node.server_name}`}
+            data-testid={`evacuate-node-${node.server_name}`}
             onClick={async () => {
               const ok = await confirm({
                 title: t("deleteConfirm.evacuateTitle"),
@@ -175,14 +188,10 @@ function NodeRow({
               });
               if (ok) onEvacuate();
             }}
-            disabled={pending}
-            aria-label={`Evacuate node ${node.server_name}`}
-            data-testid={`evacuate-node-${node.server_name}`}
-            className="px-3 py-1 text-xs border border-destructive bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
           >
-            {pending ? t("admin.evacuating") : `⚠ ${t("admin.evacuate")}`}
-          </button>
-        )}
+            {pending ? t("admin.evacuating") : t("admin.evacuate")}
+          </Button>
+        ) : null}
       </td>
     </tr>
   );
@@ -282,18 +291,18 @@ function HistoryPanel({
       </div>
 
       <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30">
+        <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+          <thead className="bg-surface-1 border-b border-border">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colTime")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colCluster")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colNode")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colTrigger")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colActor")}</th>
-              <th className="text-right px-3 py-2 font-medium">{t("ha.colVMCount")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colStatus")}</th>
-              <th className="text-right px-3 py-2 font-medium">{t("ha.colDuration")}</th>
-              <th className="text-right px-3 py-2 font-medium"></th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colTime")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colCluster")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colNode")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colTrigger")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colActor")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colVMCount")}</th>
+              <th className="text-left px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colStatus")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary">{t("ha.colDuration")}</th>
+              <th className="text-right px-3 py-2 text-label font-emphasis text-text-tertiary"></th>
             </tr>
           </thead>
           <tbody>
@@ -374,17 +383,17 @@ function FilterSelect({
   );
 }
 
-const statusBadge: Record<HealingStatus, string> = {
-  in_progress: "bg-primary/10 text-primary",
-  completed: "bg-success/20 text-success",
-  failed: "bg-destructive/20 text-destructive",
-  partial: "bg-warning/20 text-warning",
+const statusToKind: Record<HealingStatus, StatusKind> = {
+  in_progress: "pending",
+  completed: "success",
+  failed: "error",
+  partial: "warning",
 };
 
-const triggerBadge: Record<HealingTrigger, string> = {
-  manual: "bg-muted text-foreground",
-  auto: "bg-primary/10 text-primary",
-  chaos: "bg-warning/20 text-warning",
+const triggerToKind: Record<HealingTrigger, StatusKind> = {
+  manual: "disabled",
+  auto: "pending",
+  chaos: "warning",
 };
 
 function EventRow({
@@ -398,33 +407,34 @@ function EventRow({
   const vmCount = event.evacuated_vms?.length ?? 0;
 
   return (
-    <tr className="border-t border-border hover:bg-muted/30">
-      <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+    <tr className="border-t border-border hover:bg-surface-2 transition-colors">
+      <td className="px-3 py-2 font-mono text-caption whitespace-nowrap">
         {new Date(event.started_at).toLocaleString()}
       </td>
       <td className="px-3 py-2">{event.cluster_name || `#${event.cluster_id}`}</td>
       <td className="px-3 py-2 font-mono">{event.node_name}</td>
       <td className="px-3 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${triggerBadge[event.trigger]}`}>
+        <StatusPill status={triggerToKind[event.trigger]}>
           {t(`ha.trigger${capitalize(event.trigger)}`)}
-        </span>
+        </StatusPill>
       </td>
-      <td className="px-3 py-2 text-xs">
+      <td className="px-3 py-2 text-caption">
         {event.actor_id ? `#${event.actor_id}` : "—"}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{vmCount}</td>
       <td className="px-3 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusBadge[event.status]}`}>
+        <StatusPill status={statusToKind[event.status]}>
           {t(`ha.status${capitalize(event.status.replace(/_/g, ""))}`)}
-        </span>
+        </StatusPill>
       </td>
       <td className="px-3 py-2 text-right tabular-nums">
         {event.duration_seconds != null ? `${event.duration_seconds}s` : "—"}
       </td>
       <td className="px-3 py-2 text-right">
         <button
+          type="button"
           onClick={onOpen}
-          className="text-xs text-primary hover:underline"
+          className="text-caption text-accent hover:underline"
         >
           {t("common.details")}
         </button>
@@ -452,12 +462,12 @@ function EventDetailDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 bg-black/40 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-card border border-border rounded-lg shadow-xl p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-          <Dialog.Title className="text-lg font-bold mb-4">
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-elevated border border-border rounded-xl shadow-dialog p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
+          <Dialog.Title className="text-h3 font-strong mb-4">
             {t("ha.detailTitle", { id })}
           </Dialog.Title>
-          {isLoading && <div className="text-muted-foreground">{t("common.loading")}</div>}
+          {isLoading && <Skeleton className="h-32" />}
           {event && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
@@ -479,26 +489,26 @@ function EventDetailDialog({
                 />
               </div>
               {event.error && (
-                <div className="border border-destructive/40 bg-destructive/5 rounded p-3 text-sm">
-                  <div className="font-medium text-destructive mb-1">{t("ha.errorHeading")}</div>
-                  <code className="text-xs break-all">{event.error}</code>
+                <div className="rounded-md border border-status-error/30 bg-status-error/8 p-3 text-sm">
+                  <div className="font-strong text-status-error mb-1">{t("ha.errorHeading")}</div>
+                  <code className="text-caption break-all">{event.error}</code>
                 </div>
               )}
               <div>
-                <div className="text-sm font-medium mb-2">
+                <div className="text-sm font-emphasis mb-2">
                   {t("ha.evacuatedVMsHeading")} ({event.evacuated_vms?.length ?? 0})
                 </div>
                 {(event.evacuated_vms?.length ?? 0) === 0 ? (
                   <div className="text-xs text-muted-foreground">{t("ha.noVMsMoved")}</div>
                 ) : (
                   <div className="border border-border rounded overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/30">
+                    <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+                      <thead className="bg-surface-1 border-b border-border">
                         <tr>
-                          <th className="text-left px-3 py-1.5 font-medium">ID</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmName")}</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmFrom")}</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmTo")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">ID</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmName")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmFrom")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmTo")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -518,7 +528,7 @@ function EventDetailDialog({
             </div>
           )}
           <div className="flex justify-end mt-6">
-            <Dialog.Close className="px-4 py-2 text-sm border border-border rounded hover:bg-muted">
+            <Dialog.Close className={cn("px-4 h-9 rounded-md text-sm font-emphasis bg-surface-1 border border-border hover:bg-surface-2 transition-colors")}>
               {t("common.close")}
             </Dialog.Close>
           </div>

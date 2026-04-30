@@ -12,45 +12,6 @@ defaults:
     working-directory: incus-admin
 
 jobs:
-  backend-unit:
-    name: Backend unit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: incus-admin/go.sum
-
-      - name: Build
-        run: CGO_ENABLED=0 go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Unit tests
-        run: go test ./...
-
-  backend-integration:
-    name: Backend integration (testcontainers)
-    runs-on: ubuntu-latest
-    needs: backend-unit
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: incus-admin/go.sum
-
-      # GitHub-hosted ubuntu-latest already has Docker; testcontainers-go 会自动连上。
-      # 关 Ryuk 避免清理 sidecar 在 CI 下卡住。
-      - name: Integration tests
-        env:
-          TESTCONTAINERS_RYUK_DISABLED: 'true'
-        run: go test -tags=integration -timeout 15m ./...
-
   frontend:
     name: Frontend typecheck + build
     runs-on: ubuntu-latest
@@ -73,3 +34,65 @@ jobs:
 
       - name: Build
         run: bun run build
+
+      # 后端 internal/server/static.go 通过 //go:embed all:dist 把前端打进二进制。
+      # backend-unit / backend-integration 必须能拿到 dist，否则 go build 失败。
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: incus-admin/web/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  backend-unit:
+    name: Backend unit
+    runs-on: ubuntu-latest
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: incus-admin/go.sum
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: incus-admin/internal/server/dist
+
+      - name: Build
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+  backend-integration:
+    name: Backend integration (testcontainers)
+    runs-on: ubuntu-latest
+    needs: backend-unit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: incus-admin/go.sum
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: incus-admin/internal/server/dist
+
+      # GitHub-hosted ubuntu-latest already has Docker; testcontainers-go 会自动连上。
+      # 关 Ryuk 避免清理 sidecar 在 CI 下卡住。
+      - name: Integration tests
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: 'true'
+        run: go test -tags=integration -timeout 15m ./...

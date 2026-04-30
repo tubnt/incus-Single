@@ -1,17 +1,36 @@
 import type {FirewallGroup, FirewallRule} from "@/features/firewall/api";
 import { createFileRoute } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
-  
+
   useCreateFirewallGroupMutation,
   useDeleteFirewallGroupMutation,
   useFirewallGroupsQuery,
   useReplaceFirewallRulesMutation
 } from "@/features/firewall/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { StatusPill } from "@/shared/components/ui/status";
 
 export const Route = createFileRoute("/admin/firewall")({
   component: FirewallPage,
@@ -19,54 +38,56 @@ export const Route = createFileRoute("/admin/firewall")({
 
 function FirewallPage() {
   const { t } = useTranslation();
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingID, setEditingID] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const { data, isLoading } = useFirewallGroupsQuery();
   const groups = data?.groups ?? [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("admin.firewall.title", "防火墙组")}</h1>
-        <button
-          onClick={() => {
-            setShowCreate(!showCreate);
-            setEditingID(null);
-          }}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-        >
-          {showCreate ? t("common.cancel", "取消") : t("admin.firewall.add", "+ 添加组")}
-        </button>
-      </div>
-
-      <p className="text-sm text-muted-foreground mb-4">
-        {t(
+    <PageShell>
+      <PageHeader
+        title={t("admin.firewall.title", "防火墙组")}
+        description={t(
           "admin.firewall.hint",
           "每组落地为 Incus network ACL (fwg-<slug>)。用户把组绑定到 VM NIC (security.acls)，规则立即生效。默认 L4 安全组，复杂场景走应用侧 WAF。",
         )}
-      </p>
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} />
+            {t("admin.firewall.add", "添加组")}
+          </Button>
+        }
+      />
+      <PageContent>
+        {isLoading ? (
+          <div className="text-muted-foreground">{t("common.loading", "加载中...")}</div>
+        ) : groups.length === 0 ? (
+          <EmptyState title={t("admin.firewall.empty", "暂无防火墙组。")} />
+        ) : (
+          <div className="space-y-3">
+            {groups.map((g) => (
+              <GroupCard
+                key={g.id}
+                group={g}
+                editing={editingId === g.id}
+                onToggleEdit={() => setEditingId(editingId === g.id ? null : g.id)}
+              />
+            ))}
+          </div>
+        )}
 
-      {showCreate && <CreateGroupPanel onDone={() => setShowCreate(false)} />}
-
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading", "加载中...")}</div>
-      ) : groups.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {t("admin.firewall.empty", "暂无防火墙组。")}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {groups.map((g) => (
-            <GroupCard
-              key={g.id}
-              group={g}
-              editing={editingID === g.id}
-              onToggleEdit={() => setEditingID(editingID === g.id ? null : g.id)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+        <Sheet
+          open={createOpen}
+          onOpenChange={(o) => {
+            if (!o) setCreateOpen(false);
+          }}
+        >
+          <SheetContent side="right" size="min(96vw, 32rem)">
+            <CreateGroupPanel onDone={() => setCreateOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      </PageContent>
+    </PageShell>
   );
 }
 
@@ -101,10 +122,10 @@ function GroupCard({
   };
 
   return (
-    <div className="border border-border rounded-lg bg-card">
+    <Card>
       <div className="px-4 py-3 flex items-center justify-between border-b border-border">
         <div>
-          <div className="font-semibold">{group.name}</div>
+          <div className="font-strong">{group.name}</div>
           <div className="text-xs text-muted-foreground font-mono">
             {group.slug} · fwg-{group.slug}
           </div>
@@ -113,23 +134,21 @@ function GroupCard({
           )}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={onToggleEdit}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-muted"
-          >
+          <Button variant="ghost" size="sm" onClick={onToggleEdit}>
             {editing
               ? t("common.collapse", "收起")
               : t("admin.firewall.edit", "编辑规则")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={onDelete}
             disabled={deleteMutation.isPending}
             aria-label={`Delete firewall group ${group.name}`}
             data-testid={`delete-firewall-group-${group.slug}`}
-            className="px-2 py-1 text-xs rounded border border-destructive text-destructive hover:bg-destructive/10"
           >
-            ⚠ {t("common.delete", "删除")}
-          </button>
+            {t("common.delete", "删除")}
+          </Button>
         </div>
       </div>
 
@@ -138,7 +157,7 @@ function GroupCard({
       ) : (
         <RulesTable rules={rules} />
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -152,14 +171,14 @@ function RulesTable({ rules }: { rules: FirewallRule[] }) {
     );
   }
   return (
-    <table className="w-full text-xs">
-      <thead className="bg-muted/20">
+    <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+      <thead className="bg-surface-1 border-b border-border">
         <tr>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleAction", "动作")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleProtocol", "协议")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleDestPort", "端口")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleSource", "来源")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleDescription", "说明")}</th>
+          <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.firewall.ruleAction", "动作")}</th>
+          <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.firewall.ruleProtocol", "协议")}</th>
+          <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.firewall.ruleDestPort", "端口")}</th>
+          <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.firewall.ruleSource", "来源")}</th>
+          <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.firewall.ruleDescription", "说明")}</th>
         </tr>
       </thead>
       <tbody>
@@ -180,15 +199,13 @@ function RulesTable({ rules }: { rules: FirewallRule[] }) {
 }
 
 function ActionBadge({ action }: { action: string }) {
-  const color =
+  const status =
     action === "allow"
-      ? "bg-success/20 text-success"
+      ? "success"
       : action === "reject"
-        ? "bg-warning/20 text-warning"
-        : "bg-destructive/20 text-destructive";
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${color}`}>{action}</span>
-  );
+        ? "warning"
+        : "error";
+  return <StatusPill status={status}>{action}</StatusPill>;
 }
 
 function RulesEditor({
@@ -228,7 +245,7 @@ function RulesEditor({
           <select
             value={r.action}
             onChange={(e) => patch(i, { action: e.target.value as FirewallRule["action"] })}
-            className="col-span-2 px-2 py-1 rounded border border-border bg-card"
+            className="col-span-2 h-8 px-2 rounded-md border border-border bg-surface-1 text-foreground"
           >
             <option value="allow">allow</option>
             <option value="reject">reject</option>
@@ -237,59 +254,60 @@ function RulesEditor({
           <select
             value={r.protocol}
             onChange={(e) => patch(i, { protocol: e.target.value as FirewallRule["protocol"] })}
-            className="col-span-2 px-2 py-1 rounded border border-border bg-card"
+            className="col-span-2 h-8 px-2 rounded-md border border-border bg-surface-1 text-foreground"
           >
             <option value="tcp">tcp</option>
             <option value="udp">udp</option>
             <option value="icmp4">icmp4</option>
             <option value="icmp6">icmp6</option>
           </select>
-          <input
+          <Input
             type="text"
             placeholder={t("admin.firewall.portPlaceholder", "22,80 or 1000-2000")}
             value={r.destination_port}
             onChange={(e) => patch(i, { destination_port: e.target.value })}
-            className="col-span-2 px-2 py-1 rounded border border-border bg-card font-mono"
+            className="col-span-2 h-8 font-mono"
           />
-          <input
+          <Input
             type="text"
             placeholder="10.0.0.0/8"
             value={r.source_cidr}
             onChange={(e) => patch(i, { source_cidr: e.target.value })}
-            className="col-span-2 px-2 py-1 rounded border border-border bg-card font-mono"
+            className="col-span-2 h-8 font-mono"
           />
-          <input
+          <Input
             type="text"
             placeholder={t("admin.firewall.descPlaceholder", "说明")}
             value={r.description}
             onChange={(e) => patch(i, { description: e.target.value })}
-            className="col-span-3 px-2 py-1 rounded border border-border bg-card"
+            className="col-span-3 h-8"
           />
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => remove(i)}
             disabled={rules.length === 1}
-            className="col-span-1 px-2 py-1 rounded border border-destructive/30 text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            className="col-span-1 text-status-error"
           >
             −
-          </button>
+          </Button>
         </div>
       ))}
       <div className="flex gap-2 pt-2">
-        <button
-          onClick={add}
-          className="px-3 py-1 rounded border border-border text-xs hover:bg-muted"
-        >
-          {t("admin.firewall.addRule", "+ 添加规则")}
-        </button>
-        <button
+        <Button variant="ghost" size="sm" onClick={add}>
+          <Plus size={14} />
+          {t("admin.firewall.addRule", "添加规则")}
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           onClick={save}
           disabled={mutation.isPending}
-          className="px-3 py-1 rounded bg-primary text-primary-foreground text-xs disabled:opacity-50"
         >
           {mutation.isPending
             ? t("common.saving", "保存中...")
             : t("admin.firewall.saveRules", "保存规则")}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -331,53 +349,60 @@ function CreateGroupPanel({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6 space-y-3">
-      <div className="grid grid-cols-3 gap-3">
-        <label className="block text-xs">
-          <span className="text-muted-foreground block mb-1">
-            {t("admin.firewall.name", "名称")}
-          </span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Web"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </label>
-        <label className="block text-xs">
-          <span className="text-muted-foreground block mb-1">Slug</span>
-          <input
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="web-basic"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm font-mono"
-          />
-        </label>
-        <label className="block text-xs">
-          <span className="text-muted-foreground block mb-1">
-            {t("admin.firewall.description", "说明")}
-          </span>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </label>
-      </div>
-      {mutation.isError && (
-        <div className="text-destructive text-sm">
-          {(mutation.error as Error).message}
+    <>
+      <SheetHeader>
+        <SheetTitle>{t("admin.firewall.create", "创建组")}</SheetTitle>
+      </SheetHeader>
+      <SheetBody>
+        <div className="grid grid-cols-1 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fw-name">{t("admin.firewall.name", "名称")}</Label>
+            <Input
+              id="fw-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Web"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fw-slug">Slug</Label>
+            <Input
+              id="fw-slug"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="web-basic"
+              className="font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fw-desc">{t("admin.firewall.description", "说明")}</Label>
+            <Input
+              id="fw-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
         </div>
-      )}
-      <button
-        onClick={submit}
-        disabled={mutation.isPending || !slug || !name}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
-      >
-        {mutation.isPending
-          ? t("common.saving", "保存中...")
-          : t("admin.firewall.create", "创建组")}
-      </button>
-    </div>
+        {mutation.isError && (
+          <div className="text-status-error text-sm mt-3">
+            {(mutation.error as Error).message}
+          </div>
+        )}
+      </SheetBody>
+      <SheetFooter>
+        <Button variant="ghost" onClick={onDone}>
+          {t("common.cancel", "取消")}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={mutation.isPending || !slug || !name}
+        >
+          {mutation.isPending
+            ? t("common.saving", "保存中...")
+            : t("admin.firewall.create", "创建组")}
+        </Button>
+      </SheetFooter>
+    </>
   );
 }

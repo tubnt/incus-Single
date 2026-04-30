@@ -1,25 +1,41 @@
 import type {Invoice, Order, VMCredentials} from "@/features/billing/api";
 import type {Product} from "@/features/products/api";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { CreditCard, FileText, Plus, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
-  
-  
   useCancelOrderMutation,
-  useCreateOrderMutation,
   useMyInvoicesQuery,
   useMyOrdersQuery,
-  usePayOrderMutation
+  usePayOrderMutation,
 } from "@/features/billing/api";
 import { InvoiceDetailDialog } from "@/features/billing/invoice-detail-dialog";
-import {  useProductsQuery } from "@/features/products/api";
-import { DEFAULT_OS_IMAGE, OsImagePicker } from "@/features/vms/os-image-picker";
+import { PurchaseSheet } from "@/features/billing/purchase-sheet";
+import { useProductsQuery } from "@/features/products/api";
+import { useCommandActions } from "@/shared/components/command-palette/use-command-actions";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button, buttonVariants } from "@/shared/components/ui/button";
+import { Card, CardContent } from "@/shared/components/ui/card";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { SecretReveal } from "@/shared/components/ui/secret-reveal";
+import { StatusPill } from "@/shared/components/ui/status";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/components/ui/table";
 import { fetchCurrentUser } from "@/shared/lib/auth";
-import { formatCurrency } from "@/shared/lib/utils";
+import { cn, formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/billing")({
   component: BillingPage,
@@ -27,8 +43,10 @@ export const Route = createFileRoute("/billing")({
 
 function BillingPage() {
   const { t } = useTranslation();
-  const [credentials, setCredentials] = useState<VMCredentials | null>(null);
+  const navigate = useNavigate();
+  const [purchaseProduct, setPurchaseProduct] = useState<Product | null>(null);
   const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
+  const [credentials, setCredentials] = useState<VMCredentials | null>(null);
 
   const { data: user } = useQuery({ queryKey: ["currentUser"], queryFn: fetchCurrentUser });
   const { data: ordersData } = useMyOrdersQuery();
@@ -39,278 +57,317 @@ function BillingPage() {
   const invoices = invoicesData?.invoices ?? [];
   const products = productsData?.products ?? [];
 
+  useCommandActions(
+    () => [
+      {
+        id: "billing.topup",
+        title: t("billing.topupViaTicket", { defaultValue: "提工单充值" }),
+        icon: "CreditCard",
+        perform: () =>
+          navigate({ to: "/tickets", search: { subject: "topup" } as any }),
+      },
+    ],
+    [navigate, t],
+  );
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">{t("billing.title")}</h1>
-
-      <BalanceCard balance={user?.balance ?? 0} />
-
-      <InvoiceDetailDialog
-        invoice={detailInvoice}
-        orders={orders}
-        products={products}
-        onClose={() => setDetailInvoice(null)}
+    <PageShell>
+      <PageHeader
+        title={t("billing.title")}
+        description={t("billing.description", {
+          defaultValue: "余额、套餐、订单、发票。",
+        })}
       />
+      <PageContent>
+        <BalanceCard balance={user?.balance ?? 0} />
 
-      {credentials && (
-        <div className="border border-success/30 bg-success/10 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold mb-2">{t("billing.vmCreatedTitle", { defaultValue: "VM Created Successfully" })}</h3>
-          <div className="text-sm space-y-1 font-mono">
-            <div>Name: {credentials.vm_name}</div>
-            <div>IP: {credentials.ip || t("vm.assigning", { defaultValue: "assigning..." })}</div>
-            <div>Username: {credentials.username}</div>
-            <div>Password: {credentials.password}</div>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">{t("billing.saveCredentialsHint", { defaultValue: "Save these credentials — the password will not be shown again." })}</p>
-          <button onClick={() => setCredentials(null)}
-            className="mt-3 px-4 py-2 bg-primary text-primary-foreground rounded text-sm">
-            OK
-          </button>
-        </div>
-      )}
+        <InvoiceDetailDialog
+          invoice={detailInvoice}
+          orders={orders}
+          products={products}
+          onClose={() => setDetailInvoice(null)}
+        />
 
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold mb-3">{t("billing.products")}</h2>
-        {products.length === 0 ? (
-          <div className="border border-border rounded-lg p-4 text-center text-muted-foreground text-sm">{t("common.noData")}</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {products.map((p) => (
-              <ProductCard key={p.id} product={p} onCreated={setCredentials} />
-            ))}
-          </div>
-        )}
-      </div>
+        {credentials ? (
+          <Card className="border-status-success/30 bg-status-success/8">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center gap-2 text-status-success font-strong">
+                <Plus size={16} aria-hidden="true" />
+                {t("billing.vmCreatedTitle", { defaultValue: "VM 创建成功" })}
+              </div>
+              <div className="space-y-2">
+                <SecretReveal label="Name" value={credentials.vm_name} inline={false} />
+                <SecretReveal
+                  label="IP"
+                  value={credentials.ip || t("vm.assigning", { defaultValue: "分配中..." })}
+                  inline={false}
+                  autoMaskMs={0}
+                />
+                <SecretReveal label="Username" value={credentials.username} inline={false} />
+                <SecretReveal label="Password" value={credentials.password} inline={false} />
+              </div>
+              <div className="flex justify-end">
+                <Button variant="ghost" onClick={() => setCredentials(null)}>
+                  {t("common.ok", { defaultValue: "好的" })}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold mb-3">{t("billing.orders")}</h2>
-        {orders.length === 0 ? (
-          <div className="border border-border rounded-lg p-4 text-center text-muted-foreground text-sm">{t("common.noData")}</div>
-        ) : (
-          <div className="border border-border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium">#</th>
-                  <th className="text-right px-4 py-2 font-medium">{t("billing.amount")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("billing.status")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("billing.expires")}</th>
-                  <th className="text-right px-4 py-2 font-medium">{t("vm.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <OrderRow key={o.id} order={o} onProvisioned={setCredentials} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        <section className="space-y-3">
+          <h2 className="text-h3 font-strong text-foreground">
+            {t("billing.products")}
+          </h2>
+          {products.length === 0 ? (
+            <EmptyState
+              icon={ShoppingCart}
+              title={t("common.noData")}
+            />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {products.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onPurchase={() => setPurchaseProduct(p)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-3">{t("billing.invoices")}</h2>
-        {invoices.length === 0 ? (
-          <div className="border border-border rounded-lg p-4 text-center text-muted-foreground text-sm">{t("common.noData")}</div>
-        ) : (
-          <div className="border border-border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30">
-                <tr>
-                  <th className="text-left px-4 py-2 font-medium">#</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("billing.orders")}</th>
-                  <th className="text-right px-4 py-2 font-medium">{t("billing.amount")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("billing.status")}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t("billing.paidAt", { defaultValue: "Paid At" })}</th>
-                  <th className="text-right px-4 py-2 font-medium">{t("vm.actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-t border-border">
-                    <td className="px-4 py-2">{inv.id}</td>
-                    <td className="px-4 py-2">#{inv.order_id}</td>
-                    <td className="px-4 py-2 text-right font-mono">{formatCurrency(inv.amount, inv.currency)}</td>
-                    <td className="px-4 py-2">
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-success/20 text-success">{inv.status}</span>
-                    </td>
-                    <td className="px-4 py-2 text-xs text-muted-foreground">
-                      {inv.paid_at ? new Date(inv.paid_at).toLocaleString() : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setDetailInvoice(inv)}
-                        className="px-2 py-1 text-xs border border-border rounded hover:bg-muted/50"
-                      >
-                        {t("invoice.detail", { defaultValue: "详情" })}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+        <section className="space-y-3">
+          <h2 className="text-h3 font-strong text-foreground">
+            {t("billing.orders")}
+          </h2>
+          {orders.length === 0 ? (
+            <EmptyState icon={ShoppingCart} title={t("common.noData")} />
+          ) : (
+            <div className="rounded-lg border border-border bg-surface-1 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>#</TableHead>
+                    <TableHead className="text-right">{t("billing.amount")}</TableHead>
+                    <TableHead>{t("billing.status")}</TableHead>
+                    <TableHead>{t("billing.expires")}</TableHead>
+                    <TableHead className="text-right">{t("vm.actions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {orders.map((o) => (
+                    <OrderRow key={o.id} order={o} onProvisioned={setCredentials} />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-h3 font-strong text-foreground">
+            {t("billing.invoices")}
+          </h2>
+          {invoices.length === 0 ? (
+            <EmptyState icon={FileText} title={t("common.noData")} />
+          ) : (
+            <div className="rounded-lg border border-border bg-surface-1 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>#</TableHead>
+                    <TableHead>{t("invoice.order", { defaultValue: "Order" })}</TableHead>
+                    <TableHead className="text-right">{t("invoice.amount")}</TableHead>
+                    <TableHead>{t("invoice.status")}</TableHead>
+                    <TableHead>{t("invoice.paidAt", { defaultValue: "支付时间" })}</TableHead>
+                    <TableHead className="text-right">{t("vm.actions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {invoices.map((inv) => (
+                    <TableRow key={inv.id}>
+                      <TableCell>{inv.id}</TableCell>
+                      <TableCell>#{inv.order_id}</TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatCurrency(inv.amount, inv.currency)}
+                      </TableCell>
+                      <TableCell>
+                        <StatusPill status="success">{inv.status}</StatusPill>
+                      </TableCell>
+                      <TableCell className="text-caption text-text-tertiary">
+                        {inv.paid_at ? new Date(inv.paid_at).toLocaleString() : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setDetailInvoice(inv)}
+                        >
+                          {t("invoice.detail", { defaultValue: "详情" })}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+      </PageContent>
+
+      <PurchaseSheet
+        product={purchaseProduct}
+        onClose={() => setPurchaseProduct(null)}
+      />
+    </PageShell>
   );
 }
 
 function BalanceCard({ balance }: { balance: number }) {
   const { t } = useTranslation();
   return (
-    <div className="mb-6 border border-border rounded-lg bg-card p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-      <div>
-        <div className="text-sm text-muted-foreground">{t("billing.balance", { defaultValue: "账户余额" })}</div>
-        <div className="text-2xl font-bold font-mono mt-1">${balance.toFixed(2)}</div>
-        <div className="text-xs text-muted-foreground mt-1">
-          {t("billing.topupHint", {
-            defaultValue: "当前尚未开放自助充值。如需充值请提交工单联系管理员。",
-          })}
+    <Card>
+      <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <div className="text-caption text-text-tertiary uppercase tracking-wide font-emphasis">
+            {t("billing.balance", { defaultValue: "账户余额" })}
+          </div>
+          <div className="text-h2 font-emphasis font-mono mt-1 tabular-nums">
+            ${balance.toFixed(2)}
+          </div>
+          <div className="text-caption text-text-tertiary mt-1">
+            {t("billing.topupHint", {
+              defaultValue: "当前尚未开放自助充值。如需充值请提交工单联系管理员。",
+            })}
+          </div>
         </div>
-      </div>
-      <a
-        href="/tickets?subject=topup"
-        className="self-start md:self-auto px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-      >
-        {t("billing.topupViaTicket", { defaultValue: "提工单充值" })}
-      </a>
-    </div>
+        <Link
+          to="/tickets"
+          search={{ subject: "topup" } as any}
+          className={cn(buttonVariants({ variant: "primary" }))}
+        >
+          <CreditCard size={14} aria-hidden="true" />
+          {t("billing.topupViaTicket", { defaultValue: "提工单充值" })}
+        </Link>
+      </CardContent>
+    </Card>
   );
 }
 
-// Mirror the backend `safename` regex (httpx.SafeNameRe). Catching invalid
-// VM names client-side avoids the cryptic "vMName: safename" 400 the user
-// hit on 2026-04-25 when typing a name with a space.
-const VM_NAME_RE = /^[a-z0-9][\w.-]*$/i;
-
-function ProductCard({ product: p, onCreated }: { product: Product; onCreated: (c: VMCredentials) => void }) {
+function ProductCard({
+  product: p,
+  onPurchase,
+}: {
+  product: Product;
+  onPurchase: () => void;
+}) {
   const { t } = useTranslation();
-  const [osImage, setOsImage] = useState<string>(DEFAULT_OS_IMAGE);
-  const [vmName, setVmName] = useState("");
-  const [expanded, setExpanded] = useState(false);
-
-  const payMutation = usePayOrderMutation();
-  const orderMutation = useCreateOrderMutation();
-
-  const vmNameError =
-    vmName !== "" && !VM_NAME_RE.test(vmName)
-      ? t("billing.vmNameInvalid", {
-          defaultValue: "VM 名称只能包含字母、数字、点 . 横杠 - 和下划线 _，且不能以特殊字符开头",
-        })
-      : "";
-
-  const submitOrder = () => {
-    if (vmNameError) return;
-    orderMutation.mutate(
-      { product_id: p.id, vm_name: vmName || undefined, os_image: osImage },
-      {
-        onSuccess: (data) => {
-          payMutation.mutate(
-            { orderId: data.order.id, vm_name: vmName || undefined, os_image: osImage },
-            { onSuccess: (res) => { if (res.password) onCreated(res); } },
-          );
-        },
-      },
-    );
-  };
-
-  const isPending = orderMutation.isPending || payMutation.isPending;
-  const error = orderMutation.error || payMutation.error;
-
   return (
-    <div className="border border-border rounded-lg bg-card p-4">
-      <div className="font-semibold mb-1">{p.name}</div>
-      <div className="text-xs text-muted-foreground mb-2">
-        {p.cpu}C / {(p.memory_mb / 1024).toFixed(0)}G RAM / {p.disk_gb}G SSD
-      </div>
-      <div className="text-lg font-bold mb-3">{formatCurrency(p.price_monthly, p.currency)}<span className="text-xs font-normal text-muted-foreground">/mo</span></div>
-
-      {expanded ? (
-        <div className="space-y-2 mb-3">
-          <OsImagePicker value={osImage} onChange={setOsImage} />
-          <input
-            type="text"
-            value={vmName}
-            onChange={(e) => setVmName(e.target.value)}
-            placeholder={t("billing.vmNamePlaceholder", { defaultValue: "VM name (optional)" })}
-            aria-invalid={!!vmNameError}
-            className={`w-full px-2 py-1.5 text-xs rounded border bg-card ${vmNameError ? "border-destructive" : "border-border"}`}
-          />
-          {vmNameError && (
-            <div className="text-destructive text-xs">{vmNameError}</div>
-          )}
+    <Card className="flex flex-col">
+      <CardContent className="p-4 flex flex-col gap-3 flex-1">
+        <div>
+          <div className="font-strong tracking-tight">{p.name}</div>
+          <div className="text-caption text-text-tertiary mt-0.5">
+            {p.cpu}C · {(p.memory_mb / 1024).toFixed(0)}G RAM · {p.disk_gb}G SSD
+          </div>
         </div>
-      ) : null}
-
-      <button
-        onClick={() => {
-          if (!expanded) { setExpanded(true); return; }
-          submitOrder();
-        }}
-        disabled={isPending || !!vmNameError}
-        className="w-full py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
-      >
-        {isPending ? "..." : expanded ? t("billing.pay") : t("billing.buy")}
-      </button>
-      {error && <div className="text-destructive text-xs mt-1">{(error as Error).message}</div>}
-    </div>
+        <div className="flex items-baseline gap-1">
+          <span className="text-h2 font-emphasis">
+            {formatCurrency(p.price_monthly, p.currency)}
+          </span>
+          <span className="text-caption text-text-tertiary">/mo</span>
+        </div>
+        <Button variant="primary" className="w-full" onClick={onPurchase}>
+          <Plus size={14} aria-hidden="true" />
+          {t("billing.buy", { defaultValue: "购买" })}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
-function OrderRow({ order: o, onProvisioned }: { order: Order; onProvisioned: (c: VMCredentials) => void }) {
+function OrderRow({
+  order: o,
+  onProvisioned,
+}: {
+  order: Order;
+  onProvisioned: (c: VMCredentials) => void;
+}) {
   const { t } = useTranslation();
   const payMutation = usePayOrderMutation();
   const cancelMutation = useCancelOrderMutation();
 
-  const colors: Record<string, string> = {
-    pending: "bg-warning/20 text-warning",
-    paid: "bg-success/20 text-success",
-    active: "bg-success/20 text-success",
-    provisioned: "bg-success/20 text-success",
-    expired: "bg-muted text-muted-foreground",
-  };
+  const status = (() => {
+    switch (o.status) {
+      case "paid":
+      case "active":
+      case "provisioned":
+        return "success" as const;
+      case "pending":
+        return "pending" as const;
+      case "expired":
+        return "stale" as const;
+      default:
+        return "disabled" as const;
+    }
+  })();
 
   return (
-    <tr className="border-t border-border">
-      <td className="px-4 py-2">{o.id}</td>
-      <td className="px-4 py-2 text-right font-mono">{formatCurrency(o.amount, o.currency)}</td>
-      <td className="px-4 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[o.status] ?? "bg-muted text-muted-foreground"}`}>{o.status}</span>
-      </td>
-      <td className="px-4 py-2 text-xs text-muted-foreground">
+    <TableRow>
+      <TableCell>{o.id}</TableCell>
+      <TableCell className="text-right font-mono tabular-nums">
+        {formatCurrency(o.amount, o.currency)}
+      </TableCell>
+      <TableCell>
+        <StatusPill status={status}>{o.status}</StatusPill>
+      </TableCell>
+      <TableCell className="text-caption text-text-tertiary">
         {o.expires_at ? new Date(o.expires_at).toLocaleDateString() : "—"}
-      </td>
-      <td className="px-4 py-2 text-right">
-        {o.status === "pending" && (
-          <div className="flex justify-end gap-1">
-            <button
-              onClick={() => payMutation.mutate(
-                { orderId: o.id },
-                { onSuccess: (data) => { if (data.password) onProvisioned(data); } },
-              )}
+      </TableCell>
+      <TableCell className="text-right">
+        {o.status === "pending" ? (
+          <div className="flex justify-end gap-1.5">
+            <Button
+              size="sm"
+              variant="primary"
               disabled={payMutation.isPending}
-              className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded disabled:opacity-50"
+              onClick={() =>
+                payMutation.mutate(
+                  { orderId: o.id },
+                  {
+                    onSuccess: (data) => {
+                      if (data.password) onProvisioned(data);
+                    },
+                  },
+                )
+              }
             >
               {payMutation.isPending ? "..." : t("billing.pay")}
-            </button>
-            <button
-              onClick={() => cancelMutation.mutate(o.id, {
-                onSuccess: () => toast.success(t("billing.orderCancelled", { defaultValue: "订单已取消" })),
-                onError: () => toast.error(t("billing.cancelFailed", { defaultValue: "取消失败" })),
-              })}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               disabled={cancelMutation.isPending}
-              className="px-3 py-1 text-xs border border-destructive/30 text-destructive rounded hover:bg-destructive/10 disabled:opacity-50"
+              onClick={() =>
+                cancelMutation.mutate(o.id, {
+                  onSuccess: () =>
+                    toast.success(t("billing.orderCancelled", { defaultValue: "订单已取消" })),
+                  onError: () =>
+                    toast.error(t("billing.cancelFailed", { defaultValue: "取消失败" })),
+                })
+              }
             >
               {cancelMutation.isPending ? "..." : t("billing.cancel", { defaultValue: "取消" })}
-            </button>
+            </Button>
           </div>
-        )}
-        {payMutation.isError && o.status === "pending" && (
-          <span className="text-destructive text-xs ml-2">{(payMutation.error as Error).message}</span>
-        )}
-      </td>
-    </tr>
+        ) : null}
+        {payMutation.isError && o.status === "pending" ? (
+          <span className="ml-2 text-caption text-status-error">
+            {(payMutation.error as Error).message}
+          </span>
+        ) : null}
+      </TableCell>
+    </TableRow>
   );
 }

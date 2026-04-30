@@ -1,17 +1,22 @@
 import type {VMMetric} from "@/features/monitoring/api";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Bar,
-  BarChart,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+  Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { useMetricsOverviewQuery  } from "@/features/monitoring/api";
+import { useMetricsOverviewQuery } from "@/features/monitoring/api";
+import { useCommandActions } from "@/shared/components/command-palette/use-command-actions";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Alert, AlertDescription } from "@/shared/components/ui/alert";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { EmptyState, ErrorState } from "@/shared/components/ui/empty-state";
+import { StatGridSkeleton } from "@/shared/components/ui/skeleton";
+import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/monitoring")({
   component: MonitoringPage,
@@ -19,64 +24,93 @@ export const Route = createFileRoute("/admin/monitoring")({
 
 function MonitoringPage() {
   const { t } = useTranslation();
-  const { data, isLoading, error } = useMetricsOverviewQuery();
+  const navigate = useNavigate();
+  const { data, isLoading, error, refetch } = useMetricsOverviewQuery();
 
   const clusters = data?.clusters ?? [];
   const allVMs = clusters.flatMap((c) => c.vms ?? []);
-  const hasWarning = data?.warning;
+  const warning = data?.warning;
   const dbRunningTotal = clusters.reduce(
     (sum, c) => sum + (c.db_running_count ?? 0),
     0,
   );
   const drifted = allVMs.length === 0 && dbRunningTotal > 0;
 
+  useCommandActions(
+    () => [
+      {
+        id: "monitoring.refresh",
+        title: t("monitoring.refresh", { defaultValue: "刷新指标" }),
+        icon: "Activity",
+        perform: () => refetch(),
+      },
+      {
+        id: "monitoring.observability",
+        title: t("admin.observability.title", { defaultValue: "可观测性面板" }),
+        icon: "BarChart3",
+        perform: () => navigate({ to: "/admin/observability" }),
+      },
+      {
+        id: "monitoring.all-vms",
+        title: t("nav.allVms", { defaultValue: "所有 VM" }),
+        icon: "ServerCog",
+        perform: () => navigate({ to: "/admin/vms" }),
+      },
+    ],
+    [refetch, navigate, t],
+  );
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("monitoring.title")}</h1>
-        <span className="text-xs text-muted-foreground">
-          {t("monitoring.refresh")}
-        </span>
-      </div>
+    <PageShell>
+      <PageHeader
+        title={t("monitoring.title")}
+        description={t("monitoring.description", {
+          defaultValue: "集群健康总览：CPU / 内存 / 磁盘 / 网络。",
+        })}
+      />
+      <PageContent>
+        {warning ? (
+          <Alert variant="warning">
+            <AlertDescription>{warning}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {hasWarning && (
-        <div className="border border-warning/30 rounded-lg p-3 mb-4 text-sm text-warning">
-          ⚠ {hasWarning}
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="border border-border rounded-lg bg-card p-4 space-y-2">
-              <div className="h-3 w-16 animate-pulse rounded bg-muted" />
-              <div className="h-6 w-24 animate-pulse rounded bg-muted" />
+        {isLoading ? (
+          <StatGridSkeleton count={4} />
+        ) : error ? (
+          <ErrorState
+            title={t("monitoring.fetchFailed", {
+              defaultValue: "拉取失败",
+              error: (error as Error).message,
+            })}
+            description={(error as Error).message}
+            retry={() => refetch()}
+          />
+        ) : allVMs.length === 0 ? (
+          <EmptyState
+            title={
+              drifted
+                ? t("monitoring.noDataDrift", {
+                    defaultValue: "暂无指标（DB 标 {{count}} 台 Running，但 Incus 未上报）",
+                    count: dbRunningTotal,
+                  })
+                : t("monitoring.noData", { defaultValue: "暂无指标" })
+            }
+          />
+        ) : (
+          <>
+            <SummaryCards vms={allVMs} />
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <CPUChart vms={allVMs} />
+              <MemoryChart vms={allVMs} />
+              <DiskChart vms={allVMs} />
+              <NetworkChart vms={allVMs} />
             </div>
-          ))}
-        </div>
-      ) : error ? (
-        <div className="border border-destructive/30 rounded-lg p-4 text-destructive text-sm">
-          {t("monitoring.fetchFailed", { error: (error as Error).message })}
-        </div>
-      ) : allVMs.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {drifted
-            ? t("monitoring.noDataDrift", { count: dbRunningTotal })
-            : t("monitoring.noData")}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <SummaryCards vms={allVMs} />
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <CPUChart vms={allVMs} />
-            <MemoryChart vms={allVMs} />
-            <DiskChart vms={allVMs} />
-            <NetworkChart vms={allVMs} />
-          </div>
-          <VMTable vms={allVMs} />
-        </div>
-      )}
-    </div>
+            <VMTable vms={allVMs} />
+          </>
+        )}
+      </PageContent>
+    </PageShell>
   );
 }
 
@@ -88,35 +122,48 @@ function SummaryCards({ vms }: { vms: VMMetric[] }) {
   const usedDisk = vms.reduce((s, v) => s + v.disk_used_bytes, 0);
   const avgCPU =
     vms.length > 0
-      ? vms.reduce((s, v) => s + v.cpu_user_pct + v.cpu_system_pct, 0) /
-        vms.length
+      ? vms.reduce((s, v) => s + v.cpu_user_pct + v.cpu_system_pct, 0) / vms.length
       : 0;
 
   const cards = [
     { label: t("monitoring.vmCount"), value: String(vms.length) },
     { label: t("monitoring.avgCpu"), value: `${avgCPU.toFixed(1)}%` },
-    {
-      label: t("monitoring.totalMemory"),
-      value: `${fmtBytes(usedMem)} / ${fmtBytes(totalMem)}`,
-    },
-    {
-      label: t("monitoring.totalDisk"),
-      value: `${fmtBytes(usedDisk)} / ${fmtBytes(totalDisk)}`,
-    },
+    { label: t("monitoring.totalMemory"), value: `${fmtBytes(usedMem)} / ${fmtBytes(totalMem)}` },
+    { label: t("monitoring.totalDisk"), value: `${fmtBytes(usedDisk)} / ${fmtBytes(totalDisk)}` },
   ];
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((c) => (
-        <div
-          key={c.label}
-          className="border border-border rounded-lg bg-card p-4"
-        >
-          <div className="text-xs text-muted-foreground mb-1">{c.label}</div>
-          <div className="text-lg font-semibold">{c.value}</div>
-        </div>
+        <Card key={c.label}>
+          <CardContent className="p-4">
+            <div className="text-caption font-emphasis text-text-tertiary uppercase tracking-wide mb-1">
+              {c.label}
+            </div>
+            <div className="text-h3 font-emphasis tabular-nums text-foreground">
+              {c.value}
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
+  );
+}
+
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="border-b border-border">
+        <CardTitle className="text-h3">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="p-4">{children}</CardContent>
+    </Card>
   );
 }
 
@@ -135,8 +182,8 @@ function CPUChart({ vms }: { vms: VMMetric[] }) {
           <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v}%`} />
-          <Bar dataKey="user" stackId="cpu" fill="var(--color-primary)" name={t("monitoring.legendUser")} />
-          <Bar dataKey="system" stackId="cpu" fill="var(--color-destructive)" name={t("monitoring.legendSystem")} />
+          <Bar dataKey="user" stackId="cpu" fill="var(--accent)" name={t("monitoring.legendUser")} />
+          <Bar dataKey="system" stackId="cpu" fill="var(--status-error)" name={t("monitoring.legendSystem")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -149,7 +196,6 @@ function MemoryChart({ vms }: { vms: VMMetric[] }) {
     name: v.name,
     used: +(v.mem_used_bytes / 1024 / 1024 / 1024).toFixed(2),
     total: +(v.mem_total_bytes / 1024 / 1024 / 1024).toFixed(2),
-    pct: +v.mem_used_pct.toFixed(1),
   }));
 
   return (
@@ -159,8 +205,8 @@ function MemoryChart({ vms }: { vms: VMMetric[] }) {
           <XAxis type="number" tickFormatter={(v) => `${v} GB`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v} GB`} />
-          <Bar dataKey="total" fill="var(--color-muted)" name={t("monitoring.memTotal")} />
-          <Bar dataKey="used" fill="var(--color-primary)" name={t("monitoring.memUsed")} />
+          <Bar dataKey="total" fill="var(--surface-tint-3)" name={t("monitoring.memTotal")} />
+          <Bar dataKey="used" fill="var(--accent)" name={t("monitoring.memUsed")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -171,10 +217,7 @@ function DiskChart({ vms }: { vms: VMMetric[] }) {
   const { t } = useTranslation();
   const chartData = vms
     .filter((v) => v.disk_total_bytes > 0)
-    .map((v) => ({
-      name: v.name,
-      pct: +v.disk_used_pct.toFixed(1),
-    }));
+    .map((v) => ({ name: v.name, pct: +v.disk_used_pct.toFixed(1) }));
 
   return (
     <ChartCard title={t("monitoring.disk")}>
@@ -189,10 +232,10 @@ function DiskChart({ vms }: { vms: VMMetric[] }) {
                 key={i}
                 fill={
                   chartData[i].pct > 90
-                    ? "var(--color-destructive)"
+                    ? "var(--status-error)"
                     : chartData[i].pct > 70
-                      ? "#f59e0b"
-                      : "var(--color-success)"
+                      ? "var(--status-warning)"
+                      : "var(--status-success)"
                 }
               />
             ))}
@@ -230,8 +273,8 @@ function NetworkChart({ vms }: { vms: VMMetric[] }) {
           <XAxis type="number" tickFormatter={(v) => `${v} MB`} />
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v} MB`} />
-          <Bar dataKey="rx" fill="var(--color-success)" name={t("monitoring.netReceive")} />
-          <Bar dataKey="tx" fill="var(--color-primary)" name={t("monitoring.netSend")} />
+          <Bar dataKey="rx" fill="var(--status-success)" name={t("monitoring.netReceive")} />
+          <Bar dataKey="tx" fill="var(--accent)" name={t("monitoring.netSend")} />
         </BarChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -243,10 +286,7 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
   const [sort, setSort] = useState<"cpu" | "mem" | "disk">("cpu");
 
   const sorted = [...vms].sort((a, b) => {
-    if (sort === "cpu")
-      return (
-        b.cpu_user_pct + b.cpu_system_pct - (a.cpu_user_pct + a.cpu_system_pct)
-      );
+    if (sort === "cpu") return b.cpu_user_pct + b.cpu_system_pct - (a.cpu_user_pct + a.cpu_system_pct);
     if (sort === "mem") return b.mem_used_pct - a.mem_used_pct;
     return b.disk_used_pct - a.disk_used_pct;
   });
@@ -255,91 +295,87 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
     s === "cpu" ? "CPU" : s === "mem" ? t("monitoring.sortMem") : t("monitoring.sortDisk");
 
   return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <h3 className="font-semibold text-sm">{t("monitoring.vmMetricsTitle")}</h3>
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border flex-row items-center justify-between">
+        <CardTitle className="text-h3">{t("monitoring.vmMetricsTitle")}</CardTitle>
         <div className="flex gap-1">
           {(["cpu", "mem", "disk"] as const).map((s) => (
             <button
               key={s}
+              type="button"
               onClick={() => setSort(s)}
-              className={`px-2 py-1 text-xs rounded ${sort === s ? "bg-primary text-primary-foreground" : "bg-muted/50 text-muted-foreground hover:bg-muted"}`}
+              className={cn(
+                "px-2.5 h-7 rounded-md text-label font-emphasis transition-colors",
+                sort === s
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-surface-2 text-text-tertiary hover:bg-surface-3",
+              )}
             >
               {sortLabel(s)}
             </button>
           ))}
         </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium">VM</th>
-              <th className="text-right px-4 py-2 font-medium">CPU</th>
-              <th className="text-right px-4 py-2 font-medium">{t("monitoring.sortMem")}</th>
-              <th className="text-right px-4 py-2 font-medium">{t("monitoring.sortDisk")}</th>
-              <th className="text-right px-4 py-2 font-medium">{t("monitoring.networkColumn")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((vm) => (
-              <tr key={vm.name} className="border-t border-border">
-                <td className="px-4 py-2 font-mono text-xs">{vm.name}</td>
-                <td className="px-4 py-2 text-right">
-                  <UsageBadge pct={vm.cpu_user_pct + vm.cpu_system_pct} />
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <UsageBadge pct={vm.mem_used_pct} />
-                  <span className="text-xs text-muted-foreground ml-1">
-                    {fmtBytes(vm.mem_used_bytes)}/{fmtBytes(vm.mem_total_bytes)}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <UsageBadge pct={vm.disk_used_pct} />
-                  <span className="text-xs text-muted-foreground ml-1">
-                    {fmtBytes(vm.disk_used_bytes)}/{fmtBytes(vm.disk_total_bytes)}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-right text-xs text-muted-foreground">
-                  {fmtBytes(vm.net_rx_bytes)} / {fmtBytes(vm.net_tx_bytes)}
-                </td>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+            <thead className="bg-surface-1 border-b border-border">
+              <tr>
+                <th className="text-left px-4 py-2 font-emphasis text-label text-text-tertiary">VM</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">CPU</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.sortMem")}</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.sortDisk")}</th>
+                <th className="text-right px-4 py-2 font-emphasis text-label text-text-tertiary">{t("monitoring.networkColumn")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            </thead>
+            <tbody>
+              {sorted.map((vm) => (
+                <tr key={vm.name} className="border-t border-border">
+                  <td className="px-4 py-2 font-mono text-caption">{vm.name}</td>
+                  <td className="px-4 py-2 text-right">
+                    <UsageBadge pct={vm.cpu_user_pct + vm.cpu_system_pct} />
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <UsageBadge pct={vm.mem_used_pct} />
+                    <span className="text-caption text-muted-foreground ml-1">
+                      {fmtBytes(vm.mem_used_bytes)}/{fmtBytes(vm.mem_total_bytes)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <UsageBadge pct={vm.disk_used_pct} />
+                    <span className="text-caption text-muted-foreground ml-1">
+                      {fmtBytes(vm.disk_used_bytes)}/{fmtBytes(vm.disk_total_bytes)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right text-caption text-muted-foreground">
+                    {fmtBytes(vm.net_rx_bytes)} / {fmtBytes(vm.net_tx_bytes)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function UsageBadge({ pct }: { pct: number }) {
-  const color =
+  const tone =
     pct > 90
-      ? "bg-destructive/20 text-destructive"
+      ? "text-status-error border-status-error/40"
       : pct > 70
-        ? "bg-warning/20 text-warning"
-        : "bg-success/20 text-success";
+        ? "text-status-warning border-status-warning/40"
+        : "text-status-success border-status-success/40";
   return (
-    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${color}`}>
+    <span
+      className={cn(
+        "inline-block rounded-pill border px-1.5 py-0.5 text-label font-emphasis tabular-nums",
+        tone,
+      )}
+    >
       {pct.toFixed(1)}%
     </span>
-  );
-}
-
-function ChartCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
-      <div className="px-4 py-3 border-b border-border">
-        <h3 className="font-semibold text-sm">{title}</h3>
-      </div>
-      <div className="p-4">{children}</div>
-    </div>
   );
 }
 
@@ -347,6 +383,6 @@ function fmtBytes(bytes: number): string {
   if (bytes === 0) return "0";
   const units = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(Math.abs(bytes)) / Math.log(1024));
-  const val = bytes / 1024**i;
+  const val = bytes / 1024 ** i;
   return `${val.toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
 }

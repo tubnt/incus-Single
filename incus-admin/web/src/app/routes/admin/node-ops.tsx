@@ -3,6 +3,14 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useExecSSHMutation, useTestSSHMutation } from "@/features/nodes/api";
 import { validHost } from "@/features/nodes/host-validation";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button } from "@/shared/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Input } from "@/shared/components/ui/input";
 
 export const Route = createFileRoute("/admin/node-ops")({
   component: NodeOpsPage,
@@ -42,51 +50,71 @@ function NodeOpsPage() {
   const canAct = validHost(host);
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">{t("admin.nodeOpsTitle")}</h1>
+    <PageShell>
+      <PageHeader title={t("admin.nodeOpsTitle")} />
+      <PageContent>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("admin.sshConnection")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-3 mb-1">
+              <Input
+                type="text"
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                onBlur={() => setHostTouched(true)}
+                placeholder={t("admin.hostPlaceholder")}
+                className={`flex-1 font-mono ${hostInvalid ? "border-status-error" : ""}`}
+              />
+              <Button
+                variant="primary"
+                onClick={runTest}
+                disabled={testMutation.isPending || !canAct}
+              >
+                {testMutation.isPending ? t("admin.sshTesting") : t("admin.sshTest")}
+              </Button>
+            </div>
+            {hostInvalid && (
+              <div className="text-xs text-status-error mb-2">{t("admin.hostInvalid")}</div>
+            )}
 
-      <div className="border border-border rounded-lg bg-card p-4 mb-6">
-        <h3 className="font-semibold mb-3">{t("admin.sshConnection")}</h3>
-        <div className="flex gap-3 mb-1">
-          <input type="text" value={host}
-            onChange={(e) => setHost(e.target.value)}
-            onBlur={() => setHostTouched(true)}
-            placeholder={t("admin.hostPlaceholder")}
-            className={`flex-1 px-3 py-2 rounded border bg-card text-sm font-mono ${hostInvalid ? "border-destructive" : "border-border"}`} />
-          <button onClick={runTest}
-            disabled={testMutation.isPending || !canAct}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50">
-            {testMutation.isPending ? t("admin.sshTesting") : t("admin.sshTest")}
-          </button>
-        </div>
-        {hostInvalid && (
-          <div className="text-xs text-destructive mb-2">{t("admin.hostInvalid")}</div>
+            {canAct && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {quickCommands.map((qc) => (
+                  <Button
+                    key={qc.label}
+                    variant="subtle"
+                    size="sm"
+                    onClick={() => runExec(qc.cmd)}
+                    disabled={execMutation.isPending}
+                  >
+                    {qc.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {output && (
+          <Card className="overflow-hidden">
+            <div className="px-4 py-2 bg-surface-2/40 flex items-center justify-between border-b border-border">
+              <span className="text-sm font-emphasis">{t("common.output")}</span>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setOutput("")}
+              >
+                {t("common.clear")}
+              </Button>
+            </div>
+            <pre className="p-4 text-xs font-mono bg-black text-green-400 overflow-x-auto whitespace-pre-wrap max-h-96">
+              {output}
+            </pre>
+          </Card>
         )}
-
-        {canAct && (
-          <div className="flex flex-wrap gap-2 mt-3">
-            {quickCommands.map((qc) => (
-              <button key={qc.label} onClick={() => runExec(qc.cmd)}
-                disabled={execMutation.isPending}
-                className="px-3 py-1.5 text-xs bg-muted/50 text-muted-foreground rounded hover:bg-muted disabled:opacity-50">
-                {qc.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {output && (
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2 bg-muted/30 flex items-center justify-between">
-            <span className="text-sm font-medium">{t("common.output")}</span>
-            <button onClick={() => setOutput("")} className="text-xs text-muted-foreground hover:text-foreground">{t("common.clear")}</button>
-          </div>
-          <pre className="p-4 text-xs font-mono bg-black text-green-400 overflow-x-auto whitespace-pre-wrap max-h-96">
-            {output}
-          </pre>
-        </div>
-      )}
-    </div>
+      </PageContent>
+    </PageShell>
   );
 }
