@@ -8,9 +8,34 @@ interface ConsoleTerminalProps {
   vmName: string;
   project: string;
   cluster: string;
+  className?: string;
+  /** 监听 dark/light 切换。父组件持续传当前 theme，xterm 重建调色板。 */
+  themeKey?: string;
 }
 
-export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalProps) {
+/**
+ * 读 CSS 变量构造 xterm theme（D3）。
+ * 必须在浏览器 paint 后才能拿到生效值，所以放进 effect。
+ */
+function readXTermTheme() {
+  if (typeof window === "undefined") return undefined;
+  const cs = window.getComputedStyle(document.documentElement);
+  const get = (name: string) => cs.getPropertyValue(name).trim();
+  return {
+    background: get("--xterm-bg") || "#0f1011",
+    foreground: get("--xterm-fg") || "#d0d6e0",
+    cursor: get("--xterm-cursor") || "#7170ff",
+    selectionBackground: get("--xterm-selection") || "rgba(113,112,255,0.35)",
+  };
+}
+
+export function ConsoleTerminal({
+  vmName,
+  project,
+  cluster,
+  className,
+  themeKey,
+}: ConsoleTerminalProps) {
   const termRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -21,13 +46,8 @@ export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalPro
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      theme: {
-        background: "#0d1117",
-        foreground: "#c9d1d9",
-        cursor: "#58a6ff",
-        selectionBackground: "#264f78",
-      },
+      fontFamily: "var(--font-mono), 'JetBrains Mono Variable', 'Fira Code', monospace",
+      theme: readXTermTheme(),
     });
 
     const fitAddon = new FitAddon();
@@ -40,7 +60,7 @@ export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalPro
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/console?vm=${encodeURIComponent(vmName)}&project=${encodeURIComponent(project)}&cluster=${encodeURIComponent(cluster)}`;
 
-    terminal.writeln(`Connecting to ${  vmName  }...`);
+    terminal.writeln(`Connecting to ${vmName}...`);
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -88,11 +108,18 @@ export function ConsoleTerminal({ vmName, project, cluster }: ConsoleTerminalPro
     };
   }, [vmName, project, cluster]);
 
+  // 主题切换时更新 xterm 调色板，无需重建 terminal/ws。
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    const t = readXTermTheme();
+    if (t) terminalRef.current.options.theme = t;
+  }, [themeKey]);
+
   return (
     <div
       ref={termRef}
-      className="w-full rounded-lg overflow-hidden border border-border"
-      style={{ height: "500px" }}
+      className={className ?? "w-full rounded-lg overflow-hidden border border-border"}
+      style={className ? undefined : { height: "500px" }}
     />
   );
 }

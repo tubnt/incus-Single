@@ -4,15 +4,33 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
-  
+
+
   useAddClusterMutation,
   useClusterNodesQuery,
   useClustersQuery,
   useEvacuateNodeMutation,
   useRestoreNodeMutation
 } from "@/features/clusters/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Input } from "@/shared/components/ui/input";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { StatusPill } from "@/shared/components/ui/status";
 import { fmtBytes } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/clusters")({
@@ -24,34 +42,38 @@ function ClustersPage() {
   const { data, isLoading } = useClustersQuery();
   const clusters = data?.clusters ?? [];
 
-  const [showAdd, setShowAdd] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("nav.clusters")}</h1>
-        <button onClick={() => setShowAdd(!showAdd)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90">
-          {showAdd ? t("common.cancel") : t("cluster.addCluster")}
-        </button>
-      </div>
+    <PageShell>
+      <PageHeader
+        title={t("nav.clusters")}
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            {t("cluster.addCluster")}
+          </Button>
+        }
+      />
+      <PageContent>
+        {isLoading ? (
+          <div className="text-muted-foreground">{t("common.loading")}</div>
+        ) : clusters.length === 0 ? (
+          <EmptyState title={t("common.noData")} />
+        ) : (
+          <div className="space-y-6">
+            {clusters.map((c) => (
+              <ClusterCard key={c.name} cluster={c} />
+            ))}
+          </div>
+        )}
 
-      {showAdd && <AddClusterForm onDone={() => setShowAdd(false)} />}
-
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading")}</div>
-      ) : clusters.length === 0 ? (
-        <div className="border border-border rounded-lg p-8 text-center text-muted-foreground">
-          {t("common.noData")}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {clusters.map((c) => (
-            <ClusterCard key={c.name} cluster={c} />
-          ))}
-        </div>
-      )}
-    </div>
+        <Sheet open={createOpen} onOpenChange={(o) => { if (!o) setCreateOpen(false); }}>
+          <SheetContent side="right" size="min(96vw, 32rem)">
+            <AddClusterForm onDone={() => setCreateOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      </PageContent>
+    </PageShell>
   );
 }
 
@@ -60,7 +82,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
   const nodes = data?.nodes ?? [];
 
   return (
-    <div className="border border-border rounded-lg bg-card overflow-hidden">
+    <Card className="overflow-hidden">
       <div className="p-4 flex items-center justify-between border-b border-border">
         <div>
           <h3 className="font-semibold text-lg">{cluster.display_name || cluster.name}</h3>
@@ -68,9 +90,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
             {cluster.api_url} · {nodes.length} nodes
           </div>
         </div>
-        <span className="px-2 py-0.5 rounded text-xs font-medium bg-success/20 text-success">
-          {cluster.status}
-        </span>
+        <StatusPill status="success">{cluster.status}</StatusPill>
       </div>
 
       {nodes.length > 0 && (
@@ -94,7 +114,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
           </table>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -108,13 +128,13 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
   const isEvacuated = n.status === "Evacuated" || n.message?.includes("evacuated");
   const acting = evacuateMutation.isPending || restoreMutation.isPending;
 
+  const statusKind = isOnline ? "success" : isEvacuated ? "warning" : "error";
+
   return (
     <tr className="border-t border-border">
       <td className="px-4 py-2 font-mono">{n.server_name}</td>
       <td className="px-4 py-2">
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${isOnline ? "bg-success/20 text-success" : isEvacuated ? "bg-warning/20 text-warning" : "bg-destructive/20 text-destructive"}`}>
-          {n.status}
-        </span>
+        <StatusPill status={statusKind}>{n.status}</StatusPill>
         {n.message && n.message !== "Fully operational" && (
           <span className="text-xs text-muted-foreground ml-2">{n.message}</span>
         )}
@@ -124,7 +144,7 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
       <td className="px-4 py-2">
         <div className="flex items-center gap-2">
           <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-success rounded-full" style={{ width: `${(n.free_ratio * 100).toFixed(0)}%` }} />
+            <div className="h-full bg-status-success rounded-full" style={{ width: `${(n.free_ratio * 100).toFixed(0)}%` }} />
           </div>
           <span className="text-xs text-muted-foreground">{(n.free_ratio * 100).toFixed(0)}%</span>
         </div>
@@ -132,7 +152,9 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
       <td className="px-4 py-2 text-right">
         <div className="flex gap-1 justify-end">
           {isOnline && (
-            <button
+            <Button
+              variant="subtle"
+              size="sm"
               onClick={async () => {
                 const ok = await confirm({
                   title: t("deleteConfirm.evacuateTitle"),
@@ -144,19 +166,19 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
                 });
               }}
               disabled={acting}
-              className="px-2 py-1 text-xs bg-warning/20 text-warning rounded hover:bg-warning/30 disabled:opacity-50"
             >
               {t("cluster.evacuate", { defaultValue: "Evacuate" })}
-            </button>
+            </Button>
           )}
           {isEvacuated && (
-            <button
+            <Button
+              variant="subtle"
+              size="sm"
               onClick={() => restoreMutation.mutate(n.server_name)}
               disabled={acting}
-              className="px-2 py-1 text-xs bg-success/20 text-success rounded hover:bg-success/30 disabled:opacity-50"
             >
               {t("cluster.restore", { defaultValue: "Restore" })}
-            </button>
+            </Button>
           )}
         </div>
       </td>
@@ -197,42 +219,67 @@ function AddClusterForm({ onDone }: { onDone: () => void }) {
   };
 
   const fieldErr = (k: string) => (touched[k] ? errors[k] : undefined);
-  const errCls = "mt-1 text-xs text-destructive";
-  const inputCls = (k: string) =>
-    `px-3 py-2 rounded border bg-card text-sm ${fieldErr(k) ? "border-destructive" : "border-border"}`;
+  const errCls = "mt-1 text-xs text-status-error";
 
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6">
-      <h3 className="font-semibold mb-3">{t("cluster.addClusterTitle")}</h3>
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="flex flex-col">
-          <input placeholder={t("cluster.namePlaceholder")} value={form.name}
-            onChange={(e) => set("name", e.target.value)} onBlur={() => markTouched("name")}
-            className={inputCls("name")} />
-          {fieldErr("name") && <div className={errCls}>{fieldErr("name")}</div>}
+    <>
+      <SheetHeader>
+        <SheetTitle>{t("cluster.addClusterTitle")}</SheetTitle>
+      </SheetHeader>
+      <SheetBody>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col">
+            <Input
+              placeholder={t("cluster.namePlaceholder")}
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              onBlur={() => markTouched("name")}
+              className={fieldErr("name") ? "border-status-error" : undefined}
+            />
+            {fieldErr("name") && <div className={errCls}>{fieldErr("name")}</div>}
+          </div>
+          <div className="flex flex-col">
+            <Input
+              placeholder={t("cluster.fieldDisplayName")}
+              value={form.display_name}
+              onChange={(e) => set("display_name", e.target.value)}
+            />
+          </div>
+          <div className="col-span-2 flex flex-col">
+            <Input
+              placeholder={t("cluster.urlPlaceholder")}
+              value={form.api_url}
+              onChange={(e) => set("api_url", e.target.value)}
+              onBlur={() => markTouched("api_url")}
+              className={fieldErr("api_url") ? "border-status-error" : undefined}
+            />
+            {fieldErr("api_url") && <div className={errCls}>{fieldErr("api_url")}</div>}
+          </div>
+          <Input
+            placeholder={t("cluster.fieldCert")}
+            value={form.cert_file}
+            onChange={(e) => set("cert_file", e.target.value)}
+          />
+          <Input
+            placeholder={t("cluster.fieldKey")}
+            value={form.key_file}
+            onChange={(e) => set("key_file", e.target.value)}
+          />
         </div>
-        <div className="flex flex-col">
-          <input placeholder={t("cluster.fieldDisplayName")} value={form.display_name}
-            onChange={(e) => set("display_name", e.target.value)}
-            className="px-3 py-2 rounded border border-border bg-card text-sm" />
-        </div>
-        <div className="col-span-2 flex flex-col">
-          <input placeholder={t("cluster.urlPlaceholder")} value={form.api_url}
-            onChange={(e) => set("api_url", e.target.value)} onBlur={() => markTouched("api_url")}
-            className={inputCls("api_url")} />
-          {fieldErr("api_url") && <div className={errCls}>{fieldErr("api_url")}</div>}
-        </div>
-        <input placeholder={t("cluster.fieldCert")} value={form.cert_file}
-          onChange={(e) => set("cert_file", e.target.value)}
-          className="px-3 py-2 rounded border border-border bg-card text-sm" />
-        <input placeholder={t("cluster.fieldKey")} value={form.key_file}
-          onChange={(e) => set("key_file", e.target.value)}
-          className="px-3 py-2 rounded border border-border bg-card text-sm" />
-      </div>
-      <button onClick={submit} disabled={mutation.isPending || !isValid}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50">
-        {mutation.isPending ? t("cluster.connecting") : t("cluster.addCluster")}
-      </button>
-    </div>
+      </SheetBody>
+      <SheetFooter>
+        <Button variant="ghost" onClick={onDone}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={mutation.isPending || !isValid}
+        >
+          {mutation.isPending ? t("cluster.connecting") : t("cluster.addCluster")}
+        </Button>
+      </SheetFooter>
+    </>
   );
 }
+

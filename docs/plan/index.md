@@ -50,4 +50,5 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-019 安全与审计基线（Step-up / 审计全覆盖 / Token TTL / Shadow Login）**](PLAN-019.md) `2026-04-19`
 - [x] [**PLAN-020 HA 真正化 + VM 状态反向同步（合并 PLAN-014）**](PLAN-020.md) `2026-04-19`
 - [x] [**PLAN-021 运维 Must-Have（多 OS / 重装 / Rescue / 防火墙组 / 新段 / Floating IP）**](PLAN-021.md) `2026-04-24`
+- [x] [**PLAN-022 前端 Linear 重设计 + 交互范式重构**](PLAN-022.md) `2026-04-29`
 - [x] [**PLAN-023 后端批量操作 API（多选删除/启停 etc.）**](PLAN-023.md) `2026-04-29`

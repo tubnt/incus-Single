@@ -1,30 +1,57 @@
 import type {FirewallGroup} from "@/features/firewall/api";
 import type {ResetPasswordMode} from "@/features/vms/api";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
   usePortalBindVMFirewallMutation,
   usePortalFirewallGroupsQuery,
   usePortalUnbindVMFirewallMutation,
-  usePortalVMFirewallBindingsQuery
+  usePortalVMFirewallBindingsQuery,
 } from "@/features/firewall/api";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
 import {
-  
   useMyVMDetailQuery,
   usePortalReinstallVMMutation,
   usePortalRescueEnterMutation,
   usePortalRescueExitMutation,
   useResetVMPasswordMutation,
-  useVMActionMutation
+  useVMActionMutation,
 } from "@/features/vms/api";
 import { defaultUserForImage } from "@/features/vms/default-user";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Alert, AlertDescription } from "@/shared/components/ui/alert";
+import { Button, buttonVariants } from "@/shared/components/ui/button";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/vm-detail")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -38,21 +65,20 @@ function UserVMDetailPage() {
   const confirm = useConfirm();
   const navigate = useNavigate();
   const { id } = Route.useSearch();
-  const [tab, setTab] = useState<"overview" | "snapshots" | "firewall">("overview");
-  const [showReinstall, setShowReinstall] = useState(false);
+  const [reinstallOpen, setReinstallOpen] = useState(false);
   const [reinstallSlug, setReinstallSlug] = useState(DEFAULT_TEMPLATE_SLUG);
-  const [showResetPwd, setShowResetPwd] = useState(false);
+  const [resetPwdOpen, setResetPwdOpen] = useState(false);
   const [resetPwdMode, setResetPwdMode] = useState<ResetPasswordMode>("auto");
 
   const { data, isLoading } = useMyVMDetailQuery(id);
   const vm = data?.vm;
 
   const actionMutation = useVMActionMutation(id);
-
   const resetPwdMutation = useResetVMPasswordMutation(id);
   const reinstallMutation = usePortalReinstallVMMutation(id);
   const rescueEnterMutation = usePortalRescueEnterMutation(id);
   const rescueExitMutation = usePortalRescueExitMutation(id);
+
   const runResetPwd = () =>
     resetPwdMutation.mutate(resetPwdMode, {
       onSuccess: (data) => {
@@ -62,7 +88,7 @@ function UserVMDetailPage() {
           t("vm.passwordResetToastWithChannel", {
             password: data.password,
             channel: note,
-            defaultValue: `新密码: ${data.password} · 通道: ${note}`,
+            defaultValue: "新密码: {{password}} · 通道: {{channel}}",
           }),
           {
             duration: 15000,
@@ -71,22 +97,34 @@ function UserVMDetailPage() {
               onClick: () => {
                 navigator.clipboard
                   .writeText(data.password)
-                  .then(() => toast.success(t("vm.passwordCopied", { defaultValue: "已复制到剪贴板" })))
-                  .catch(() => toast.error(t("vm.passwordCopyFailed", { defaultValue: "复制失败，请手动复制" })));
+                  .then(() =>
+                    toast.success(t("vm.passwordCopied", { defaultValue: "已复制到剪贴板" })),
+                  )
+                  .catch(() =>
+                    toast.error(
+                      t("vm.passwordCopyFailed", { defaultValue: "复制失败，请手动复制" }),
+                    ),
+                  );
               },
             },
           },
         );
-        setShowResetPwd(false);
+        setResetPwdOpen(false);
       },
       onError: () => toast.error(t("vm.passwordResetFailed")),
     });
 
   const runReinstall = async () => {
+    if (!vm) return;
     const ok = await confirm({
       title: t("deleteConfirm.reinstallTitle"),
-      message: t("deleteConfirm.reinstallMessage", { name: vm?.name ?? "" }),
+      message: t("deleteConfirm.reinstallMessage", { name: vm.name }),
       destructive: true,
+      typeToConfirm: vm.name,
+      typeToConfirmLabel: t("confirmDialog.typeVmName", {
+        defaultValue: "请输入 VM 名称 {{name}} 以确认",
+        name: vm.name,
+      }),
     });
     if (!ok) return;
     reinstallMutation.mutate(
@@ -97,11 +135,11 @@ function UserVMDetailPage() {
             t("vm.reinstallDone", {
               username: data.username,
               password: data.password,
-              defaultValue: `重装完成 · ${data.username} / ${data.password}`,
+              defaultValue: "重装完成 · {{username}} / {{password}}",
             }),
             { duration: 20_000 },
           );
-          setShowReinstall(false);
+          setReinstallOpen(false);
         },
         onError: (err) => toast.error((err as Error).message),
       },
@@ -109,11 +147,12 @@ function UserVMDetailPage() {
   };
 
   const runRescueEnter = async () => {
+    if (!vm) return;
     const ok = await confirm({
-      title: t("vm.rescueEnterTitle", "进入 Rescue 模式"),
+      title: t("vm.rescueEnterTitle", { defaultValue: "进入 Rescue 模式" }),
       message: t("vm.rescueEnterMessage", {
-        name: vm?.name ?? "",
-        defaultValue: `确认让 ${vm?.name} 进入 Rescue 模式？会先拍快照再停机。`,
+        name: vm.name,
+        defaultValue: "确认让 {{name}} 进入 Rescue 模式？会先拍快照再停机。",
       }),
       destructive: true,
     });
@@ -123,7 +162,7 @@ function UserVMDetailPage() {
         toast.success(
           t("vm.rescueEntered", {
             snap: res.snapshot,
-            defaultValue: `已进入 Rescue；快照 ${res.snapshot}`,
+            defaultValue: "已进入 Rescue；快照 {{snap}}",
           }),
           { duration: 15_000 },
         ),
@@ -132,16 +171,17 @@ function UserVMDetailPage() {
   };
 
   const runRescueExit = async (restore: boolean) => {
+    if (!vm) return;
     const ok = await confirm({
-      title: t("vm.rescueExitTitle", "退出 Rescue 模式"),
+      title: t("vm.rescueExitTitle", { defaultValue: "退出 Rescue 模式" }),
       message: restore
         ? t("vm.rescueExitRestoreMessage", {
-            name: vm?.name ?? "",
-            defaultValue: `确认退出 Rescue 并恢复快照？${vm?.name} 会回滚到进入前的状态。`,
+            name: vm.name,
+            defaultValue: "确认退出 Rescue 并恢复快照？{{name}} 会回滚到进入前的状态。",
           })
         : t("vm.rescueExitMessage", {
-            name: vm?.name ?? "",
-            defaultValue: `确认退出 Rescue？${vm?.name} 会直接启动（不恢复快照）。`,
+            name: vm.name,
+            defaultValue: "确认退出 Rescue？{{name}} 会直接启动（不恢复快照）。",
           }),
       destructive: restore,
     });
@@ -152,8 +192,8 @@ function UserVMDetailPage() {
         onSuccess: () =>
           toast.success(
             restore
-              ? t("vm.rescueExitedRestored", "已恢复快照并启动")
-              : t("vm.rescueExited", "已退出 Rescue"),
+              ? t("vm.rescueExitedRestored", { defaultValue: "已恢复快照并启动" })
+              : t("vm.rescueExited", { defaultValue: "已退出 Rescue" }),
           ),
         onError: (err) => toast.error((err as Error).message),
       },
@@ -161,157 +201,210 @@ function UserVMDetailPage() {
   };
 
   if (id > 0 && isLoading) {
-    return <div className="text-muted-foreground p-8">{t("common.loading")}</div>;
+    return (
+      <PageShell>
+        <PageHeader title={<Skeleton className="h-8 w-40" />} />
+        <PageContent>
+          <Skeleton className="h-32" />
+        </PageContent>
+      </PageShell>
+    );
   }
 
   if (!vm) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="text-2xl font-semibold">{t("vm.notFoundTitle")}</div>
-        <div className="text-sm text-muted-foreground">{t("vm.notFoundHint")}</div>
-        <button
-          onClick={() => navigate({ to: "/vms" })}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-        >
-          {t("vm.backToList")}
-        </button>
-      </div>
+      <PageShell>
+        <PageContent>
+          <EmptyState
+            title={t("vm.notFoundTitle")}
+            description={t("vm.notFoundHint")}
+            action={
+              <Button variant="primary" onClick={() => navigate({ to: "/vms" })}>
+                {t("vm.backToList")}
+              </Button>
+            }
+          />
+        </PageContent>
+      </PageShell>
     );
   }
 
+  const isRunning = vm.status === "running";
+  const isStopped = vm.status === "stopped";
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold font-mono">{vm.name}</h1>
-          <div className="flex items-center gap-3 mt-1">
-            <StatusBadge status={vm.status} />
-            <span className="text-sm text-muted-foreground">
-              {vm.cpu}C / {(vm.memory_mb / 1024).toFixed(0)}G RAM / {vm.disk_gb}G Disk
-            </span>
+    <PageShell>
+      <PageHeader
+        title={<span className="font-mono">{vm.name}</span>}
+        breadcrumbs={[{ label: t("vm.myVms", { defaultValue: "我的云主机" }), to: "/vms" }, { label: vm.name }]}
+        meta={<StatusPill status={vmStatusToKind(vm.status)}>{vm.status}</StatusPill>}
+        description={`${vm.cpu}C · ${(vm.memory_mb / 1024).toFixed(0)}G RAM · ${vm.disk_gb}G Disk`}
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5">
+            {isRunning ? (
+              <>
+                <Link
+                  to="/console"
+                  search={{
+                    vm: vm.name,
+                    cluster: vm.cluster,
+                    project: vm.project,
+                    from: "portal",
+                  } as any}
+                  className={cn(buttonVariants({ variant: "primary", size: "sm" }))}
+                >
+                  <TerminalIcon size={12} aria-hidden="true" />
+                  {t("vm.console")}
+                </Link>
+                <Button size="sm" variant="ghost" disabled={actionMutation.isPending} onClick={() => actionMutation.mutate("stop")}>
+                  <Square size={12} aria-hidden="true" />
+                  {t("vm.stop")}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={actionMutation.isPending} onClick={() => actionMutation.mutate("restart")}>
+                  <RefreshCw size={12} aria-hidden="true" />
+                  {t("vm.restart")}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={resetPwdMutation.isPending} onClick={() => setResetPwdOpen(true)}>
+                  {t("vm.passwordReset", { defaultValue: "重置密码" })}
+                </Button>
+              </>
+            ) : null}
+            {isStopped ? (
+              <Button size="sm" variant="primary" disabled={actionMutation.isPending} onClick={() => actionMutation.mutate("start")}>
+                <Play size={12} aria-hidden="true" />
+                {t("vm.start")}
+              </Button>
+            ) : null}
+            <Button size="sm" variant="ghost" disabled={reinstallMutation.isPending} onClick={() => setReinstallOpen(true)}>
+              <RotateCcw size={12} aria-hidden="true" />
+              {t("vm.reinstall")}
+            </Button>
+            {vm.status !== "rescue" ? (
+              <Button size="sm" variant="ghost" disabled={rescueEnterMutation.isPending} onClick={runRescueEnter}>
+                <ShieldCheck size={12} aria-hidden="true" />
+                {t("vm.rescueEnter", { defaultValue: "Rescue" })}
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" disabled={rescueExitMutation.isPending} onClick={() => runRescueExit(false)}>
+                <ShieldX size={12} aria-hidden="true" />
+                {t("vm.rescueExit", { defaultValue: "Rescue 退出" })}
+              </Button>
+            )}
           </div>
+        }
+      />
+      <PageContent>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <InfoCard label="IP" value={vm.ip || "—"} mono />
+          <InfoCard label="Username" value={defaultUserForImage(vm.os_image)} mono />
+          <InfoCard label="Node" value={vm.node} />
+          <InfoCard label="Created" value={new Date(vm.created_at).toLocaleDateString()} />
         </div>
-        <div className="flex gap-2">
-          {vm.status === "running" && (
-            <>
-              <a href={`/console?vm=${encodeURIComponent(vm.name)}&cluster=${encodeURIComponent(vm.cluster)}&project=${encodeURIComponent(vm.project)}&from=portal`}
-                className="px-3 py-1.5 rounded text-xs font-medium bg-primary/20 text-primary hover:bg-primary/30">
-                Console
-              </a>
-              <ActionBtn label="Stop" onClick={() => actionMutation.mutate("stop")} disabled={actionMutation.isPending} />
-              <ActionBtn label="Restart" onClick={() => actionMutation.mutate("restart")} disabled={actionMutation.isPending} />
-              <ActionBtn
-                label={t("vm.passwordReset", "重置密码")}
-                onClick={() => setShowResetPwd(!showResetPwd)}
-                disabled={resetPwdMutation.isPending}
+
+        <Tabs defaultValue="overview">
+          <TabsList>
+            <TabsTrigger value="overview">{t("vm.monitor", { defaultValue: "监控" })}</TabsTrigger>
+            <TabsTrigger value="snapshots">{t("vm.snapshots", { defaultValue: "快照" })}</TabsTrigger>
+            <TabsTrigger value="firewall">{t("vm.firewall.tab", { defaultValue: "防火墙" })}</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview">
+            <VMMetricsPanel vmName={vm.name} apiBase="/portal" />
+          </TabsContent>
+          <TabsContent value="snapshots">
+            <SnapshotPanel vmName={vm.name} cluster={vm.cluster} project={vm.project} apiBase="/portal" />
+          </TabsContent>
+          <TabsContent value="firewall">
+            <PortalFirewallPanel vmID={vm.id} />
+          </TabsContent>
+        </Tabs>
+      </PageContent>
+
+      {/* Reinstall Sheet */}
+      <Sheet open={reinstallOpen} onOpenChange={(o) => { if (!o) setReinstallOpen(false); }}>
+        <SheetContent side="right" size="min(96vw, 32rem)">
+          <SheetHeader>
+            <SheetTitle>
+              {`${t("vm.reinstall")} · ${vm.name}`}
+            </SheetTitle>
+          </SheetHeader>
+          <SheetBody className="space-y-4">
+            <Alert variant="error">
+              <AlertDescription>{t("vm.reinstallWarning")}</AlertDescription>
+            </Alert>
+            <div className="space-y-1.5">
+              <label className="text-sm font-[510]">
+                {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
+              </label>
+              <TemplatePicker
+                value={reinstallSlug}
+                onChange={setReinstallSlug}
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-[color:var(--accent)]"
               />
-            </>
-          )}
-          {vm.status === "stopped" && (
-            <ActionBtn label="Start" onClick={() => actionMutation.mutate("start")} disabled={actionMutation.isPending} />
-          )}
-          <ActionBtn
-            label={t("vm.reinstall")}
-            onClick={() => setShowReinstall(!showReinstall)}
-            disabled={reinstallMutation.isPending}
-          />
-          <ActionBtn
-            label={t("vm.rescueEnter", "Rescue")}
-            onClick={runRescueEnter}
-            disabled={rescueEnterMutation.isPending}
-          />
-          <ActionBtn
-            label={t("vm.rescueExit", "Rescue 退出")}
-            onClick={() => runRescueExit(false)}
-            disabled={rescueExitMutation.isPending}
-          />
-        </div>
-      </div>
-
-      {showReinstall && (
-        <div className="border border-border rounded-lg bg-card p-4 mb-4">
-          <h3 className="font-semibold text-sm mb-1">
-            {t("vm.reinstallHeading", { name: vm.name, defaultValue: `重装 ${vm.name}` })}
-          </h3>
-          <p className="text-xs text-destructive mb-3">{t("vm.reinstallWarning")}</p>
-          <div className="flex items-center gap-3">
-            <TemplatePicker
-              value={reinstallSlug}
-              onChange={setReinstallSlug}
-              className="px-2 py-1 text-xs border border-border rounded bg-card"
-            />
-            <button
-              onClick={runReinstall}
-              disabled={reinstallMutation.isPending}
-              className="px-3 py-1 text-xs bg-destructive text-destructive-foreground rounded disabled:opacity-50"
-            >
+            </div>
+          </SheetBody>
+          <SheetFooter>
+            <Button variant="ghost" onClick={() => setReinstallOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" disabled={reinstallMutation.isPending} onClick={runReinstall}>
               {reinstallMutation.isPending ? t("vm.reinstalling") : t("vm.reinstallConfirm")}
-            </button>
-          </div>
-        </div>
-      )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
-      {showResetPwd && (
-        <div className="border border-border rounded-lg bg-card p-4 mb-4">
-          <h3 className="font-semibold text-sm mb-1">
-            {t("vm.resetPwdHeading", { name: vm.name, defaultValue: `重置 ${vm.name} 密码` })}
-          </h3>
-          <p className="text-xs text-muted-foreground mb-3">
-            {t("vm.resetPwdModeHint", {
-              defaultValue: "auto：先 online 失败后回落 offline；online：guest-agent chpasswd；offline：cloud-init 重启",
-            })}
-          </p>
-          <div className="flex items-center gap-3">
-            <select
-              value={resetPwdMode}
-              onChange={(e) => setResetPwdMode(e.target.value as ResetPasswordMode)}
-              className="px-2 py-1 text-xs border border-border rounded bg-card"
-            >
-              <option value="auto">auto</option>
-              <option value="online">online</option>
-              <option value="offline">offline</option>
-            </select>
-            <button
-              onClick={runResetPwd}
-              disabled={resetPwdMutation.isPending}
-              className="px-3 py-1 text-xs bg-warning text-warning-foreground rounded disabled:opacity-50"
-            >
+      {/* Reset Password Sheet */}
+      <Sheet open={resetPwdOpen} onOpenChange={(o) => { if (!o) setResetPwdOpen(false); }}>
+        <SheetContent side="right" size="min(96vw, 28rem)">
+          <SheetHeader>
+            <SheetTitle>
+              {t("vm.resetPwdHeading", { name: vm.name, defaultValue: "重置 {{name}} 密码" })}
+            </SheetTitle>
+          </SheetHeader>
+          <SheetBody className="space-y-4">
+            <p className="text-caption text-muted-foreground">
+              {t("vm.resetPwdModeHint", {
+                defaultValue: "auto：先 online 失败后回落 offline；online：guest-agent chpasswd；offline：cloud-init 重启",
+              })}
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-[510]">
+                {t("vm.resetPwdMode", { defaultValue: "模式" })}
+              </label>
+              <Select value={resetPwdMode} onValueChange={(v) => setResetPwdMode(String(v) as ResetPasswordMode)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">auto</SelectItem>
+                  <SelectItem value="online">online</SelectItem>
+                  <SelectItem value="offline">offline</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </SheetBody>
+          <SheetFooter>
+            <Button variant="ghost" onClick={() => setResetPwdOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="primary" disabled={resetPwdMutation.isPending} onClick={runResetPwd}>
               {resetPwdMutation.isPending ? t("vm.passwordResetting") : t("vm.passwordReset")}
-            </button>
-          </div>
-        </div>
-      )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </PageShell>
+  );
+}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <InfoCard label="IP" value={vm.ip || "—"} mono />
-        <InfoCard label="Username" value={defaultUserForImage(vm.os_image)} mono />
-        <InfoCard label="Node" value={vm.node} />
-        <InfoCard label="Created" value={new Date(vm.created_at).toLocaleDateString()} />
-      </div>
-
-      <div className="flex gap-1 mb-6 border-b border-border">
-        {(["overview", "snapshots", "firewall"] as const).map((tabKey) => (
-          <button key={tabKey} onClick={() => setTab(tabKey)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition ${tab === tabKey ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-            {tabKey === "overview"
-              ? t("vm.monitor", { defaultValue: "Monitoring" })
-              : tabKey === "snapshots"
-                ? t("vm.snapshots", { defaultValue: "Snapshots" })
-                : t("vm.firewall.tab", { defaultValue: "Firewall" })}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" && (
-        <VMMetricsPanel vmName={vm.name} apiBase="/portal" />
-      )}
-
-      {tab === "snapshots" && (
-        <SnapshotPanel vmName={vm.name} cluster={vm.cluster} project={vm.project} apiBase="/portal" />
-      )}
-
-      {tab === "firewall" && <PortalFirewallPanel vmID={vm.id} />}
-    </div>
+function InfoCard({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="text-caption text-text-tertiary">{label}</div>
+        <div className={cn("text-sm font-[510] mt-0.5", mono && "font-mono")}>{value}</div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -329,101 +422,95 @@ function PortalFirewallPanel({ vmID }: { vmID: number }) {
   const availableGroups = allGroups.filter((g) => !boundIDs.has(g.id));
 
   if (groupsLoading || bindingsLoading) {
-    return <div className="text-sm text-muted-foreground">{t("common.loading", { defaultValue: "Loading..." })}</div>;
+    return <Skeleton className="h-32" />;
   }
+
+  const onUnbind = async (g: FirewallGroup) => {
+    const ok = await confirm({
+      title: t("vm.firewall.unbindConfirmTitle", { defaultValue: "解绑防火墙组" }),
+      message: t("vm.firewall.unbindConfirmMessage", {
+        defaultValue: "解绑后，{{name}} 的规则将不再应用到本 VM。运行中 VM 会自动 stop→PATCH→start。继续？",
+        name: g.name,
+      }),
+      destructive: true,
+    });
+    if (!ok) return;
+    unbindMutation.mutate(g.id, {
+      onSuccess: () => toast.success(t("vm.firewall.unbindOk", { defaultValue: "已解绑" })),
+      onError: (e) => toast.error((e as Error).message),
+    });
+  };
 
   return (
     <div className="space-y-4">
-      <section>
-        <h3 className="text-sm font-medium mb-2">
+      <section className="space-y-2">
+        <h3 className="text-sm font-[510]">
           {t("vm.firewall.bound", { defaultValue: "已绑定的防火墙组" })}
         </h3>
         {boundGroups.length === 0 ? (
-          <div className="text-xs text-muted-foreground border border-dashed border-border rounded p-3">
-            {t("vm.firewall.noBound", { defaultValue: "尚未绑定任何防火墙组" })}
-          </div>
+          <Alert variant="info">
+            <AlertDescription>
+              {t("vm.firewall.noBound", { defaultValue: "尚未绑定任何防火墙组" })}
+            </AlertDescription>
+          </Alert>
         ) : (
           <div className="space-y-2">
             {boundGroups.map((g) => (
-              <div key={g.id} className="flex items-center justify-between border border-border rounded-lg bg-card p-3">
-                <div>
-                  <div className="font-medium text-sm">{g.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{g.slug}</div>
-                  {g.description && (
-                    <div className="text-xs text-muted-foreground mt-0.5">{g.description}</div>
-                  )}
-                </div>
-                <button
-                  onClick={async () => {
-                    const ok = await confirm({
-                      title: t("vm.firewall.unbindConfirmTitle", { defaultValue: "解绑防火墙组" }),
-                      message: t("vm.firewall.unbindConfirmMessage", {
-                        defaultValue: "解绑后，{{name}} 的规则将不再应用到本 VM。运行中 VM 会自动 stop→PATCH→start。继续？",
-                        name: g.name,
-                      }),
-                      destructive: true,
-                    });
-                    if (!ok) return;
-                    unbindMutation.mutate(g.id, {
-                      onSuccess: () => toast.success(t("vm.firewall.unbindOk", { defaultValue: "已解绑" })),
-                      onError: (e) => toast.error((e as Error).message),
-                    });
-                  }}
+              <FirewallGroupRow key={g.id} group={g}>
+                <Button
+                  size="sm"
+                  variant="outline"
                   disabled={unbindMutation.isPending}
+                  onClick={() => onUnbind(g)}
                   aria-label={`Unbind firewall group ${g.slug}`}
                   data-testid={`unbind-firewall-${g.slug}`}
-                  className="px-3 py-1 text-xs rounded border border-warning/40 text-warning hover:bg-warning/10 disabled:opacity-50"
                 >
                   {t("vm.firewall.unbind", { defaultValue: "解绑" })}
-                </button>
-              </div>
+                </Button>
+              </FirewallGroupRow>
             ))}
           </div>
         )}
       </section>
 
-      <section>
-        <h3 className="text-sm font-medium mb-2">
+      <section className="space-y-2">
+        <h3 className="text-sm font-[510]">
           {t("vm.firewall.available", { defaultValue: "可绑定的防火墙组" })}
         </h3>
         {availableGroups.length === 0 ? (
-          <div className="text-xs text-muted-foreground border border-dashed border-border rounded p-3">
-            {boundGroups.length === allGroups.length && allGroups.length > 0
-              ? t("vm.firewall.allBound", { defaultValue: "已绑定全部可用组" })
-              : t("vm.firewall.noGroupsConfigured", { defaultValue: "当前没有可绑定的防火墙组" })}
-          </div>
+          <Alert variant="info">
+            <AlertDescription>
+              {boundGroups.length === allGroups.length && allGroups.length > 0
+                ? t("vm.firewall.allBound", { defaultValue: "已绑定全部可用组" })
+                : t("vm.firewall.noGroupsConfigured", { defaultValue: "当前没有可绑定的防火墙组" })}
+            </AlertDescription>
+          </Alert>
         ) : (
           <div className="space-y-2">
             {availableGroups.map((g) => (
-              <div key={g.id} className="flex items-center justify-between border border-border rounded-lg bg-card p-3">
-                <div>
-                  <div className="font-medium text-sm">{g.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{g.slug}</div>
-                  {g.description && (
-                    <div className="text-xs text-muted-foreground mt-0.5">{g.description}</div>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
+              <FirewallGroupRow key={g.id} group={g}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={bindMutation.isPending}
+                  onClick={() =>
                     bindMutation.mutate(g.id, {
                       onSuccess: () => toast.success(t("vm.firewall.bindOk", { defaultValue: "已绑定" })),
                       onError: (e) => toast.error((e as Error).message),
-                    });
-                  }}
-                  disabled={bindMutation.isPending}
+                    })
+                  }
                   aria-label={`Bind firewall group ${g.slug}`}
                   data-testid={`bind-firewall-${g.slug}`}
-                  className="px-3 py-1 text-xs rounded border border-primary text-primary hover:bg-primary/10 disabled:opacity-50"
                 >
                   {bindMutation.isPending ? "..." : t("vm.firewall.bind", { defaultValue: "绑定" })}
-                </button>
-              </div>
+                </Button>
+              </FirewallGroupRow>
             ))}
           </div>
         )}
       </section>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-caption text-text-tertiary">
         {t("vm.firewall.coldModifyHint", {
           defaultValue: "提示：bind/unbind 时如果 VM 正在运行，后端会自动 stop→PATCH→start 以应用 ACL（约 10-15s 不可达）。",
         })}
@@ -432,34 +519,25 @@ function PortalFirewallPanel({ vmID }: { vmID: number }) {
   );
 }
 
-function InfoCard({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function FirewallGroupRow({
+  group: g,
+  children,
+}: {
+  group: FirewallGroup;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="border border-border rounded-lg bg-card p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-sm font-medium mt-0.5 ${mono ? "font-mono" : ""}`}>{value}</div>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    running: "bg-success/20 text-success",
-    stopped: "bg-muted text-muted-foreground",
-    creating: "bg-primary/20 text-primary",
-    error: "bg-destructive/20 text-destructive",
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? "bg-muted text-muted-foreground"}`}>
-      {status}
-    </span>
-  );
-}
-
-function ActionBtn({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
-  return (
-    <button onClick={onClick} disabled={disabled}
-      className="px-3 py-1.5 rounded text-xs font-medium bg-muted/50 text-muted-foreground hover:bg-muted disabled:opacity-50">
-      {label}
-    </button>
+    <Card>
+      <CardContent className="p-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-[510] text-sm">{g.name}</div>
+          <div className="text-caption text-text-tertiary font-mono">{g.slug}</div>
+          {g.description ? (
+            <div className="text-caption text-text-tertiary mt-0.5">{g.description}</div>
+          ) : null}
+        </div>
+        <div className="shrink-0">{children}</div>
+      </CardContent>
+    </Card>
   );
 }

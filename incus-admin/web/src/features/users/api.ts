@@ -56,10 +56,51 @@ export function useUpdateUserRoleMutation(userId: number) {
   });
 }
 
+// PLAN-023 Phase C: 批量改角色。step-up gated by middleware；后端禁止 self-target。
+export type BatchUserAction = "change_role";
+
+export interface BatchUserResult {
+  total: number;
+  succeeded: number[];
+  failed: Array<{ key: number; error: string }>;
+}
+
+export function useBatchUserMutation() {
+  return useMutation({
+    mutationFn: (params: { ids: number[]; action: BatchUserAction; role: "admin" | "customer" }) =>
+      http.post<BatchUserResult>(
+        "/admin/users:batch",
+        {
+          ids: params.ids,
+          action: params.action,
+          options: { role: params.role },
+        },
+        {
+          intent: {
+            action: `user.batch_${params.action}`,
+            args: { ids: params.ids, action: params.action, role: params.role },
+            description: `批量 ${params.action}=${params.role} ${params.ids.length} 个用户`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: userKeys.all }),
+  });
+}
+
 export function useTopUpBalanceMutation(userId: number) {
   return useMutation({
     mutationFn: (amount: number) =>
-      http.post(`/admin/users/${userId}/balance`, { amount, description: "Admin top-up" }),
+      http.post(
+        `/admin/users/${userId}/balance`,
+        { amount, description: "Admin top-up" },
+        {
+          intent: {
+            action: "user.topup",
+            args: { user_id: userId, amount },
+            description: `给用户 #${userId} 充值 $${amount}`,
+          },
+        },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
       queryClient.invalidateQueries({ queryKey: userKeys.topupQuota(userId) });

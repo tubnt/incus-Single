@@ -71,3 +71,30 @@ export function useDetachFloatingIPMutation(id: number) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: floatingIPKeys.all }),
   });
 }
+
+// PLAN-023 Phase B: 批量 release / detach。step-up gated by middleware。
+export type BatchFIPAction = "release" | "detach";
+
+export interface BatchFIPResult {
+  total: number;
+  succeeded: number[];
+  failed: Array<{ key: number; error: string }>;
+}
+
+export function useBatchFloatingIPMutation() {
+  return useMutation({
+    mutationFn: (params: { ids: number[]; action: BatchFIPAction }) =>
+      http.post<BatchFIPResult>(
+        "/admin/floating-ips:batch",
+        { ids: params.ids, action: params.action },
+        {
+          intent: {
+            action: `floating_ip.batch_${params.action}`,
+            args: { ids: params.ids, action: params.action },
+            description: `批量 ${params.action} ${params.ids.length} 个 Floating IP`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: floatingIPKeys.all }),
+  });
+}

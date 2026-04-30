@@ -1,3 +1,4 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/shared/lib/utils";
 
@@ -10,6 +11,7 @@ export interface PaginationProps {
   pageSizeOptions?: number[];
 }
 
+/** Pagination —— 用 DESIGN.md token；保留旧 API 不影响调用方。 */
 export function Pagination({
   total,
   limit,
@@ -28,7 +30,12 @@ export function Pagination({
   const disabledNext = offset + pageSize >= total;
 
   return (
-    <div className={cn("flex items-center justify-between gap-3 text-xs", className)}>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 text-caption",
+        className,
+      )}
+    >
       <span className="text-muted-foreground">
         {t("pagination.range", {
           defaultValue: "{{from}}-{{to}} / {{total}}",
@@ -38,12 +45,15 @@ export function Pagination({
         })}
       </span>
       <div className="flex items-center gap-2">
-        <label className="flex items-center gap-1 text-muted-foreground">
+        <label className="flex items-center gap-1.5 text-muted-foreground">
           {t("pagination.pageSize", { defaultValue: "每页" })}
           <select
             value={pageSize}
             onChange={(e) => onChange(Number(e.target.value), 0)}
-            className="px-1.5 py-0.5 rounded border border-border bg-card"
+            className={cn(
+              "h-7 rounded-md border border-border bg-surface-1 px-1.5",
+              "text-foreground focus:outline-none focus:border-[color:var(--accent)]",
+            )}
           >
             {pageSizeOptions.map((n) => (
               <option key={n} value={n}>
@@ -54,13 +64,19 @@ export function Pagination({
         </label>
         <button
           type="button"
+          aria-label={t("pagination.prev", { defaultValue: "上一页" })}
           onClick={() => onChange(pageSize, Math.max(0, offset - pageSize))}
           disabled={disabledPrev}
-          className="px-2 py-1 rounded border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+          className={cn(
+            "inline-flex size-7 items-center justify-center rounded-md",
+            "border border-border bg-surface-1 text-foreground",
+            "hover:bg-surface-2 transition-colors",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
         >
-          {t("pagination.prev", { defaultValue: "上一页" })}
+          <ChevronLeft size={14} aria-hidden="true" />
         </button>
-        <span className="text-muted-foreground">
+        <span className="text-muted-foreground tabular-nums">
           {t("pagination.pageOf", {
             defaultValue: "{{page}}/{{total}}",
             page: currentPage,
@@ -69,11 +85,17 @@ export function Pagination({
         </span>
         <button
           type="button"
+          aria-label={t("pagination.next", { defaultValue: "下一页" })}
           onClick={() => onChange(pageSize, offset + pageSize)}
           disabled={disabledNext}
-          className="px-2 py-1 rounded border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+          className={cn(
+            "inline-flex size-7 items-center justify-center rounded-md",
+            "border border-border bg-surface-1 text-foreground",
+            "hover:bg-surface-2 transition-colors",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
         >
-          {t("pagination.next", { defaultValue: "下一页" })}
+          <ChevronRight size={14} aria-hidden="true" />
         </button>
       </div>
     </div>

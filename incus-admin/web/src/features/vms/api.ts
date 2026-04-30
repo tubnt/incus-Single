@@ -194,7 +194,62 @@ export function useVMStateMutation() {
 export function useDeleteVMMutation() {
   return useMutation({
     mutationFn: (params: { name: string; cluster: string; project: string }) =>
-      http.delete(`/admin/vms/${params.name}`, { cluster: params.cluster, project: params.project }),
+      http.delete(
+        `/admin/vms/${params.name}`,
+        { cluster: params.cluster, project: params.project },
+        {
+          intent: {
+            action: "vm.delete",
+            args: { name: params.name, cluster: params.cluster, project: params.project },
+            description: `删除 VM ${params.name}`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+// PLAN-023: 批量动作。后端 step-up gated；前端在 mutationFn 内显式 saveIntent。
+export type BatchVMAction = "delete" | "start" | "stop" | "restart";
+
+export interface BatchVMParams {
+  names: string[];
+  cluster: string;
+  project?: string;
+  action: BatchVMAction;
+}
+
+// 与后端 batchutil.Response[K] 对齐：succeeded 是 key 数组，failed 是 {key, error} 数组。
+export interface BatchVMResult {
+  total: number;
+  succeeded: string[];
+  failed: Array<{ key: string; error: string }>;
+}
+
+export function useBatchVMMutation() {
+  return useMutation({
+    mutationFn: (params: BatchVMParams) =>
+      http.post<BatchVMResult>(
+        "/admin/vms:batch",
+        {
+          names: params.names,
+          cluster: params.cluster,
+          project: params.project,
+          action: params.action,
+        },
+        {
+          intent: {
+            action: `vm.batch_${params.action}`,
+            args: {
+              names: params.names,
+              cluster: params.cluster,
+              project: params.project,
+              action: params.action,
+            },
+            description: `批量 ${params.action} ${params.names.length} 台 VM`,
+          },
+        },
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
@@ -202,11 +257,21 @@ export function useDeleteVMMutation() {
 export function useMigrateVMMutation() {
   return useMutation({
     mutationFn: (params: { name: string; cluster: string; project: string; target_node: string }) =>
-      http.post(`/admin/vms/${params.name}/migrate`, {
-        cluster: params.cluster,
-        project: params.project,
-        target_node: params.target_node,
-      }),
+      http.post(
+        `/admin/vms/${params.name}/migrate`,
+        {
+          cluster: params.cluster,
+          project: params.project,
+          target_node: params.target_node,
+        },
+        {
+          intent: {
+            action: "vm.migrate",
+            args: params as unknown as Record<string, unknown>,
+            description: `迁移 VM ${params.name} → ${params.target_node}`,
+          },
+        },
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }

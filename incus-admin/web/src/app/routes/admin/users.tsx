@@ -1,21 +1,57 @@
 import type {PageParams, Quota} from "@/features/users/api";
 import type { User } from "@/shared/lib/auth";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { ShieldCheck, UserCog } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  
-  
   useAdminUsersQuery,
+  useBatchUserMutation,
   useTopUpBalanceMutation,
   useTopUpQuotaQuery,
   useUpdateUserQuotaMutation,
   useUpdateUserRoleMutation,
-  useUserQuotaQuery
+  useUserQuotaQuery,
 } from "@/features/users/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { BatchToolbar } from "@/shared/components/ui/batch-toolbar";
+import { Button } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Input, Textarea } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
 import { Pagination } from "@/shared/components/ui/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
+import { Skeleton } from "@/shared/components/ui/skeleton";
+import { StatusPill } from "@/shared/components/ui/status";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/components/ui/table";
 import { http } from "@/shared/lib/http";
 import { formatCurrency } from "@/shared/lib/utils";
 
@@ -25,54 +61,192 @@ export const Route = createFileRoute("/admin/users")({
 
 function UsersPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const [page, setPage] = useState<PageParams>({ limit: 50, offset: 0 });
+  const [selectedIds, setSelectedIds] = useState<Record<number, boolean>>({});
   const { data, isLoading } = useAdminUsersQuery(page);
   const users = data?.users ?? [];
   const total = data?.total ?? users.length;
+  const batchMutation = useBatchUserMutation();
+
+  const selected = useMemo(
+    () =>
+      Object.entries(selectedIds)
+        .filter(([, v]) => v)
+        .map(([k]) => Number(k)),
+    [selectedIds],
+  );
+  const clearSelection = () => setSelectedIds({});
+
+  const allChecked = users.length > 0 && users.every((u) => selectedIds[u.id]);
+  const someChecked = users.some((u) => selectedIds[u.id]);
+
+  const toggleAll = (next: boolean) => {
+    if (next) {
+      const all: Record<number, boolean> = {};
+      users.forEach((u) => { all[u.id] = true; });
+      setSelectedIds(all);
+    } else {
+      setSelectedIds({});
+    }
+  };
+
+  const runBatchRole = async (role: "admin" | "customer") => {
+    if (selected.length === 0) return;
+    const ok = await confirm({
+      title:
+        role === "customer"
+          ? t("admin.users.batchDowngradeTitle", { defaultValue: "批量降级为 customer？" })
+          : t("admin.users.batchPromoteTitle", { defaultValue: "批量提升为 admin？" }),
+      message:
+        role === "customer"
+          ? t("admin.users.batchDowngradeMessage", {
+              defaultValue: "将把 {{count}} 个用户降级为 customer，他们会失去管理权限。请输入 DOWNGRADE 以确认。",
+              count: selected.length,
+            })
+          : t("admin.users.batchPromoteMessage", {
+              defaultValue: "将把 {{count}} 个用户提升为 admin。",
+              count: selected.length,
+            }),
+      destructive: role === "customer",
+      typeToConfirm: role === "customer" ? "DOWNGRADE" : undefined,
+      typeToConfirmLabel:
+        role === "customer"
+          ? t("confirmDialog.typeDowngrade", { defaultValue: "请输入 DOWNGRADE 以确认" })
+          : undefined,
+    });
+    if (!ok) return;
+    batchMutation.mutate(
+      { ids: selected, action: "change_role", role },
+      {
+        onSuccess: (res) => {
+          if (res.failed.length === 0) {
+            toast.success(
+              t("admin.users.batchSuccess", {
+                defaultValue: "批量改角色成功（{{count}}）",
+                count: res.succeeded.length,
+              }),
+            );
+          } else {
+            toast.warning(
+              t("admin.users.batchPartial", {
+                defaultValue: "部分成功：成功 {{ok}}，失败 {{fail}}",
+                ok: res.succeeded.length,
+                fail: res.failed.length,
+              }),
+              {
+                description: res.failed.map((f) => `#${f.key}: ${f.error}`).join("\n"),
+                duration: 15000,
+              },
+            );
+          }
+          clearSelection();
+        },
+        onError: (e) => toast.error((e as Error).message),
+      },
+    );
+  };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">{t("admin.users", { defaultValue: "Users" })} ({total})</h1>
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading")}</div>
-      ) : (
-        <>
-          <div className="border border-border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/30">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium">ID</th>
-                  <th className="text-left px-4 py-3 font-medium">{t("admin.email", { defaultValue: "Email" })}</th>
-                  <th className="text-left px-4 py-3 font-medium">{t("admin.role", { defaultValue: "Role" })}</th>
-                  <th className="text-right px-4 py-3 font-medium">{t("common.balance", { defaultValue: "Balance" })}</th>
-                  <th className="text-right px-4 py-3 font-medium">{t("vm.actions", { defaultValue: "Actions" })}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <UserRow key={u.id} user={u} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination
-            total={total}
-            limit={page.limit}
-            offset={page.offset}
-            onChange={(limit, offset) => setPage({ limit, offset })}
-            className="mt-3"
-          />
-        </>
-      )}
-    </div>
+    <PageShell>
+      <PageHeader
+        title={`${t("admin.users.title", { defaultValue: "Users" })} (${total})`}
+      />
+      <PageContent>
+        <BatchToolbar count={selected.length} onClear={clearSelection}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={batchMutation.isPending}
+            onClick={() => runBatchRole("admin")}
+          >
+            <ShieldCheck size={12} aria-hidden="true" />
+            {t("admin.users.batchPromoteAdmin", { defaultValue: "批量设为 admin" })}
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={batchMutation.isPending}
+            onClick={() => runBatchRole("customer")}
+          >
+            <UserCog size={12} aria-hidden="true" />
+            {t("admin.users.batchDowngradeCustomer", { defaultValue: "批量降级 customer" })}
+          </Button>
+        </BatchToolbar>
+
+        {isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <>
+            <Card className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allChecked}
+                        indeterminate={!allChecked && someChecked}
+                        onCheckedChange={(v) => toggleAll(v)}
+                        aria-label={t("dataTable.selectAll", { defaultValue: "全选" })}
+                      />
+                    </TableHead>
+                    <TableHead>ID</TableHead>
+                    <TableHead>
+                      {t("admin.email", { defaultValue: "Email" })}
+                    </TableHead>
+                    <TableHead>
+                      {t("admin.role", { defaultValue: "Role" })}
+                    </TableHead>
+                    <TableHead className="text-right">
+                      {t("common.balance", { defaultValue: "Balance" })}
+                    </TableHead>
+                    <TableHead className="text-right">
+                      {t("vm.actions", { defaultValue: "Actions" })}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((u) => (
+                    <UserRow
+                      key={u.id}
+                      user={u}
+                      selected={!!selectedIds[u.id]}
+                      onSelect={(next) =>
+                        setSelectedIds((prev) => ({ ...prev, [u.id]: next }))
+                      }
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+            <Pagination
+              total={total}
+              limit={page.limit}
+              offset={page.offset}
+              onChange={(limit, offset) => setPage({ limit, offset })}
+              className="mt-3"
+            />
+          </>
+        )}
+      </PageContent>
+    </PageShell>
   );
 }
 
-function UserRow({ user }: { user: User }) {
+function UserRow({
+  user,
+  selected,
+  onSelect,
+}: {
+  user: User;
+  selected: boolean;
+  onSelect: (v: boolean) => void;
+}) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const [showTopUp, setShowTopUp] = useState(false);
   const [showQuota, setShowQuota] = useState(false);
+  const [shadowOpen, setShadowOpen] = useState(false);
   const [amount, setAmount] = useState("");
 
   const roleMutation = useUpdateUserRoleMutation(user.id);
@@ -93,6 +267,7 @@ function UserRow({ user }: { user: User }) {
           email: user.email,
         }),
         destructive: true,
+        typeToConfirm: user.email,
       });
       if (!ok) return;
     }
@@ -116,99 +291,107 @@ function UserRow({ user }: { user: User }) {
     });
   };
 
+  const startShadowLogin = async () => {
+    const ok = await confirm({
+      title: t("shadow.confirmTitle", { defaultValue: "Shadow Login 确认" }),
+      message: t("shadow.confirmMessage", {
+        defaultValue: "你将以 {{email}} 的身份登入。所有操作都会按 admin shadow 审计记录。继续吗？",
+        email: user.email,
+      }),
+      destructive: true,
+      typeToConfirm: user.email,
+    });
+    if (!ok) return;
+    setShadowOpen(true);
+  };
+
   return (
     <>
-      <tr className="border-t border-border">
-        <td className="px-4 py-3">{user.id}</td>
-        <td className="px-4 py-3 font-mono text-xs">{user.email}</td>
-        <td className="px-4 py-3">
-          <select
+      <TableRow>
+        <TableCell className="w-10">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onSelect}
+            aria-label={`Select user ${user.email}`}
+          />
+        </TableCell>
+        <TableCell>{user.id}</TableCell>
+        <TableCell className="font-mono text-xs">{user.email}</TableCell>
+        <TableCell>
+          <Select
             value={user.role}
-            onChange={(e) => changeRole(e.target.value)}
+            onValueChange={(v) => changeRole(String(v))}
             disabled={roleMutation.isPending}
-            className="px-2 py-1 rounded text-xs border border-border bg-card"
           >
-            <option value="customer">customer</option>
-            <option value="admin">admin</option>
-          </select>
-        </td>
-        <td className="px-4 py-3 text-right font-mono">{formatCurrency(user.balance)}</td>
-        <td className="px-4 py-3 text-right">
+            <SelectTrigger className="h-7 w-[120px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="customer">customer</SelectItem>
+              <SelectItem value="admin">admin</SelectItem>
+            </SelectContent>
+          </Select>
+        </TableCell>
+        <TableCell className="text-right font-mono">
+          {formatCurrency(user.balance)}
+        </TableCell>
+        <TableCell className="text-right">
           <div className="flex justify-end gap-1">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { setShowQuota(!showQuota); setShowTopUp(false); }}
-              className="px-2 py-1 rounded text-xs border border-border hover:bg-muted"
             >
               {t("admin.quota", { defaultValue: "配额" })}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => { setShowTopUp(!showTopUp); setShowQuota(false); }}
-              className="px-2 py-1 rounded text-xs bg-primary/20 text-primary hover:bg-primary/30"
             >
               + {t("admin.topUp", { defaultValue: "Top Up" })}
-            </button>
-            <button
-              onClick={async () => {
-                const ok = await confirm({
-                  title: t("shadow.confirmTitle", { defaultValue: "Shadow Login 确认" }),
-                  message: t("shadow.confirmMessage", {
-                    defaultValue: "你将以 {{email}} 的身份登入。所有操作都会按 admin shadow 审计记录。继续吗？",
-                    email: user.email,
-                  }),
-                  destructive: true,
-                });
-                if (!ok) return;
-                const reason = window.prompt(
-                  t("shadow.reasonPrompt", { defaultValue: "请输入 Shadow Login 的原因（必填，审计记录用）" }),
-                  "",
-                );
-                if (!reason || !reason.trim()) return;
-                try {
-                  const resp = await http.post<{ redirect_url: string }>(
-                    `/admin/users/${user.id}/shadow-login`,
-                    { reason: reason.trim() },
-                  );
-                  window.location.href = resp.redirect_url;
-                } catch (e) {
-                  toast.error(String((e as Error).message ?? e));
-                }
-              }}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={startShadowLogin}
               aria-label={`Shadow login as ${user.email}`}
               data-testid={`shadow-login-${user.id}`}
-              className="px-2 py-1 rounded text-xs border border-destructive bg-destructive/20 text-destructive hover:bg-destructive/30"
               title={t("shadow.loginTitle", { defaultValue: "以该用户身份登入（审计、排障用）" })}
             >
               ⚠ Shadow
-            </button>
+            </Button>
           </div>
-        </td>
-      </tr>
+        </TableCell>
+      </TableRow>
       {showTopUp && (
-        <tr className="border-t border-border bg-card/50">
-          <td colSpan={5} className="px-4 py-3">
+        <TableRow className="bg-surface-2">
+          <TableCell colSpan={6}>
             <div className="flex flex-col gap-2 max-w-md">
               <div className="flex items-center gap-2">
                 <span className="text-sm">$</span>
-                <input
+                <Input
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={t("admin.amount", { defaultValue: "Amount" })}
-                  className="flex-1 px-3 py-1.5 rounded border border-border bg-card text-sm"
+                  className="flex-1"
                 />
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={confirmTopUp}
                   disabled={topUpMutation.isPending || !amount || quotaExceeded}
-                  className="px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground disabled:opacity-50"
                 >
                   {topUpMutation.isPending ? "..." : t("common.confirm", { defaultValue: "Confirm" })}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="subtle"
+                  size="sm"
                   onClick={() => setShowTopUp(false)}
-                  className="px-3 py-1.5 rounded text-xs bg-muted text-muted-foreground"
                 >
                   {t("common.cancel", { defaultValue: "Cancel" })}
-                </button>
+                </Button>
               </div>
               {quota && (
                 <div className="text-xs text-muted-foreground flex items-center gap-2">
@@ -220,27 +403,122 @@ function UserRow({ user }: { user: User }) {
                     })}
                   </span>
                   {quotaExceeded && (
-                    <span className="px-2 py-0.5 rounded bg-destructive/20 text-destructive">
+                    <StatusPill status="error">
                       {t("user.topup.quotaExceeded", {
                         defaultValue: "超出日额度（剩余 {{remaining}}）",
                         remaining: formatCurrency(quota.remaining),
                       })}
-                    </span>
+                    </StatusPill>
                   )}
                 </div>
               )}
             </div>
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
       {showQuota && (
-        <tr className="border-t border-border bg-card/50">
-          <td colSpan={5} className="px-4 py-3">
+        <TableRow className="bg-surface-2">
+          <TableCell colSpan={6}>
             <QuotaEditor userId={user.id} onClose={() => setShowQuota(false)} />
-          </td>
-        </tr>
+          </TableCell>
+        </TableRow>
       )}
+      <ShadowLoginDialog
+        open={shadowOpen}
+        onOpenChange={setShadowOpen}
+        user={user}
+      />
     </>
+  );
+}
+
+function ShadowLoginDialog({
+  open,
+  onOpenChange,
+  user,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  user: User;
+}) {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const reset = () => {
+    setReason("");
+    setSubmitting(false);
+  };
+
+  const handleOpenChange = (v: boolean) => {
+    if (!v) reset();
+    onOpenChange(v);
+  };
+
+  const submit = async () => {
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    try {
+      const resp = await http.post<{ redirect_url: string }>(
+        `/admin/users/${user.id}/shadow-login`,
+        { reason: trimmed },
+      );
+      // 服务端 OIDC 跳转，必须用 window.location.href
+      window.location.href = resp.redirect_url;
+    } catch (e) {
+      toast.error(String((e as Error).message ?? e));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {t("shadow.confirmTitle", { defaultValue: "Shadow Login 确认" })}
+          </DialogTitle>
+          <DialogDescription>
+            {t("shadow.reasonWarning", {
+              defaultValue:
+                "你将以 {{email}} 的身份登入，所有操作都会按 admin shadow 审计记录。请填写本次操作原因。",
+              email: user.email,
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor={`shadow-reason-${user.id}`} required>
+            {t("shadow.reasonLabel", {
+              defaultValue: "原因（必填，审计记录用）",
+            })}
+          </Label>
+          <Textarea
+            id={`shadow-reason-${user.id}`}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={4}
+            autoFocus
+            data-testid={`shadow-reason-${user.id}`}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => handleOpenChange(false)}>
+            {t("common.cancel", { defaultValue: "Cancel" })}
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={!reason.trim() || submitting}
+            onClick={submit}
+            data-testid={`shadow-submit-${user.id}`}
+          >
+            {submitting
+              ? "..."
+              : t("shadow.submit", { defaultValue: "确认登入" })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -276,9 +554,9 @@ function QuotaEditor({ userId, onClose }: { userId: number; onClose: () => void 
     <div>
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-semibold">{t("admin.userQuotaTitle", { defaultValue: "用户配额" })} (ID: {userId})</h4>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">
+        <Button variant="link" size="sm" onClick={onClose}>
           {t("common.close", { defaultValue: "关闭" })}
-        </button>
+        </Button>
       </div>
       {usage && (
         <div className="text-xs text-muted-foreground mb-2">
@@ -293,26 +571,27 @@ function QuotaEditor({ userId, onClose }: { userId: number; onClose: () => void 
         <QuotaField label={t("admin.maxIps", { defaultValue: "最大IP数" })} value={current.max_ips} onChange={(v) => set("max_ips", v)} />
         <QuotaField label={t("admin.maxSnapshots", { defaultValue: "最大快照" })} value={current.max_snapshots} onChange={(v) => set("max_snapshots", v)} />
       </div>
-      <button
+      <Button
+        variant="primary"
+        size="sm"
         onClick={save}
         disabled={saveMutation.isPending}
-        className="px-3 py-1.5 rounded text-xs bg-primary text-primary-foreground disabled:opacity-50"
       >
         {saveMutation.isPending ? t("admin.saving", { defaultValue: "保存中..." }) : t("admin.saveQuota", { defaultValue: "保存配额" })}
-      </button>
+      </Button>
     </div>
   );
 }
 
 function QuotaField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
-    <div>
-      <div className="text-xs text-muted-foreground mb-0.5">{label}</div>
-      <input
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Input
         type="number"
         value={value}
         onChange={(e) => onChange(+e.target.value)}
-        className="w-full px-2 py-1 rounded border border-border bg-card text-xs font-mono"
+        className="h-8 text-xs font-mono"
       />
     </div>
   );

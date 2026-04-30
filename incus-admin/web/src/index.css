@@ -1,48 +1,338 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@theme {
-  --color-primary: oklch(0.55 0.2 260);
-  --color-primary-foreground: oklch(1 0 0);
-  --color-muted: oklch(0.7 0.02 260);
-  --color-muted-foreground: oklch(0.45 0.02 260);
-  --color-background: oklch(0.99 0 0);
-  --color-foreground: oklch(0.1 0 0);
-  --color-card: oklch(0.99 0 0);
-  --color-card-foreground: oklch(0.1 0 0);
-  --color-border: oklch(0.9 0.01 260);
-  --color-destructive: oklch(0.55 0.2 25);
-  --color-destructive-foreground: oklch(1 0 0);
-  --color-success: oklch(0.6 0.18 145);
-  --color-accent: oklch(0.95 0.01 260);
-  --color-accent-foreground: oklch(0.1 0 0);
-  --color-popover: oklch(0.99 0 0);
-  --color-popover-foreground: oklch(0.1 0 0);
-  --color-input: oklch(0.9 0.01 260);
-  --color-ring: oklch(0.55 0.2 260);
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+/* Inter Variable — Linear 风格的核心字体（OFL 1.1）。
+   仅引 latin 子集；italic 与其它语种按需懒加载。 */
+@import "@fontsource-variable/inter/wght.css";
+/* JetBrains Mono Variable —— Berkeley Mono 替代品（Apache 2.0），用于代码 / xterm。 */
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+/* ============================================================
+ * Linear 风设计系统（DESIGN.md 同步）
+ *
+ * 三层结构：
+ *   1) `:root` 暗色 token（默认；DESIGN.md 是 dark-mode-native）
+ *   2) `.light` 亮色覆盖
+ *   3) `@theme inline` 把 CSS 变量映射成 Tailwind 语义 token
+ *
+ * 颜色禁止 hex 字面量 / arbitrary value 散落代码；统一通过 token 引用。
+ * ============================================================ */
+
+:root {
+  /* 表面（5 级亮度阶梯，Linear 用透明白叠加在近黑底上 -> 这里展开为已合成的色） */
+  --surface-marketing: #08090a;     /* 营销 / 最深背景 */
+  --surface-panel: #0f1011;         /* sidebar / 面板背景 */
+  --surface-elevated: #191a1b;      /* 卡片 / 弹窗 */
+  --surface-secondary: #28282c;     /* hover / 次级提升 */
+  --surface-tint-1: rgba(255, 255, 255, 0.02);  /* 最弱表面 */
+  --surface-tint-2: rgba(255, 255, 255, 0.04);
+  --surface-tint-3: rgba(255, 255, 255, 0.05);
+
+  /* 文本（4 级层级） */
+  --text-primary: #f7f8f8;          /* 标题 / 主要文本 */
+  --text-secondary: #d0d6e0;        /* 正文 / body */
+  --text-tertiary: #8a8f98;         /* 占位 / 元数据 */
+  --text-quaternary: #62666d;       /* 时间戳 / 禁用 */
+
+  /* 品牌 / 焦点 */
+  --brand: #5e6ad2;                 /* 主品牌（Brand Indigo） */
+  --brand-foreground: #ffffff;
+  --accent: #7170ff;                /* 链接 / active state（Accent Violet） */
+  --accent-hover: #828fff;          /* hover */
+  --security-lavender: #7a7fad;
+
+  /* 状态 */
+  --status-success: #27a644;        /* 运行中 / 主成功 */
+  --status-success-soft: #10b981;   /* badge 变体（Emerald） */
+  --status-pending: #7170ff;
+  --status-error: #e5484d;
+  --status-warning: #f59e0b;
+
+  /* 边框（3 实 + 2 透明） */
+  --border-primary: #23252a;
+  --border-secondary: #34343a;
+  --border-tertiary: #3e3e44;
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-standard: rgba(255, 255, 255, 0.08);
+  --border-line-tint: #141516;
+  --border-line-tertiary: #18191a;
+
+  /* shadow 模式 / 危险背景（A3 新 token，仅 Shadow header / 危险 banner 使用） */
+  --warning-strong: #e5484d;
+  --warning-strong-foreground: #ffffff;
+
+  /* xterm 主题（D3 改读 CSS 变量；dark/light 切换重建 terminal theme） */
+  --xterm-bg: #0f1011;
+  --xterm-fg: #d0d6e0;
+  --xterm-cursor: #7170ff;
+  --xterm-selection: rgba(113, 112, 255, 0.35);
+
+  /* 焦点环（多层阴影栈 -> 暗色版） */
+  --focus-ring: 0 0 0 1px rgba(113, 112, 255, 0.3),
+    0 0 0 4px rgba(113, 112, 255, 0.12);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-dialog:
+    0 8px 2px rgba(0, 0, 0, 0),
+    0 5px 2px rgba(0, 0, 0, 0.01),
+    0 3px 2px rgba(0, 0, 0, 0.04),
+    0 1px 1px rgba(0, 0, 0, 0.07),
+    0 0 1px rgba(0, 0, 0, 0.08);
+  --shadow-ring: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-inset: inset 0 0 12px rgba(0, 0, 0, 0.2);
+
+  /* 半径 */
+  --radius-micro: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 22px;
+  --radius-pill: 9999px;
+
+  /* shadcn 兼容语义层（新写组件用 --bg/--fg 等 token；老组件可继续读 oklch 名） */
+  --background: var(--surface-marketing);
+  --foreground: var(--text-primary);
+  --card: var(--surface-elevated);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-elevated);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
+  --secondary: var(--surface-secondary);
+  --secondary-foreground: var(--text-secondary);
+  --muted: var(--surface-tint-3);
+  --muted-foreground: var(--text-tertiary);
+  --accent-bg: var(--surface-tint-2);
+  --accent-fg: var(--text-primary);
+  --destructive: var(--warning-strong);
+  --destructive-foreground: var(--warning-strong-foreground);
+  --success: var(--status-success);
+  --success-foreground: var(--text-primary);
+  --warning: var(--status-warning);
+  --warning-foreground: var(--text-primary);
+  --border: var(--border-standard);
+  --input: var(--border-standard);
+  --ring: var(--accent);
 }
 
-.dark {
-  --color-background: oklch(0.15 0.01 260);
-  --color-foreground: oklch(0.95 0 0);
-  --color-card: oklch(0.18 0.01 260);
-  --color-card-foreground: oklch(0.95 0 0);
-  --color-border: oklch(0.3 0.02 260);
-  --color-muted: oklch(0.35 0.02 260);
-  --color-muted-foreground: oklch(0.65 0.02 260);
-  --color-accent: oklch(0.22 0.02 260);
-  --color-accent-foreground: oklch(0.95 0 0);
-  --color-popover: oklch(0.18 0.01 260);
-  --color-popover-foreground: oklch(0.95 0 0);
-  --color-input: oklch(0.3 0.02 260);
+.light {
+  /* 浅色覆盖（Linear 是 dark-native；light 是次要） */
+  --surface-marketing: #ffffff;
+  --surface-panel: #f7f8f8;
+  --surface-elevated: #ffffff;
+  --surface-secondary: #f3f4f5;
+  --surface-tint-1: rgba(0, 0, 0, 0.02);
+  --surface-tint-2: rgba(0, 0, 0, 0.04);
+  --surface-tint-3: rgba(0, 0, 0, 0.05);
+
+  --text-primary: #0a0a0a;
+  --text-secondary: #2c2c2c;
+  --text-tertiary: #62666d;
+  --text-quaternary: #8a8f98;
+
+  --brand: #5e6ad2;
+  --brand-foreground: #ffffff;
+  --accent: #5e6ad2;
+  --accent-hover: #4a55b8;
+  --security-lavender: #7a7fad;
+
+  --status-success: #16a34a;
+  --status-success-soft: #10b981;
+  --status-pending: #5e6ad2;
+  --status-error: #dc2626;
+  --status-warning: #d97706;
+
+  --border-primary: #d0d6e0;
+  --border-secondary: #e6e6e6;
+  --border-tertiary: #ededed;
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-standard: rgba(0, 0, 0, 0.10);
+  --border-line-tint: #f5f6f7;
+  --border-line-tertiary: #ededed;
+
+  --warning-strong: #dc2626;
+  --warning-strong-foreground: #ffffff;
+
+  --xterm-bg: #ffffff;
+  --xterm-fg: #2c2c2c;
+  --xterm-cursor: #5e6ad2;
+  --xterm-selection: rgba(94, 106, 210, 0.20);
+
+  --focus-ring: 0 0 0 1px rgba(94, 106, 210, 0.40),
+    0 0 0 4px rgba(94, 106, 210, 0.12);
+}
+
+/* ============================================================
+ * @theme inline —— 把上面 CSS 变量映射到 Tailwind 语义 token
+ * 这样写组件时只需 `bg-background` / `text-muted-foreground` /
+ * `border-border` 等语义类即可。
+ * ============================================================ */
+@theme inline {
+  /* 颜色（语义层） */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-bg);
+  --color-accent-foreground: var(--accent-fg);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* 表面阶梯（用 bg-surface-1/2/3 等代替 bg-success/20 之流） */
+  --color-surface-1: var(--surface-tint-1);
+  --color-surface-2: var(--surface-tint-2);
+  --color-surface-3: var(--surface-tint-3);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-secondary: var(--surface-secondary);
+
+  /* 文本层级 */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-quaternary: var(--text-quaternary);
+
+  /* 状态色（独立暴露，便于 StatusDot/StatusPill 直接引用） */
+  --color-status-success: var(--status-success);
+  --color-status-success-soft: var(--status-success-soft);
+  --color-status-pending: var(--status-pending);
+  --color-status-error: var(--status-error);
+  --color-status-warning: var(--status-warning);
+
+  /* 危险 / Shadow header 专用 */
+  --color-warning-strong: var(--warning-strong);
+  --color-warning-strong-foreground: var(--warning-strong-foreground);
+
+  /* xterm（terminal.tsx 通过 getComputedStyle 读） */
+  --color-xterm-bg: var(--xterm-bg);
+  --color-xterm-fg: var(--xterm-fg);
+  --color-xterm-cursor: var(--xterm-cursor);
+  --color-xterm-selection: var(--xterm-selection);
+
+  /* 半径 */
+  --radius-micro: var(--radius-micro);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+  --radius-pill: var(--radius-pill);
+
+  /* 阴影 */
+  --shadow-elevated: var(--shadow-elevated);
+  --shadow-dialog: var(--shadow-dialog);
+  --shadow-ring: var(--shadow-ring);
+  --shadow-inset: var(--shadow-inset);
+
+  /* 字体族 */
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
+    Roboto, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
+    "SF Mono", Menlo, Consolas, monospace;
+
+  /* 字号 token（DESIGN.md 排版表，按 rem 折算） */
+  --text-display-xl: 4.5rem;        /* 72px */
+  --text-display: 3rem;             /* 48px */
+  --text-h1: 2rem;                  /* 32px */
+  --text-h2: 1.5rem;                /* 24px */
+  --text-h3: 1.25rem;               /* 20px */
+  --text-body-lg: 1.125rem;         /* 18px */
+  --text-body: 1rem;                /* 16px */
+  --text-small: 0.9375rem;          /* 15px */
+  --text-caption: 0.8125rem;        /* 13px */
+  --text-label: 0.75rem;            /* 12px */
+  --text-micro: 0.6875rem;          /* 11px */
+  --text-tiny: 0.625rem;            /* 10px */
+
+  /* 字重 token —— Linear 三层（400/510/590），上限 590 */
+  --font-weight-normal: 400;
+  --font-weight-emphasis: 510;
+  --font-weight-strong: 590;
+  --font-weight-light: 300;
+}
+
+/* ============================================================
+ * 基础重置 + 全局排版（DESIGN.md 强制 cv01 + ss03）
+ * ============================================================ */
+
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-background);
-  color: var(--color-foreground);
+  font-feature-settings: "cv01", "ss03"; /* DESIGN.md 不可省略 */
+  font-variant-numeric: tabular-nums;
+  background-color: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+}
+
+/* prefers-reduced-motion -> 关闭过渡动画（E1 a11y） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* 全局焦点环（E1）：仅键盘焦点显示，不打扰鼠标点击 */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-md);
+}
+
+/* 选择高亮 */
+::selection {
+  background-color: rgba(113, 112, 255, 0.30);
+  color: var(--text-primary);
+}
+
+/* 滚动条（暗色更克制） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-md);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-tertiary);
 }

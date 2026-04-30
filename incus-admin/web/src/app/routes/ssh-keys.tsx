@@ -1,14 +1,33 @@
 import type {SSHKey} from "@/features/ssh-keys/api";
 import { createFileRoute } from "@tanstack/react-router";
+import { Key, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  
   useCreateSSHKeyMutation,
   useDeleteSSHKeyMutation,
-  useSSHKeysQuery
+  useSSHKeysQuery,
 } from "@/features/ssh-keys/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { Button } from "@/shared/components/ui/button";
+import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Input, Textarea } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { Skeleton } from "@/shared/components/ui/skeleton";
 
 export const Route = createFileRoute("/ssh-keys")({
   component: SSHKeysPage,
@@ -16,77 +35,132 @@ export const Route = createFileRoute("/ssh-keys")({
 
 function SSHKeysPage() {
   const { t } = useTranslation();
-  const [showAdd, setShowAdd] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const { data, isLoading } = useSSHKeysQuery();
   const keys = data?.keys ?? [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{t("sshKey.title", { defaultValue: "SSH Keys" })}</h1>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-        >
-          {showAdd ? t("common.cancel", { defaultValue: "取消" }) : `+ ${t("sshKey.add", { defaultValue: "添加密钥" })}`}
-        </button>
-      </div>
-
-      {showAdd && <AddKeyForm onDone={() => setShowAdd(false)} />}
-
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading")}</div>
-      ) : keys.length === 0 ? (
-        <div className="border border-border rounded-lg p-8 text-center text-muted-foreground">
-          {t("sshKey.empty", { defaultValue: "暂无 SSH 密钥。添加密钥后可在创建 VM 时自动注入。" })}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {keys.map((k) => (
-            <KeyCard key={k.id} sshKey={k} />
-          ))}
-        </div>
-      )}
-    </div>
+    <PageShell>
+      <PageHeader
+        title={t("sshKey.title", { defaultValue: "SSH 密钥" })}
+        description={t("sshKey.description", {
+          defaultValue: "管理用于 SSH 登录 VM 的公钥。创建 VM 时可自动注入。",
+        })}
+        actions={
+          <Button variant="primary" onClick={() => setAddOpen(true)}>
+            <Plus size={14} aria-hidden="true" />
+            {t("sshKey.add", { defaultValue: "添加密钥" })}
+          </Button>
+        }
+      />
+      <PageContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-20 w-full" />
+            ))}
+          </div>
+        ) : keys.length === 0 ? (
+          <EmptyState
+            icon={Key}
+            title={t("sshKey.emptyTitle", { defaultValue: "暂无 SSH 密钥" })}
+            description={t("sshKey.empty", {
+              defaultValue: "添加密钥后可在创建 VM 时自动注入到 ~/.ssh/authorized_keys。",
+            })}
+            action={
+              <Button variant="primary" onClick={() => setAddOpen(true)}>
+                <Plus size={14} aria-hidden="true" />
+                {t("sshKey.add", { defaultValue: "添加密钥" })}
+              </Button>
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {keys.map((k) => (
+              <KeyCard key={k.id} sshKey={k} />
+            ))}
+          </div>
+        )}
+      </PageContent>
+      <AddKeySheet open={addOpen} onClose={() => setAddOpen(false)} />
+    </PageShell>
   );
 }
 
-function AddKeyForm({ onDone }: { onDone: () => void }) {
+function AddKeySheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [pubKey, setPubKey] = useState("");
-
   const mutation = useCreateSSHKeyMutation();
 
+  const submit = () => {
+    mutation.mutate(
+      { name, public_key: pubKey },
+      {
+        onSuccess: () => {
+          setName("");
+          setPubKey("");
+          onClose();
+        },
+      },
+    );
+  };
+
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6">
-      <h3 className="font-semibold mb-3">{t("sshKey.addTitle", { defaultValue: "添加 SSH 公钥" })}</h3>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={t("sshKey.namePlaceholder", { defaultValue: "名称（可选，如 my-laptop）" })}
-        className="w-full px-3 py-2 mb-3 rounded border border-border bg-card text-sm"
-      />
-      <textarea
-        value={pubKey}
-        onChange={(e) => setPubKey(e.target.value)}
-        placeholder="ssh-rsa AAAA... / ssh-ed25519 AAAA..."
-        rows={4}
-        className="w-full px-3 py-2 mb-3 rounded border border-border bg-card text-sm font-mono"
-      />
-      {mutation.isError && (
-        <div className="text-destructive text-sm mb-2">{(mutation.error as Error).message}</div>
-      )}
-      <button
-        onClick={() => mutation.mutate({ name, public_key: pubKey }, { onSuccess: onDone })}
-        disabled={mutation.isPending || !pubKey.trim()}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
-      >
-        {mutation.isPending ? t("sshKey.adding", { defaultValue: "添加中..." }) : t("sshKey.addButton", { defaultValue: "添加密钥" })}
-      </button>
-    </div>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" size="min(96vw, 32rem)">
+        <SheetHeader>
+          <SheetTitle>{t("sshKey.addTitle", { defaultValue: "添加 SSH 公钥" })}</SheetTitle>
+        </SheetHeader>
+        <SheetBody className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="ssh-name">
+              {t("sshKey.nameLabel", { defaultValue: "名称（可选）" })}
+            </Label>
+            <Input
+              id="ssh-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("sshKey.namePlaceholder", { defaultValue: "如 my-laptop" })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ssh-pubkey" required>
+              {t("sshKey.pubKeyLabel", { defaultValue: "公钥内容" })}
+            </Label>
+            <Textarea
+              id="ssh-pubkey"
+              value={pubKey}
+              onChange={(e) => setPubKey(e.target.value)}
+              placeholder="ssh-rsa AAAA... / ssh-ed25519 AAAA..."
+              rows={6}
+              className="font-mono"
+            />
+          </div>
+          {mutation.isError ? (
+            <div className="text-status-error text-sm">
+              {(mutation.error as Error).message}
+            </div>
+          ) : null}
+        </SheetBody>
+        <SheetFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={mutation.isPending || !pubKey.trim()}
+            onClick={submit}
+          >
+            {mutation.isPending
+              ? t("sshKey.adding", { defaultValue: "添加中..." })
+              : t("sshKey.addButton", { defaultValue: "添加密钥" })}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -95,31 +169,38 @@ function KeyCard({ sshKey }: { sshKey: SSHKey }) {
   const confirm = useConfirm();
   const deleteMutation = useDeleteSSHKeyMutation();
 
+  const onDelete = async () => {
+    const ok = await confirm({
+      title: t("sshKey.deleteTitle"),
+      message: t("sshKey.deleteMessage", { name: sshKey.name }),
+      destructive: true,
+    });
+    if (ok) deleteMutation.mutate(sshKey.id);
+  };
+
   return (
-    <div className="border border-border rounded-lg bg-card p-4 flex items-center justify-between">
-      <div>
-        <div className="font-medium">{sshKey.name}</div>
-        <div className="text-xs text-muted-foreground font-mono mt-1">
-          {sshKey.fingerprint}
+    <Card>
+      <CardContent className="p-4 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="font-[510] truncate">{sshKey.name}</div>
+          <div className="text-caption font-mono text-text-tertiary mt-1 truncate">
+            {sshKey.fingerprint}
+          </div>
+          <div className="text-caption text-text-tertiary mt-1">
+            {t("sshKey.createdAt", { defaultValue: "添加时间" })}{" "}
+            {new Date(sshKey.created_at).toLocaleDateString()}
+          </div>
         </div>
-        <div className="text-xs text-muted-foreground mt-1">
-          {t("sshKey.createdAt", { defaultValue: "添加时间" })} {new Date(sshKey.created_at).toLocaleDateString()}
-        </div>
-      </div>
-      <button
-        onClick={async () => {
-          const ok = await confirm({
-            title: t("sshKey.deleteTitle"),
-            message: t("sshKey.deleteMessage", { name: sshKey.name }),
-            destructive: true,
-          });
-          if (ok) deleteMutation.mutate(sshKey.id);
-        }}
-        disabled={deleteMutation.isPending}
-        className="px-3 py-1.5 text-xs bg-destructive/20 text-destructive rounded hover:bg-destructive/30 disabled:opacity-50"
-      >
-        {t("common.delete")}
-      </button>
-    </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={deleteMutation.isPending}
+          onClick={onDelete}
+        >
+          <Trash2 size={12} aria-hidden="true" />
+          {t("common.delete")}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

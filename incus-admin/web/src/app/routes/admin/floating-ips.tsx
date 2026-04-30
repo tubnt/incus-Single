@@ -1,18 +1,40 @@
 import type {FloatingIP} from "@/features/floating-ips/api";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link2Off, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useClustersQuery } from "@/features/clusters/api";
 import {
-  
   useAllocateFloatingIPMutation,
   useAttachFloatingIPMutation,
+  useBatchFloatingIPMutation,
   useDetachFloatingIPMutation,
   useFloatingIPsQuery,
-  useReleaseFloatingIPMutation
+  useReleaseFloatingIPMutation,
 } from "@/features/floating-ips/api";
+import {
+  PageContent,
+  PageHeader,
+  PageShell,
+} from "@/shared/components/page/page-shell";
+import { BatchToolbar } from "@/shared/components/ui/batch-toolbar";
+import { Button } from "@/shared/components/ui/button";
+import { Card } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { EmptyState } from "@/shared/components/ui/empty-state";
+import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
+import { StatusPill } from "@/shared/components/ui/status";
 
 export const Route = createFileRoute("/admin/floating-ips")({
   component: FloatingIPsPage,
@@ -20,72 +42,200 @@ export const Route = createFileRoute("/admin/floating-ips")({
 
 function FloatingIPsPage() {
   const { t } = useTranslation();
-  const [showAllocate, setShowAllocate] = useState(false);
+  const confirm = useConfirm();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<number, boolean>>({});
   const { data, isLoading } = useFloatingIPsQuery();
   const ips = data?.floating_ips ?? [];
+  const batchMutation = useBatchFloatingIPMutation();
+
+  const selected = useMemo(
+    () =>
+      Object.entries(selectedIds)
+        .filter(([, v]) => v)
+        .map(([k]) => Number(k)),
+    [selectedIds],
+  );
+  const clearSelection = () => setSelectedIds({});
+
+  const allChecked = ips.length > 0 && ips.every((ip) => selectedIds[ip.id]);
+  const someChecked = ips.some((ip) => selectedIds[ip.id]);
+
+  const toggleAll = (next: boolean) => {
+    if (next) {
+      const all: Record<number, boolean> = {};
+      ips.forEach((ip) => { all[ip.id] = true; });
+      setSelectedIds(all);
+    } else {
+      setSelectedIds({});
+    }
+  };
+
+  const runBatch = async (action: "release" | "detach") => {
+    if (selected.length === 0) return;
+    if (action === "release") {
+      const ok = await confirm({
+        title: t("admin.floatingIPs.batchReleaseTitle", { defaultValue: "批量释放 Floating IP？" }),
+        message: t("admin.floatingIPs.batchReleaseMessage", {
+          defaultValue: "将释放 {{count}} 个 Floating IP。仍 attached 的会失败（请先 detach）。",
+          count: selected.length,
+        }),
+        destructive: true,
+        typeToConfirm: "RELEASE",
+        typeToConfirmLabel: t("confirmDialog.typeRelease", { defaultValue: "请输入 RELEASE 以确认" }),
+      });
+      if (!ok) return;
+    } else {
+      const ok = await confirm({
+        title: t("admin.floatingIPs.batchDetachTitle", { defaultValue: "批量解绑 Floating IP？" }),
+        message: t("admin.floatingIPs.batchDetachMessage", {
+          defaultValue: "将解绑 {{count}} 个 Floating IP（线上服务可能短暂不可达）。",
+          count: selected.length,
+        }),
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    batchMutation.mutate(
+      { ids: selected, action },
+      {
+        onSuccess: (res) => {
+          if (res.failed.length === 0) {
+            toast.success(
+              t("admin.floatingIPs.batchSuccess", {
+                defaultValue: "批量 {{action}} 成功（{{count}}）",
+                action,
+                count: res.succeeded.length,
+              }),
+            );
+          } else {
+            toast.warning(
+              t("admin.floatingIPs.batchPartial", {
+                defaultValue: "部分成功：成功 {{ok}}，失败 {{fail}}",
+                ok: res.succeeded.length,
+                fail: res.failed.length,
+              }),
+              {
+                description: res.failed.map((f) => `#${f.key}: ${f.error}`).join("\n"),
+                duration: 15000,
+              },
+            );
+          }
+          clearSelection();
+        },
+        onError: (e) => toast.error((e as Error).message),
+      },
+    );
+  };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">
-          {t("admin.floatingIPs.title", "Floating IPs")}
-        </h1>
-        <button
-          onClick={() => setShowAllocate(!showAllocate)}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
-        >
-          {showAllocate
-            ? t("common.cancel", "取消")
-            : t("admin.floatingIPs.allocate", "+ 分配 IP")}
-        </button>
-      </div>
+    <PageShell>
+      <PageHeader
+        title={t("admin.floatingIPs.title", { defaultValue: "Floating IPs" })}
+        description={t("admin.floatingIPs.hint", {
+          defaultValue: "Floating IP 可在 VM 之间转移。Attach 时后端关闭 NIC ipv4_filtering；VM 内仍需手动 'ip addr add'（返回值含 runbook）。",
+        })}
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} aria-hidden="true" />
+            {t("admin.floatingIPs.allocate", { defaultValue: "分配 IP" })}
+          </Button>
+        }
+      />
+      <PageContent>
+        <BatchToolbar count={selected.length} onClear={clearSelection}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={batchMutation.isPending}
+            onClick={() => runBatch("detach")}
+          >
+            <Link2Off size={12} aria-hidden="true" />
+            {t("admin.floatingIPs.batchDetach", { defaultValue: "批量解绑" })}
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={batchMutation.isPending}
+            onClick={() => runBatch("release")}
+          >
+            <Trash2 size={12} aria-hidden="true" />
+            {t("admin.floatingIPs.batchRelease", { defaultValue: "批量释放" })}
+          </Button>
+        </BatchToolbar>
 
-      <p className="text-sm text-muted-foreground mb-4">
-        {t(
-          "admin.floatingIPs.hint",
-          "Floating IP 可在 VM 之间转移。Attach 时后端关闭 NIC ipv4_filtering；VM 内仍需手动 'ip addr add'（返回值含 runbook）。详见 runbook-ops.md。",
+        {isLoading ? (
+          <div className="text-muted-foreground">{t("common.loading", { defaultValue: "加载中..." })}</div>
+        ) : ips.length === 0 ? (
+          <EmptyState title={t("admin.floatingIPs.empty", { defaultValue: "暂无 Floating IP" })} />
+        ) : (
+          <Card className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-surface-1 border-b border-border">
+                <tr>
+                  <th className="px-3 py-2 w-10">
+                    <Checkbox
+                      checked={allChecked}
+                      indeterminate={!allChecked && someChecked}
+                      onCheckedChange={(v) => toggleAll(v)}
+                      aria-label={t("dataTable.selectAll", { defaultValue: "全选" })}
+                    />
+                  </th>
+                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">IP</th>
+                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                    {t("admin.floatingIPs.status", { defaultValue: "状态" })}
+                  </th>
+                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                    {t("admin.floatingIPs.boundVM", { defaultValue: "绑定 VM" })}
+                  </th>
+                  <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">
+                    {t("admin.floatingIPs.description", { defaultValue: "说明" })}
+                  </th>
+                  <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">
+                    {t("common.actions", { defaultValue: "操作" })}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {ips.map((ip) => (
+                  <Row
+                    key={ip.id}
+                    ip={ip}
+                    selected={!!selectedIds[ip.id]}
+                    onSelect={(next) =>
+                      setSelectedIds((prev) => ({ ...prev, [ip.id]: next }))
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </Card>
         )}
-      </p>
 
-      {showAllocate && <AllocatePanel onDone={() => setShowAllocate(false)} />}
-
-      {isLoading ? (
-        <div className="text-muted-foreground">{t("common.loading", "加载中...")}</div>
-      ) : ips.length === 0 ? (
-        <div className="border border-border rounded-lg p-6 text-center text-muted-foreground">
-          {t("admin.floatingIPs.empty", "暂无 Floating IP")}
-        </div>
-      ) : (
-        <div className="border border-border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/30">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">IP</th>
-                <th className="text-left px-4 py-2 font-medium">
-                  {t("admin.floatingIPs.status", "状态")}
-                </th>
-                <th className="text-left px-4 py-2 font-medium">
-                  {t("admin.floatingIPs.boundVM", "绑定 VM")}
-                </th>
-                <th className="text-left px-4 py-2 font-medium">
-                  {t("admin.floatingIPs.description", "说明")}
-                </th>
-                <th className="text-right px-4 py-2 font-medium">
-                  {t("common.actions", "操作")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {ips.map((ip) => <Row key={ip.id} ip={ip} />)}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+        <Sheet
+          open={createOpen}
+          onOpenChange={(o) => {
+            if (!o) setCreateOpen(false);
+          }}
+        >
+          <SheetContent side="right" size="min(96vw, 32rem)">
+            <AllocatePanel onDone={() => setCreateOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      </PageContent>
+    </PageShell>
   );
 }
 
-function Row({ ip }: { ip: FloatingIP }) {
+function Row({
+  ip,
+  selected,
+  onSelect,
+}: {
+  ip: FloatingIP;
+  selected: boolean;
+  onSelect: (v: boolean) => void;
+}) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const [attaching, setAttaching] = useState(false);
@@ -94,11 +244,21 @@ function Row({ ip }: { ip: FloatingIP }) {
   const detachMutation = useDetachFloatingIPMutation(ip.id);
   const releaseMutation = useReleaseFloatingIPMutation(ip.id);
 
-  const runAttach = () => {
+  const runAttach = async () => {
     if (!vmID || vmID <= 0) {
       toast.error(t("admin.floatingIPs.attachIdRequired", "VM ID 必填"));
       return;
     }
+    const ok = await confirm({
+      title: t("admin.floatingIPs.attachTitle", "绑定 Floating IP"),
+      message: t("admin.floatingIPs.attachMessage", {
+        ip: ip.ip,
+        vm: vmID,
+        defaultValue: `确认将 ${ip.ip} 绑定到 VM #${vmID}？`,
+      }),
+      typeToConfirm: ip.ip,
+    });
+    if (!ok) return;
     attachMutation.mutate(vmID, {
       onSuccess: (res) => {
         setAttaching(false);
@@ -122,6 +282,7 @@ function Row({ ip }: { ip: FloatingIP }) {
         ip: ip.ip,
         defaultValue: `确认解除 ${ip.ip} 与 VM 的绑定？`,
       }),
+      typeToConfirm: ip.ip,
     });
     if (!ok) return;
     detachMutation.mutate(undefined, {
@@ -143,6 +304,7 @@ function Row({ ip }: { ip: FloatingIP }) {
         defaultValue: `确认释放 ${ip.ip}？IP 将回收，可再次分配。`,
       }),
       destructive: true,
+      typeToConfirm: ip.ip,
     });
     if (!ok) return;
     releaseMutation.mutate(undefined, {
@@ -151,21 +313,21 @@ function Row({ ip }: { ip: FloatingIP }) {
     });
   };
 
-  const statusColor =
-    ip.status === "attached"
-      ? "bg-primary/20 text-primary"
-      : "bg-muted text-muted-foreground";
-
   return (
     <>
       <tr className="border-t border-border">
+        <td className="px-3 py-2">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={onSelect}
+            aria-label={`Select floating IP ${ip.ip}`}
+          />
+        </td>
         <td className="px-4 py-2 font-mono">{ip.ip}</td>
         <td className="px-4 py-2">
-          <span
-            className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor}`}
-          >
+          <StatusPill status={ip.status === "attached" ? "success" : "disabled"}>
             {ip.status}
-          </span>
+          </StatusPill>
         </td>
         <td className="px-4 py-2 font-mono">
           {ip.bound_vm_id ? `#${ip.bound_vm_id}` : "—"}
@@ -177,59 +339,64 @@ function Row({ ip }: { ip: FloatingIP }) {
           <div className="flex items-center justify-end gap-2">
             {ip.status === "available" ? (
               <>
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setAttaching(!attaching)}
-                  className="px-2 py-1 text-xs rounded border border-border hover:bg-muted"
                 >
                   {attaching
                     ? t("common.cancel", "取消")
                     : t("admin.floatingIPs.attach", "绑定")}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
                   onClick={runRelease}
                   disabled={releaseMutation.isPending}
                   aria-label={`Release floating IP ${ip.ip}`}
                   data-testid={`release-floating-ip-${ip.ip}`}
-                  className="px-2 py-1 text-xs rounded border border-destructive text-destructive hover:bg-destructive/10"
                 >
-                  ⚠ {t("admin.floatingIPs.release", "释放")}
-                </button>
+                  {t("admin.floatingIPs.release", "释放")}
+                </Button>
               </>
             ) : (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-status-warning border-status-warning/40"
                 onClick={runDetach}
                 disabled={detachMutation.isPending}
-                className="px-2 py-1 text-xs rounded border border-warning/30 text-warning hover:bg-warning/10"
               >
                 {t("admin.floatingIPs.detach", "解绑")}
-              </button>
+              </Button>
             )}
           </div>
         </td>
       </tr>
       {attaching && (
-        <tr className="border-t border-border bg-muted/20">
-          <td colSpan={5} className="px-4 py-3">
+        <tr className="border-t border-border bg-surface-2">
+          <td colSpan={6} className="px-4 py-3">
             <div className="flex items-center gap-3 text-sm">
               <span className="text-muted-foreground">
                 {t("admin.floatingIPs.attachVMIDLabel", "目标 VM ID (DB 内部 id)")}：
               </span>
-              <input
+              <Input
                 type="number"
                 value={vmID || ""}
                 onChange={(e) => setVMID(Number.parseInt(e.target.value, 10) || 0)}
-                className="w-24 px-2 py-1 rounded border border-border bg-card text-sm"
+                className="w-24 h-8"
                 placeholder="e.g. 17"
               />
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={runAttach}
                 disabled={attachMutation.isPending}
-                className="px-3 py-1 rounded bg-primary text-primary-foreground text-xs disabled:opacity-50"
               >
                 {attachMutation.isPending
                   ? t("admin.floatingIPs.attaching", "绑定中...")
                   : t("admin.floatingIPs.confirmAttach", "确认绑定")}
-              </button>
+              </Button>
             </div>
           </td>
         </tr>
@@ -269,56 +436,68 @@ function AllocatePanel({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <div className="border border-border rounded-lg bg-card p-4 mb-6 space-y-3">
-      <div className="grid grid-cols-3 gap-3">
-        <label className="block text-xs">
-          <span className="text-muted-foreground mb-1 block">
-            {t("admin.floatingIPs.cluster", "集群")}
-          </span>
-          <select
-            value={cluster}
-            onChange={(e) => setCluster(e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          >
-            {clusters.map((c) => (
-              <option key={c.name} value={c.name}>{c.display_name || c.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs">
-          <span className="text-muted-foreground mb-1 block">IP</span>
-          <input
-            value={ip}
-            onChange={(e) => setIP(e.target.value)}
-            placeholder="202.151.179.55"
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm font-mono"
-          />
-        </label>
-        <label className="block text-xs">
-          <span className="text-muted-foreground mb-1 block">
-            {t("admin.floatingIPs.description", "说明")}
-          </span>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 rounded border border-border bg-card text-sm"
-          />
-        </label>
-      </div>
-      {mutation.isError && (
-        <div className="text-destructive text-sm">
-          {(mutation.error as Error).message}
+    <>
+      <SheetHeader>
+        <SheetTitle>{t("admin.floatingIPs.allocate", "分配 IP")}</SheetTitle>
+      </SheetHeader>
+      <SheetBody>
+        <div className="grid grid-cols-1 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fip-cluster">{t("admin.floatingIPs.cluster", "集群")}</Label>
+            <select
+              id="fip-cluster"
+              value={cluster}
+              onChange={(e) => setCluster(e.target.value)}
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+            >
+              {clusters.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.display_name || c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fip-ip">IP</Label>
+            <Input
+              id="fip-ip"
+              value={ip}
+              onChange={(e) => setIP(e.target.value)}
+              placeholder="202.151.179.55"
+              className="font-mono"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fip-desc">
+              {t("admin.floatingIPs.description", "说明")}
+            </Label>
+            <Input
+              id="fip-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
         </div>
-      )}
-      <button
-        onClick={submit}
-        disabled={mutation.isPending || !ip || !cluster}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium disabled:opacity-50"
-      >
-        {mutation.isPending
-          ? t("common.saving", "保存中...")
-          : t("admin.floatingIPs.allocateSubmit", "分配")}
-      </button>
-    </div>
+        {mutation.isError && (
+          <div className="text-status-error text-sm mt-3">
+            {(mutation.error as Error).message}
+          </div>
+        )}
+      </SheetBody>
+      <SheetFooter>
+        <Button variant="ghost" onClick={onDone}>
+          {t("common.cancel", "取消")}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={submit}
+          disabled={mutation.isPending || !ip || !cluster}
+        >
+          {mutation.isPending
+            ? t("common.saving", "保存中...")
+            : t("admin.floatingIPs.allocateSubmit", "分配")}
+        </Button>
+      </SheetFooter>
+    </>
   );
 }

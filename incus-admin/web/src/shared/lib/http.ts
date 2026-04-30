@@ -1,7 +1,18 @@
+import { savePendingIntent } from "./pending-intent";
+
 const BASE_URL = "/api";
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
+  /**
+   * step-up 意图：可选元信息。如果调用方传了，且后端返回 step_up_required，
+   * 我们会先 saveIntent 再跳 OIDC；OIDC 回来后由 <AppShell> 触发 replay 提示。
+   */
+  intent?: {
+    action: string;
+    args: Record<string, unknown>;
+    description: string;
+  };
 }
 
 class HttpError extends Error {
@@ -31,7 +42,7 @@ function formatHttpErrorBody(status: number, statusText: string, body: unknown):
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { params, ...fetchOptions } = options;
+  const { params, intent, ...fetchOptions } = options;
 
   let url = `${BASE_URL}${path}`;
   if (params) {
@@ -57,6 +68,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     // compromised server can't pivot the client to an external host via this
     // channel (protocol-relative //evil.com, absolute https://…, etc).
     if (response.status === 401 && isStepUpRequired(body) && isSafeStepUpRedirect(body.redirect)) {
+      // A1: 跳转前持久化用户操作意图，OIDC 回来 <AppShell> mount 时弹 confirm 让用户决定是否 replay。
+      if (intent) {
+        savePendingIntent({
+          action: intent.action,
+          args: intent.args,
+          description: intent.description,
+          returnPath: `${window.location.pathname}${window.location.search}`,
+        });
+      }
       window.location.href = body.redirect;
     }
     throw new HttpError(response.status, response.statusText, body);
@@ -87,14 +107,22 @@ export const http = {
   get: <T>(path: string, params?: Record<string, string>) =>
     request<T>(path, { method: "GET", params }),
 
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, "intent">) =>
+    request<T>(path, {
+      method: "POST",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
 
-  put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
+  put: <T>(path: string, body?: unknown, opts?: Pick<RequestOptions, "intent">) =>
+    request<T>(path, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+      ...opts,
+    }),
 
-  delete: <T>(path: string, params?: Record<string, string>) =>
-    request<T>(path, { method: "DELETE", params }),
+  delete: <T>(path: string, params?: Record<string, string>, opts?: Pick<RequestOptions, "intent">) =>
+    request<T>(path, { method: "DELETE", params, ...opts }),
 };
 
 export { HttpError };
