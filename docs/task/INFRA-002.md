@@ -1,9 +1,11 @@
 # INFRA-002 Build cluster node management UI and automation
 
-- **status**: pending
+- **status**: completed
+- **completedAt**: 2026-04-30
 - **priority**: P1
-- **owner**: (unassigned)
+- **owner**: claude
 - **createdAt**: 2026-04-15 18:00
+- **plan**: [PLAN-026](../plan/PLAN-026.md)
 
 ## Description
 

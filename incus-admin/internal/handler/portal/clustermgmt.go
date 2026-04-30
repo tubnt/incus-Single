@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -12,14 +13,34 @@ import (
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/config"
 	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/model"
+	"github.com/incuscloud/incus-admin/internal/repository"
+	"github.com/incuscloud/incus-admin/internal/service/jobs"
 )
 
 type ClusterMgmtHandler struct {
 	mgr *cluster.Manager
+	// PLAN-026 / INFRA-002：节点 add/remove 走 jobs runtime 异步流
+	jobs           *jobs.Runtime
+	jobRepo        *repository.ProvisioningJobRepo
+	sshUser        string
+	sshKeyFile     string
+	knownHostsFile string
 }
 
 func NewClusterMgmtHandler(mgr *cluster.Manager) *ClusterMgmtHandler {
 	return &ClusterMgmtHandler{mgr: mgr}
+}
+
+// WithNodeOrchestration 注入节点编排所需依赖。nil jobs runtime 时 add/remove
+// 路由返回 503，避免没异步运行时的环境跑爆。
+func (h *ClusterMgmtHandler) WithNodeOrchestration(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo, sshUser, sshKeyFile, knownHostsFile string) *ClusterMgmtHandler {
+	h.jobs = rt
+	h.jobRepo = jobRepo
+	h.sshUser = sshUser
+	h.sshKeyFile = sshKeyFile
+	h.knownHostsFile = knownHostsFile
+	return h
 }
 
 func (h *ClusterMgmtHandler) AdminRoutes(r chi.Router) {
@@ -29,6 +50,9 @@ func (h *ClusterMgmtHandler) AdminRoutes(r chi.Router) {
 	r.Get("/nodes/{name}", h.NodeDetail)
 	r.Post("/nodes/{name}/evacuate", h.EvacuateNode)
 	r.Post("/nodes/{name}/restore", h.RestoreNode)
+	// PLAN-026 节点 add/remove
+	r.Post("/clusters/{name}/nodes", h.AddNode)
+	r.Delete("/clusters/{name}/nodes/{node}", h.RemoveNode)
 }
 
 func (h *ClusterMgmtHandler) AddCluster(w http.ResponseWriter, r *http.Request) {
@@ -299,4 +323,189 @@ func extractOperationID(opPath string) string {
 		return parts[len(parts)-1]
 	}
 	return ""
+}
+
+// AddNode 入队 cluster.node.add job：通过 Incus API 生成 join token，
+// SSH 到目标节点上传 join-node.sh 套件并流式跑 7 步加入流程。
+//
+// 路由：POST /api/admin/clusters/{name}/nodes
+// 请求体：{node_name, public_ip, ssh_user?, ssh_key_file?, role?}
+// 响应：202 + {job_id, vm_id?=null, status:"provisioning"}
+func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
+	clusterName := chi.URLParam(r, "name")
+	if h.jobs == nil || h.jobRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "jobs runtime not configured"})
+		return
+	}
+
+	var req struct {
+		NodeName     string `json:"node_name"      validate:"required,safename,max=63"`
+		PublicIP     string `json:"public_ip"      validate:"required,ip"`
+		SSHUser      string `json:"ssh_user"       validate:"omitempty,safename,max=64"`
+		SSHKeyFile   string `json:"ssh_key_file"   validate:"omitempty,max=512"`
+		Role         string `json:"role"           validate:"omitempty,oneof=osd mon-mgr-osd"`
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if _, ok := h.mgr.Get(clusterName); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+	clusterID := h.mgr.IDByName(clusterName)
+	if clusterID == 0 {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "cluster id resolve failed"})
+		return
+	}
+
+	sshUser := req.SSHUser
+	if sshUser == "" {
+		sshUser = h.sshUser
+	}
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	keyFile := req.SSHKeyFile
+	if keyFile == "" {
+		keyFile = h.sshKeyFile
+	}
+	if keyFile == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ssh_key_file required (or configure server-wide CEPH_SSH_KEY)"})
+		return
+	}
+
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindClusterNodeAdd, userID, clusterID, nil, nil, req.NodeName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
+		return
+	}
+
+	role := req.Role
+	if role == "" {
+		role = "osd"
+	}
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+		NodeName:       req.NodeName,
+		NodePublicIP:   req.PublicIP,
+		NodeRole:       role,
+		SSHUser:        sshUser,
+		SSHKeyFile:     keyFile,
+		KnownHostsFile: h.knownHostsFile,
+	}); err != nil {
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue: " + err.Error()})
+		return
+	}
+
+	audit(r.Context(), r, "cluster.node.add", "node", 0, map[string]any{
+		"cluster":   clusterName,
+		"node_name": req.NodeName,
+		"public_ip": req.PublicIP,
+		"role":      role,
+		"job_id":    job.ID,
+	})
+	slog.Info("cluster node add enqueued", "cluster", clusterName, "node", req.NodeName, "job_id", job.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "provisioning",
+		"job_id":  job.ID,
+		"node":    req.NodeName,
+	})
+}
+
+// RemoveNode 入队 cluster.node.remove job：SSH 到 leader 跑
+// scale-node.sh --remove 完成 evacuate / Ceph OSD 移除 / Incus member 退出。
+//
+// 路由：DELETE /api/admin/clusters/{name}/nodes/{node}
+// query 参数：?leader=hostOrIP（可选，未指定时取 cluster manager.List() 的第一个 client API URL 解析出 host）
+func (h *ClusterMgmtHandler) RemoveNode(w http.ResponseWriter, r *http.Request) {
+	clusterName := chi.URLParam(r, "name")
+	nodeName := chi.URLParam(r, "node")
+	if h.jobs == nil || h.jobRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "jobs runtime not configured"})
+		return
+	}
+	if !isValidName(nodeName) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid node name"})
+		return
+	}
+	client, ok := h.mgr.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+	clusterID := h.mgr.IDByName(clusterName)
+
+	leaderHost := r.URL.Query().Get("leader")
+	if leaderHost == "" {
+		leaderHost = parseHostFromAPIURL(client.APIURL)
+	}
+	if leaderHost == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "leader host not resolvable from cluster api_url; pass ?leader=<host>"})
+		return
+	}
+
+	keyFile := h.sshKeyFile
+	if keyFile == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ssh_key_file not configured (CEPH_SSH_KEY)"})
+		return
+	}
+
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindClusterNodeRemove, userID, clusterID, nil, nil, nodeName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
+		return
+	}
+
+	sshUser := h.sshUser
+	if sshUser == "" {
+		sshUser = "root"
+	}
+
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+		NodeName:       nodeName,
+		LeaderHost:     leaderHost,
+		SSHUser:        sshUser,
+		SSHKeyFile:     keyFile,
+		KnownHostsFile: h.knownHostsFile,
+	}); err != nil {
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue: " + err.Error()})
+		return
+	}
+
+	audit(r.Context(), r, "cluster.node.remove", "node", 0, map[string]any{
+		"cluster": clusterName,
+		"node":    nodeName,
+		"leader":  leaderHost,
+		"job_id":  job.ID,
+	})
+	slog.Info("cluster node remove enqueued", "cluster", clusterName, "node", nodeName, "job_id", job.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "provisioning",
+		"job_id": job.ID,
+		"node":   nodeName,
+	})
+}
+
+// parseHostFromAPIURL 把 https://10.0.20.1:8443 抽出 10.0.20.1。SSH 会回到 22 端口。
+func parseHostFromAPIURL(apiURL string) string {
+	// 不引入 net/url 整体解析；做轻量字符串操作
+	s := apiURL
+	if i := strings.Index(s, "://"); i >= 0 {
+		s = s[i+3:]
+	}
+	if i := strings.Index(s, "/"); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		// 仅去 :port 后缀；IPv6 含 : 需要用方括号语义，这里简化忽略
+		if _, err := strconv.Atoi(s[i+1:]); err == nil {
+			s = s[:i]
+		}
+	}
+	return s
 }

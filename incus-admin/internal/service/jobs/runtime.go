@@ -163,9 +163,11 @@ func (r *Runtime) runOne(parent context.Context, jobID int64) {
 		return
 	}
 
-	// audit started
+	// audit started —— action label 按 kind 派生，让查询日志的人能按 prefix 过滤：
+	//   vm.create / vm.reinstall  → "vm.provisioning.started"
+	//   cluster.node.add/remove   → "node.provisioning.started"
 	uid := job.UserID
-	r.deps.Audit.Log(parent, &uid, "vm.provisioning.started", "job", jobID, map[string]any{
+	r.deps.Audit.Log(parent, &uid, auditActionByKind(job.Kind, "started"), "job", jobID, map[string]any{
 		"kind":        job.Kind,
 		"target_name": job.TargetName,
 		"cluster_id":  job.ClusterID,
@@ -209,19 +211,30 @@ func (r *Runtime) finalize(ctx context.Context, job *model.ProvisioningJob, stat
 		slog.Error("finalize job failed", "job_id", job.ID, "error", err)
 	}
 	uid := job.UserID
-	action := "vm.provisioning.succeeded"
+	suffix := "succeeded"
 	details := map[string]any{
 		"kind":        job.Kind,
 		"target_name": job.TargetName,
 	}
 	if status != model.JobStatusSucceeded {
-		action = "vm.provisioning.failed"
+		suffix = "failed"
 		details["error"] = errMsg
 	}
-	r.deps.Audit.Log(ctx, &uid, action, "job", job.ID, details, "")
+	r.deps.Audit.Log(ctx, &uid, auditActionByKind(job.Kind, suffix), "job", job.ID, details, "")
 
 	// publish terminal so SSE 订阅者收到后断开
 	r.broker.Publish(StepEvent{JobID: job.ID, Terminal: true, Status: status})
+}
+
+// auditActionByKind 按 job.Kind 派生 audit action label，让 audit grep
+// 能按 vm.* / node.* 过滤。suffix 应为 started / succeeded / failed。
+func auditActionByKind(kind, suffix string) string {
+	switch kind {
+	case model.JobKindClusterNodeAdd, model.JobKindClusterNodeRemove:
+		return "node.provisioning." + suffix
+	default:
+		return "vm.provisioning." + suffix
+	}
 }
 
 func (r *Runtime) dispatch(job *model.ProvisioningJob) (Executor, error) {
@@ -233,6 +246,10 @@ func (r *Runtime) dispatch(job *model.ProvisioningJob) (Executor, error) {
 		return &vmCreateExecutor{}, nil
 	case model.JobKindVMReinstall:
 		return &vmReinstallExecutor{}, nil
+	case model.JobKindClusterNodeAdd:
+		return &clusterNodeAddExecutor{}, nil
+	case model.JobKindClusterNodeRemove:
+		return &clusterNodeRemoveExecutor{}, nil
 	default:
 		return nil, fmt.Errorf("unknown job kind %q", job.Kind)
 	}
@@ -273,7 +290,7 @@ func (r *Runtime) recoverStale(ctx context.Context, maxAge time.Duration) {
 			rec := j
 			exec.Rollback(ctx, r, &rec, "stale recovery")
 		}
-		r.deps.Audit.Log(ctx, &j.UserID, "vm.provisioning.failed", "job", j.ID, map[string]any{
+		r.deps.Audit.Log(ctx, &j.UserID, auditActionByKind(j.Kind, "failed"), "job", j.ID, map[string]any{
 			"kind":   j.Kind,
 			"reason": "stale recovery",
 		}, "")

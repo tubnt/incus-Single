@@ -1,14 +1,19 @@
 import type {ClusterNode} from "@/features/nodes/api";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { useJobQuery } from "@/features/jobs/api";
+import { JobProgress } from "@/features/jobs/components/job-progress";
+import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
 
   nodeKeys,
   useAdminNodeDetailQuery,
   useAdminNodesQuery,
   useNodeEvacuateMutation,
-  useNodeRestoreMutation
+  useNodeRestoreMutation,
+  useRemoveNodeMutation
 } from "@/features/nodes/api";
 import {
   PageContent,
@@ -171,11 +176,26 @@ function NodeDetail({
 }) {
   const { t } = useTranslation();
   const confirm = useConfirm();
+  const [removeJobId, setRemoveJobId] = useState<number | null>(null);
 
   const { data, isLoading } = useAdminNodeDetailQuery(clusterName, nodeName);
-
   const evacuateMutation = useNodeEvacuateMutation(clusterName, nodeName);
   const restoreMutation = useNodeRestoreMutation(clusterName, nodeName);
+  const removeMutation = useRemoveNodeMutation(clusterName);
+
+  // PLAN-026 remove SSE 监听
+  const removeStream = useJobStream(removeJobId);
+  const removeJobQuery = useJobQuery(removeStream.terminal != null ? removeJobId : null);
+  useEffect(() => {
+    if (removeStream.terminal === "succeeded" && removeJobQuery.data?.job?.status === "succeeded") {
+      toast.success(t("admin.nodes.remove.done", { defaultValue: "节点 {{name}} 已移除", name: nodeName }));
+      setRemoveJobId(null);
+    }
+    if (removeStream.terminal === "failed" || removeStream.terminal === "partial") {
+      const lastFailed = removeStream.steps.slice().reverse().find((s) => s.status === "failed");
+      toast.error(lastFailed?.detail ?? t("admin.nodes.remove.failed", "移除失败"));
+    }
+  }, [removeStream.terminal, removeStream.steps, removeJobQuery.data, nodeName, t]);
 
   const instances = data?.instances ?? [];
   const nodeInfo = data?.node as Record<string, unknown> | undefined;
@@ -254,7 +274,63 @@ function NodeDetail({
                 )?.message ?? "操作失败"}
               </span>
             )}
+
+            {/* PLAN-026 移除节点：destructive，先 evacuate VM 再 leave Incus / Ceph */}
+            {removeJobId == null && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: t("admin.nodes.remove.title", "移除节点"),
+                    message: t("admin.nodes.remove.message", {
+                      defaultValue: "确认从集群移除 {{name}}？将先 evacuate 所有 VM、移除 Ceph OSD 后再退出。该操作不可回滚。",
+                      name: nodeName,
+                    }),
+                    destructive: true,
+                    typeToConfirm: nodeName,
+                    typeToConfirmLabel: t("admin.nodes.remove.typeNodeName", {
+                      defaultValue: "请输入节点名 {{name}} 以确认",
+                      name: nodeName,
+                    }),
+                  });
+                  if (!ok) return;
+                  removeMutation.mutate(
+                    { nodeName },
+                    {
+                      onSuccess: (res) => {
+                        if (res.job_id) {
+                          setRemoveJobId(res.job_id);
+                          toast.info(
+                            t("admin.nodes.remove.enqueued", {
+                              defaultValue: "已入队 job #{{id}}",
+                              id: res.job_id,
+                            }),
+                          );
+                        }
+                      },
+                      onError: (err) => toast.error((err as Error).message),
+                    },
+                  );
+                }}
+                disabled={removeMutation.isPending}
+              >
+                {removeMutation.isPending
+                  ? t("common.processing", "处理中...")
+                  : t("admin.nodes.remove.button", "移除节点")}
+              </Button>
+            )}
           </div>
+
+          {/* 移除进度 */}
+          {removeJobId != null && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-strong">
+                {t("admin.nodes.remove.progressTitle", "移除节点进度")}
+              </h4>
+              <JobProgress steps={removeStream.steps} />
+            </div>
+          )}
 
           {/* 实例列表 */}
           <div>

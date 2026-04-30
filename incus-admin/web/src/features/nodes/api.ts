@@ -135,3 +135,53 @@ export function useExecSSHMutation() {
       http.post<SSHResult>("/admin/nodes/exec", params),
   });
 }
+
+/**
+ * PLAN-026 / INFRA-002 节点 add/remove 走 jobs runtime 异步流。
+ * 返回 202 + job_id，前端用 useJobStream 监听 SSE。
+ */
+export interface AddNodeParams {
+  node_name: string;
+  public_ip: string;
+  ssh_user?: string;
+  ssh_key_file?: string;
+  role?: "osd" | "mon-mgr-osd";
+}
+
+export interface NodeJobResponse {
+  status: string;
+  job_id: number;
+  node: string;
+}
+
+export function useAddNodeMutation(clusterName: string) {
+  return useMutation({
+    mutationFn: (params: AddNodeParams) =>
+      http.post<NodeJobResponse>(`/admin/clusters/${clusterName}/nodes`, params, {
+        intent: {
+          action: "node.add",
+          args: { cluster: clusterName, name: params.node_name, ip: params.public_ip },
+          description: `添加节点 ${params.node_name} (${params.public_ip}) 到集群 ${clusterName}`,
+        },
+      }),
+  });
+}
+
+export function useRemoveNodeMutation(clusterName: string) {
+  return useMutation({
+    mutationFn: (params: { nodeName: string; leader?: string }) => {
+      const qs = params.leader ? `?leader=${encodeURIComponent(params.leader)}` : "";
+      return http.delete<NodeJobResponse>(
+        `/admin/clusters/${clusterName}/nodes/${params.nodeName}${qs}`,
+        undefined,
+        {
+          intent: {
+            action: "node.remove",
+            args: { cluster: clusterName, node: params.nodeName },
+            description: `从集群 ${clusterName} 移除节点 ${params.nodeName}（会先 evacuate 所有 VM）`,
+          },
+        },
+      );
+    },
+  });
+}

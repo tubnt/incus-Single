@@ -2,6 +2,43 @@
 
 ## 2026-04-30 [feat]
 
+PLAN-026 / INFRA-002 — 集群节点管理 UI + 自动化落地。复用 PLAN-025 的 jobs runtime + SSE，把"添加节点"和"移除节点"两个长流程编排进入异步 job 体系。admin 在 `/admin/node-join` 填表 + 测 SSH → 提交 → 实时看 9 阶段进度；移除走节点详情卡的 destructive 按钮 + step-up + 二次输节点名确认 → 7 阶段进度。
+
+**核心发现（一开始没想到）**：`cluster/scripts/join-node.sh`（7 步 add）和 `scale-node.sh --remove`（7 步 remove）已经是完整的可工作脚本。INFRA-002 真正的工作只是 SSH 编排器 + UI，不是从零写脚本。
+
+**新建基础设施**：
+- migration 016：扩 `provisioning_jobs.kind` CHECK 约束加 `cluster.node.add` / `cluster.node.remove`
+- `internal/sshexec/runner.go::RunStream`：行级 stdout/stderr 流式回调（StdoutPipe + bufio.Scanner + sync.Mutex 串行 onLine），ctx 取消立即 SIGTERM session
+- `internal/sshexec/runner.go::WriteFile + MkdirAll`：通过 SSH `install -m mode /dev/stdin <path>` 上传小文件 + mkdir -p 远端目录
+- `internal/sshexec/embedded/`：embed 了 `cluster/scripts/{join-node,scale-node,apply-network,setup-firewall,update-monitoring-targets}.sh` + `configs/cluster-env.sh` 的副本（commit 进 repo，build 自动找到，CI 不需额外 sync）
+- `internal/service/jobs/cluster_node_add.go`：9 步执行器，Incus API 生成 join token → SSH 上传 scripts → 流式跑 join-node.sh，按 `====== 步骤 N/7 ======` marker 推进 step
+- `internal/service/jobs/cluster_node_remove.go`：通过 leader SSH 跑 `scale-node.sh --remove --force --no-notify`，按 `[STEP] N/7` marker（带 ANSI 颜色码 stripping）推进
+- `internal/handler/portal/clustermgmt.go::AddNode + RemoveNode`：路由 `POST/DELETE /admin/clusters/{name}/nodes` 和 `/admin/clusters/{name}/nodes/{node}`
+- `middleware/stepup.go` 把两个新路由加入 sensitive 路由列表（必须重 OIDC step-up）
+- audit action label 派生：`vm.*` 走 `vm.provisioning.*`、`cluster.node.*` 走 `node.provisioning.*`，按 prefix 分组方便日志检索
+
+**前端（DESIGN.md 优先，零 hex / 零 arbitrary value）**：
+- `features/nodes/api.ts` 新增 `useAddNodeMutation` / `useRemoveNodeMutation`，全部带 step-up `intent` 元信息
+- `app/routes/admin/node-join.tsx` 替换原手工 4 步 wizard：表单 + 测 SSH 按钮（必须先通过才能提交）+ 提交后自动切到 JobProgress 视图，SSE 实时 9 步进度
+- `app/routes/admin/nodes.tsx` 节点详情卡加入 destructive "移除节点" 按钮 + 二次输节点名确认 + 移除中嵌入 JobProgress
+- i18n zh/en 各加 30+ 个新 key（`admin.nodes.add.*` / `admin.nodes.remove.*`）
+
+**测试**：
+- `cluster_node_markers_test.go`：3 个测试覆盖 join-node.sh `====== 步骤 N/7 ======` 与 scale-node.sh `[STEP] N/7` 两种 marker 解析 + ANSI 颜色码 strip
+- 生产 vmc.5ok.co 部署：systemd active，4 worker + sweeper 运行中；`POST /admin/clusters/cn-sz-01/nodes` 路由验证返 400 validation_failed（必填字段缺）说明路由已注册
+
+**真实 e2e（用 node6 真加入集群）需用户在准备好物理机后单独触发**，本 PLAN 提供能力但不强制端到端。
+
+**范围外（显式排除）**：
+- `cluster/configs/cluster-env.sh` 自动同步新节点（运维静态文件，需手工编辑提交 git）
+- maintenance mode（per-node `scheduler.instance=manual`）
+- INFRA-003 standalone host 管理（被 INFRA-002 阻塞，单立 PLAN-027）
+- AdminVMHandler.ReinstallVM（admin reinstall 入口）异步化
+
+---
+
+## 2026-04-30 [feat]
+
 PLAN-025 / INFRA-007 — VM provisioning 异步化 + SSE 进度流落地。订单付款不再握 30–90s HTTP，handler 立即返 202 + job_id；前端通过 SSE 实时看 5 阶段进度，完成后 SecretReveal 一次性展示密码。Reinstall 同形态异步化（同步前置仍保留 probe + prePullImage 数据保护）。Admin direct create 走相同 jobs runner。
 
 **核心修复（深度审查发现的 fake-wait bug）**：
