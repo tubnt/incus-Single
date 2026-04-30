@@ -276,59 +276,82 @@ function VMDetailPage() {
           { label: name },
         ]}
         description={`${cluster} / ${resolvedProject}${currentNode ? ` · ${currentNode}` : ""}`}
-        actions={
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link
-              to="/console"
-              search={{ vm: name, cluster, project, from: "admin" } as any}
-              className={cn(buttonVariants({ variant: "primary", size: "sm" }))}
-            >
-              <TerminalIcon size={12} aria-hidden="true" />
-              {t("vm.console")}
-            </Link>
-            <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("start")}>
-              <Play size={12} aria-hidden="true" />
-              {t("vm.start")}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("stop")}>
-              <Square size={12} aria-hidden="true" />
-              {t("vm.stop")}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("restart")}>
-              <RefreshCw size={12} aria-hidden="true" />
-              {t("vm.restart")}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setMigrateOpen(true)}>
-              <Truck size={12} aria-hidden="true" />
-              {t("admin.migrate", { defaultValue: "迁移" })}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={reinstallMutation.isPending} onClick={() => setReinstallOpen(true)}>
-              <RotateCcw size={12} aria-hidden="true" />
-              {t("vm.reinstall")}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={resetPwdMutation.isPending} onClick={() => setResetPwdOpen(true)}>
-              {t("vm.passwordReset", { defaultValue: "重置密码" })}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={rescueEnterMutation.isPending} onClick={runRescueEnter}>
-              <ShieldCheck size={12} aria-hidden="true" />
-              {t("vm.rescueEnter", { defaultValue: "Rescue" })}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={rescueExitMutation.isPending} onClick={runRescueExit}>
-              {t("vm.rescueExitRestore", { defaultValue: "Rescue 恢复" })}
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={deleteMutation.isPending}
-              aria-label={t("vm.deleteVmAriaLabel", { name, defaultValue: "Delete VM {{name}}" })}
-              data-testid="delete-vm-button"
-              onClick={runDelete}
-            >
-              <Trash2 size={12} aria-hidden="true" />
-              {t("vm.delete")}
-            </Button>
-          </div>
-        }
+        actions={(() => {
+          const status = detailData?.vm?.status;
+          const isRunning = status === "Running";
+          const isStopped = status === "Stopped";
+          const isFrozen = status === "Frozen";
+          const isRescue = status === "Rescue";
+          return (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {isRunning ? (
+                <Link
+                  to="/console"
+                  search={{ vm: name, cluster, project, from: "admin" } as any}
+                  className={cn(buttonVariants({ variant: "primary", size: "sm" }))}
+                >
+                  <TerminalIcon size={12} aria-hidden="true" />
+                  {t("vm.console")}
+                </Link>
+              ) : null}
+              {isStopped ? (
+                <Button size="sm" variant="primary" disabled={stateMutation.isPending} onClick={() => runAction("start")}>
+                  <Play size={12} aria-hidden="true" />
+                  {t("vm.start")}
+                </Button>
+              ) : null}
+              {isRunning ? (
+                <>
+                  <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("stop")}>
+                    <Square size={12} aria-hidden="true" />
+                    {t("vm.stop")}
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("restart")}>
+                    <RefreshCw size={12} aria-hidden="true" />
+                    {t("vm.restart")}
+                  </Button>
+                </>
+              ) : null}
+              {isFrozen ? (
+                <Button size="sm" variant="ghost" disabled={stateMutation.isPending} onClick={() => runAction("unfreeze")}>
+                  {t("vm.unfreeze", { defaultValue: "解冻" })}
+                </Button>
+              ) : null}
+              <Button size="sm" variant="ghost" onClick={() => setMigrateOpen(true)}>
+                <Truck size={12} aria-hidden="true" />
+                {t("admin.migrate", { defaultValue: "迁移" })}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={reinstallMutation.isPending} onClick={() => setReinstallOpen(true)}>
+                <RotateCcw size={12} aria-hidden="true" />
+                {t("vm.reinstall")}
+              </Button>
+              <Button size="sm" variant="ghost" disabled={resetPwdMutation.isPending} onClick={() => setResetPwdOpen(true)}>
+                {t("vm.passwordReset", { defaultValue: "重置密码" })}
+              </Button>
+              {!isRescue ? (
+                <Button size="sm" variant="ghost" disabled={rescueEnterMutation.isPending} onClick={runRescueEnter}>
+                  <ShieldCheck size={12} aria-hidden="true" />
+                  {t("vm.rescueEnter", { defaultValue: "Rescue" })}
+                </Button>
+              ) : (
+                <Button size="sm" variant="ghost" disabled={rescueExitMutation.isPending} onClick={runRescueExit}>
+                  {t("vm.rescueExitRestore", { defaultValue: "Rescue 恢复" })}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={deleteMutation.isPending}
+                aria-label={t("vm.deleteVmAriaLabel", { name, defaultValue: "Delete VM {{name}}" })}
+                data-testid="delete-vm-button"
+                onClick={runDelete}
+              >
+                <Trash2 size={12} aria-hidden="true" />
+                {t("vm.delete")}
+              </Button>
+            </div>
+          );
+        })()}
       />
       <PageContent>
         <Tabs defaultValue="overview">

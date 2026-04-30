@@ -190,7 +190,7 @@
       "instanceStatus": "Status",
       "instanceType": "Type",
       "instances": "Instances",
-      "joinWizard": "+ Join node",
+      "joinWizard": "Join node",
       "message": "Message",
       "noInstances": "No instances on this node",
       "restore": "Restore node",
@@ -233,7 +233,7 @@
     "ordersTitle": "Orders",
     "osTemplates": {
       "actions": "操作",
-      "add": "+ 添加模板",
+      "add": "Add Template",
       "create": "创建模板",
       "createTitle": "添加模板",
       "created": "已创建",
@@ -263,7 +263,7 @@
       "actions": "Actions",
       "activate": "Activate",
       "active": "Active",
-      "add": "+ Add Plan",
+      "add": "Add Plan",
       "bandwidthTB": "Bandwidth TB",
       "create": "Create plan",
       "createTitle": "New plan",
@@ -334,7 +334,7 @@
         "customer": "customer"
       },
       "title": "Users",
-      "topUp": "+ Top Up",
+      "topUp": "Top Up",
       "topUpAmount": "Amount",
       "topUpSubmit": "Top up",
       "topUpSubmitting": "Topping up...",
@@ -416,7 +416,7 @@
     "vmNamePlaceholder": "VM name (optional)"
   },
   "cluster": {
-    "addCluster": "+ Add Cluster",
+    "addCluster": "Add Cluster",
     "addClusterTitle": "Add Cluster / Standalone Host",
     "colActions": "Actions",
     "colCpu": "CPU",
@@ -592,7 +592,7 @@
     "sectionProduct": "Product"
   },
   "ipPools": {
-    "addPool": "+ Add Pool",
+    "addPool": "Add Pool",
     "available": "available",
     "empty": "No IP pools yet. Add one to allocate IPs to VMs.",
     "range": "Range",
@@ -645,7 +645,7 @@
     "auditLogs": "Audit",
     "billing": "Billing",
     "clusters": "Clusters",
-    "createVm": "+ VM",
+    "createVm": "VM",
     "dashboard": "Dashboard",
     "firewall": "Firewall",
     "floatingIPs": "Floating IPs",
@@ -732,7 +732,7 @@
   "snapshot": {
     "actions": "Actions",
     "count": "Snapshots ({{count}})",
-    "create": "+ Snapshot",
+    "create": "Snapshot",
     "created": "Created",
     "creating": "Creating...",
     "delete": "Delete",
@@ -769,7 +769,7 @@
   "storage": {
     "available": "Available",
     "capacity": "Total Capacity",
-    "createPool": "+ Create Pool",
+    "createPool": "Create Pool",
     "createPoolSubmit": "Create",
     "currentUsage": "Current usage",
     "dataStored": "Data Stored",

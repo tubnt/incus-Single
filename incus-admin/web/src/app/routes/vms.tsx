@@ -1,7 +1,7 @@
 import type {VMService} from "@/features/vms/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Camera, ExternalLink, MoreHorizontal, Pause, Play, Plus, RefreshCw, Square, Terminal as TerminalIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
@@ -32,7 +32,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { CardSkeleton } from "@/shared/components/ui/skeleton";
-import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
+import { StatusDot, vmStatusToKind } from "@/shared/components/ui/status";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/vms")({
@@ -49,8 +49,49 @@ function MyVMs() {
 
   const [sheetKind, setSheetKind] = useState<SheetKind>(null);
   const [sheetVM, setSheetVM] = useState<VMService | null>(null);
+  const [hlIdx, setHlIdx] = useState<number>(-1);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const closeSheet = () => setSheetKind(null);
+
+  // Linear 风键盘导航：j/k 上下、Enter 进详情、n 新建。表单/弹窗内禁用。
+  useEffect(() => {
+    if (services.length === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (target.isContentEditable) return;
+        if (target.closest("[role='dialog'], [cmdk-input]")) return;
+      }
+      if (e.key === "j") {
+        e.preventDefault();
+        setHlIdx((i) => Math.min(services.length - 1, (i < 0 ? -1 : i) + 1));
+      } else if (e.key === "k") {
+        e.preventDefault();
+        setHlIdx((i) => Math.max(0, (i < 0 ? services.length : i) - 1));
+      } else if (e.key === "Enter" && hlIdx >= 0 && hlIdx < services.length) {
+        e.preventDefault();
+        navigate({ to: "/vm-detail", search: { id: services[hlIdx]!.id } as any });
+      } else if (e.key === "n" && !e.shiftKey) {
+        e.preventDefault();
+        navigate({ to: "/billing" });
+      } else if (e.key === "Escape") {
+        setHlIdx(-1);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [services, hlIdx, navigate]);
+
+  // 焦点滚动跟踪
+  useEffect(() => {
+    if (hlIdx < 0) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-vm-row='${hlIdx}']`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [hlIdx]);
 
   useCommandActions(
     () => [
@@ -97,11 +138,13 @@ function MyVMs() {
             }
           />
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {services.map((vm) => (
+          <div className="flex flex-col gap-1.5" ref={listRef}>
+            {services.map((vm, idx) => (
               <VMCard
                 key={vm.id}
                 vm={vm}
+                index={idx}
+                highlighted={idx === hlIdx}
                 onOpenSheet={(kind) => {
                   setSheetVM(vm);
                   setSheetKind(kind);
@@ -160,7 +203,17 @@ function MyVMs() {
   );
 }
 
-function VMCard({ vm, onOpenSheet }: { vm: VMService; onOpenSheet: (k: NonNullable<SheetKind>) => void }) {
+function VMCard({
+  vm,
+  index,
+  highlighted,
+  onOpenSheet,
+}: {
+  vm: VMService;
+  index: number;
+  highlighted: boolean;
+  onOpenSheet: (k: NonNullable<SheetKind>) => void;
+}) {
   const { t } = useTranslation();
   const actionMutation = useVMActionMutation(vm.id);
 
@@ -176,71 +229,62 @@ function VMCard({ vm, onOpenSheet }: { vm: VMService; onOpenSheet: (k: NonNullab
   const isRunning = vm.status === "running";
   const isStopped = vm.status === "stopped";
 
+  /*
+   * Linear-style VM 行：
+   *   - 主行：状态 dot + 名字（白、mono）+ 主操作（hover/always）+ overflow（hover 显现）
+   *   - 副行：所有元数据浓缩成一行（灰、caption），用 · 分隔
+   *   - hover 整行轻微提亮，强化"可点击"
+   */
   return (
-    <Card>
-      <CardContent className="p-4 flex flex-col gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
+    <Card
+      data-vm-row={index}
+      className={cn(
+        "group/vm hover:bg-surface-secondary/40 transition-colors",
+        // Linear 风键盘高亮：左侧 2px accent indicator + 轻底色
+        highlighted && "bg-surface-secondary/40 ring-1 ring-accent/40",
+      )}
+    >
+      <CardContent className="p-3 flex flex-col gap-1">
+        <div className="flex items-center gap-3 min-w-0">
+          <StatusDot status={status} pulse={status === "pending"} />
+          <Link
+            to="/vm-detail"
+            search={{ id: vm.id } as any}
+            className="text-body font-mono font-[590] text-foreground hover:text-accent transition-colors truncate"
+          >
+            {vm.name}
+          </Link>
+          <span className="text-caption text-text-tertiary truncate hidden sm:inline">
+            {vm.cluster_display_name || vm.cluster}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
+            {isRunning ? (
               <Link
-                to="/vm-detail"
-                search={{ id: vm.id } as any}
-                className="font-mono font-[590] text-accent hover:underline truncate"
+                to="/console"
+                search={{
+                  vm: vm.name,
+                  cluster: vm.cluster,
+                  project: vm.project,
+                  from: "portal",
+                } as any}
+                className={cn(buttonVariants({ variant: "subtle", size: "sm" }))}
               >
-                {vm.name}
+                <TerminalIcon size={12} aria-hidden="true" />
+                <span className="hidden sm:inline">{t("vm.console")}</span>
               </Link>
-              <StatusPill status={status}>{vm.status}</StatusPill>
-              <span className="text-caption text-text-tertiary">
-                {vm.cluster_display_name || vm.cluster}
-              </span>
-            </div>
-            <div className="text-caption text-text-tertiary mt-1">
-              {vm.cpu}C · {(vm.memory_mb / 1024).toFixed(0)}G RAM · {vm.disk_gb}G ·{" "}
-              <span className="font-mono">{vm.os_image}</span>
-            </div>
-          </div>
-        </div>
-
-        <dl className="grid grid-cols-3 gap-2 text-caption">
-          <div>
-            <dt className="text-text-tertiary">IP</dt>
-            <dd className="font-mono mt-0.5">
-              {vm.ip || t("vm.assigning", { defaultValue: "分配中..." })}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-text-tertiary">{t("vm.username", { defaultValue: "Username" })}</dt>
-            <dd className="font-mono mt-0.5">{defaultUserForImage(vm.os_image)}</dd>
-          </div>
-          <div>
-            <dt className="text-text-tertiary">{t("vm.node", { defaultValue: "节点" })}</dt>
-            <dd className="mt-0.5 truncate">{vm.node}</dd>
-          </div>
-        </dl>
-
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          {isRunning ? (
-            <Link
-              to="/console"
-              search={{
-                vm: vm.name,
-                cluster: vm.cluster,
-                project: vm.project,
-                from: "portal",
-              } as any}
-              className={cn(buttonVariants({ variant: "primary", size: "sm" }))}
-            >
-              <TerminalIcon size={12} aria-hidden="true" />
-              {t("vm.console")}
-            </Link>
-          ) : null}
-          {isStopped ? (
-            <Button size="sm" variant="primary" disabled={actionMutation.isPending} onClick={() => runAction("start")}>
-              <Play size={12} aria-hidden="true" />
-              {t("vm.start")}
-            </Button>
-          ) : null}
-          <DropdownMenu>
+            ) : null}
+            {isStopped ? (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={actionMutation.isPending}
+                onClick={() => runAction("start")}
+              >
+                <Play size={12} aria-hidden="true" />
+                <span className="hidden sm:inline">{t("vm.start")}</span>
+              </Button>
+            ) : null}
+            <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <button
@@ -292,6 +336,19 @@ function VMCard({ vm, onOpenSheet }: { vm: VMService; onOpenSheet: (k: NonNullab
               />
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
+        </div>
+        {/* 副行：所有元数据浓缩到一行（灰、caption），用 · 分隔 */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-text-tertiary pl-5">
+          <span className="font-mono text-text-secondary">
+            {vm.ip || t("vm.assigning", { defaultValue: "分配中..." })}
+          </span>
+          <span aria-hidden>·</span>
+          <span>{vm.cpu}C / {(vm.memory_mb / 1024).toFixed(0)}G / {vm.disk_gb}G</span>
+          <span aria-hidden>·</span>
+          <span className="font-mono">{defaultUserForImage(vm.os_image)}@{vm.node}</span>
+          <span aria-hidden>·</span>
+          <span className="font-mono truncate">{vm.os_image}</span>
         </div>
       </CardContent>
     </Card>

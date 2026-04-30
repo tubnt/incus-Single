@@ -113,7 +113,7 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
       <BaseDialog.Portal>
         <BaseDialog.Backdrop
           className={cn(
-            "fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
+            "fixed inset-0 z-50 bg-black/85 backdrop-blur-sm",
             "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
             "transition-opacity duration-150",
           )}

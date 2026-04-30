@@ -314,7 +314,7 @@ function TicketRow({
           {isOpen ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
         </TableCell>
         <TableCell>{tk.id}</TableCell>
-        <TableCell className="font-[510] text-accent">{tk.subject}</TableCell>
+        <TableCell className="font-[510] text-foreground">{tk.subject}</TableCell>
         <TableCell>
           <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>
         </TableCell>

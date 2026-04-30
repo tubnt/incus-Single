@@ -42,11 +42,13 @@ export function PageHeader({
       {breadcrumbs && breadcrumbs.length > 0 ? <Breadcrumb items={breadcrumbs} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-h1 font-[510] tracking-[-0.704px] text-foreground leading-tight">
+          <h1 className="text-h1 font-[510] text-foreground">
             {title}
           </h1>
           {description ? (
-            <p className="mt-1 text-small text-muted-foreground">{description}</p>
+            // 副标题更轻：caption (13px) text-tertiary —— 主副对比更明确，
+            // 避免和大标题 (32px 510) 抢视觉重量
+            <p className="mt-1 text-caption text-text-tertiary max-w-2xl">{description}</p>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -13,15 +13,21 @@ interface BatchToolbarProps {
 }
 
 /**
- * BatchToolbar —— 多选 + sticky 顶部操作栏（DataTable 模式手册第 2 节）。
+ * BatchToolbar —— 多选浮层操作栏（Linear 风 floating action bar，PLAN-024.A）。
  * 调用方控制选中状态（rowSelection），把动作按钮作为 children。
  *
- * 与 DataTable 的 toolbar slot 配合使用：
+ * 视觉：fixed 视口底部居中、半透明 + backdrop-blur、圆角 xl、shadow-floating。
+ * 进入：从底部 8px slide-up + fade（Linear 同款）。
+ *
+ * 与 DataTable 的 toolbar slot 配合：
  *   <DataTable toolbar={
  *     <BatchToolbar count={selectedIds.length} onClear={clear}>
  *       <Button onClick={runDelete}>删除选中</Button>
  *     </BatchToolbar>
  *   } />
+ *
+ * DataTable 仍把 toolbar 渲染在表上方占位高度为 0（return null 不占行高）；
+ * 浮层走 fixed positioning，故不影响表格 layout。
  */
 export function BatchToolbar({
   count,
@@ -39,9 +45,16 @@ export function BatchToolbar({
         count,
       })}
       className={cn(
-        "sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-md",
-        "border border-border bg-surface-elevated px-3 py-2",
-        "shadow-[var(--shadow-elevated)]",
+        // 浮层位置：fixed 居中底部
+        "fixed left-1/2 -translate-x-1/2 bottom-6 z-30",
+        "flex flex-wrap items-center gap-2",
+        // Linear 浮层视觉：xl 圆角 + 半透明 elevated + 模糊背景 + 浮层阴影
+        "rounded-xl border border-border bg-surface-elevated/95 backdrop-blur-md",
+        "shadow-[var(--shadow-floating)] px-3 py-2",
+        // 进入动画
+        "animate-in fade-in slide-in-from-bottom-2 duration-150",
+        // 在小屏上略缩窄两侧 padding，并让按钮组允许换行
+        "max-w-[calc(100vw-2rem)]",
         className,
       )}
     >
@@ -59,7 +72,7 @@ export function BatchToolbar({
           count,
         })}
       </span>
-      <div className="ml-auto flex flex-wrap items-center gap-1.5">{children}</div>
+      <div className="ml-2 flex flex-wrap items-center gap-1.5">{children}</div>
     </div>
   );
 }

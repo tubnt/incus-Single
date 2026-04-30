@@ -125,7 +125,7 @@ function GroupCard({
     <Card>
       <div className="px-4 py-3 flex items-center justify-between border-b border-border">
         <div>
-          <div className="font-semibold">{group.name}</div>
+          <div className="font-[590]">{group.name}</div>
           <div className="text-xs text-muted-foreground font-mono">
             {group.slug} · fwg-{group.slug}
           </div>
@@ -171,14 +171,14 @@ function RulesTable({ rules }: { rules: FirewallRule[] }) {
     );
   }
   return (
-    <table className="w-full text-xs">
-      <thead className="bg-muted/20">
+    <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+      <thead className="bg-surface-1 border-b border-border">
         <tr>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleAction", "动作")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleProtocol", "协议")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleDestPort", "端口")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleSource", "来源")}</th>
-          <th className="text-left px-4 py-2">{t("admin.firewall.ruleDescription", "说明")}</th>
+          <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("admin.firewall.ruleAction", "动作")}</th>
+          <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("admin.firewall.ruleProtocol", "协议")}</th>
+          <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("admin.firewall.ruleDestPort", "端口")}</th>
+          <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("admin.firewall.ruleSource", "来源")}</th>
+          <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("admin.firewall.ruleDescription", "说明")}</th>
         </tr>
       </thead>
       <tbody>

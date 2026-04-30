@@ -4,10 +4,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { CommandPalette } from "@/shared/components/command-palette/command-palette";
+import { useGoToNavigation } from "@/shared/components/command-palette/use-go-to-navigation";
 import { ErrorBoundary } from "@/shared/components/error-boundary";
 import { AppShell, WorkspaceShell } from "@/shared/components/layout/app-shell";
 import { buttonVariants } from "@/shared/components/ui/button";
-import { fetchCurrentUser } from "@/shared/lib/auth";
+import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createRootRoute({
@@ -25,7 +26,7 @@ function isWorkspacePath(pathname: string): boolean {
 function NotFound() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
-      <div className="text-display font-[510] tracking-[-1.056px] text-text-tertiary">404</div>
+      <div className="text-display font-[510] text-text-tertiary">404</div>
       <p className="text-muted-foreground">页面不存在</p>
       <a href="/" className={cn(buttonVariants({ variant: "primary" }))}>回到首页</a>
     </div>
@@ -44,6 +45,9 @@ function RootLayout() {
     retry: false,
   });
 
+  // Linear 风 g 序列导航：g h / g v / g M ...
+  useGoToNavigation({ isAdmin: !!user && isAdmin(user) });
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -55,7 +59,7 @@ function RootLayout() {
   if (isError || !user) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
-        <h1 className="text-h1 font-[510] tracking-[-0.704px]">IncusAdmin</h1>
+        <h1 className="text-h1 font-[510]">IncusAdmin</h1>
         <p className="text-muted-foreground">请登录以继续</p>
         <a
           href="/oauth2/start?rd=/"

@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-04-24
+> Updated: 2026-04-30
 
 ## Usage
 
@@ -52,3 +52,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-021 运维 Must-Have（多 OS / 重装 / Rescue / 防火墙组 / 新段 / Floating IP）**](PLAN-021.md) `2026-04-24`
 - [x] [**PLAN-022 前端 Linear 重设计 + 交互范式重构**](PLAN-022.md) `2026-04-29`
 - [x] [**PLAN-023 后端批量操作 API（多选删除/启停 etc.）**](PLAN-023.md) `2026-04-29`
+- [x] [**PLAN-024 Linear 风交互三件套（浮层 toolbar / 列宽持久化 / 行内详情抽屉）**](PLAN-024.md) `2026-04-30`

@@ -21,9 +21,11 @@ const buttonVariants = cva(
       variant: {
         // 主品牌（CTA），DESIGN.md Brand Indigo
         primary: "bg-primary text-primary-foreground hover:bg-[color:var(--accent-hover)]",
-        // ghost：默认按钮（DESIGN.md "Ghost Button"）
+        // ghost：默认按钮（DESIGN.md §4 "Ghost Button"）
+        // bg rgba 0.02 + solid border #23252a (border-primary) — DESIGN.md spec
+        // 明确说 ghost 边框是 solid 暗色，不是 rgba 半透明白。
         ghost:
-          "bg-surface-1 text-foreground border border-border hover:bg-surface-2",
+          "bg-surface-1 text-foreground border border-[color:var(--border-primary)] hover:bg-surface-2",
         // subtle：toolbar 类
         subtle:
           "bg-surface-2 text-text-secondary hover:bg-surface-3",
@@ -39,9 +41,11 @@ const buttonVariants = cva(
       size: {
         sm: "h-7 px-2.5 text-xs",
         md: "h-8 px-3",
-        lg: "h-10 px-4 text-[15px]",
-        icon: "size-8",
-        "icon-sm": "size-7",
+        lg: "h-10 px-4 text-small",
+        // DESIGN.md §4 Icon Button: radius 50%（圆形）；用 !rounded-full 覆盖
+        // 父级 buttonVariants 的 rounded-md。
+        icon: "size-8 !rounded-full",
+        "icon-sm": "size-7 !rounded-full",
       },
     },
     defaultVariants: { variant: "ghost", size: "md" },

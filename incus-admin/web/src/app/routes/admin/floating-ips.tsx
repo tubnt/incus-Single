@@ -170,7 +170,7 @@ function FloatingIPsPage() {
           <EmptyState title={t("admin.floatingIPs.empty", { defaultValue: "暂无 Floating IP" })} />
         ) : (
           <Card className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr.row-hover]:hover:bg-surface-1">
               <thead className="bg-surface-1 border-b border-border">
                 <tr>
                   <th className="px-3 py-2 w-10">
@@ -315,7 +315,7 @@ function Row({
 
   return (
     <>
-      <tr className="border-t border-border">
+      <tr className="row-hover group/row border-t border-border">
         <td className="px-3 py-2">
           <Checkbox
             checked={selected}
@@ -336,7 +336,7 @@ function Row({
           {ip.description}
         </td>
         <td className="px-4 py-2 text-right">
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
             {ip.status === "available" ? (
               <>
                 <Button

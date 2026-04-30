@@ -11,7 +11,13 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     <div
       ref={ref}
       className={cn(
-        "rounded-lg border border-border bg-surface-1 text-card-foreground",
+        // DESIGN.md §4 Cards & Containers + §6 Depth Ring (L3):
+        //   bg = surface-3 (rgba 0.05) 半透明叠加（never solid — Linear 模型）
+        //   border = standard 0.08 半透明白
+        //   shadow = ring L3 (0,0,0,0.2 inset 1px) 增强边界，避免卡片边界
+        //   在近黑底上"塌陷"
+        "rounded-lg border border-border bg-surface-3 text-card-foreground",
+        "shadow-[var(--shadow-ring)]",
         className,
       )}
       {...props}
@@ -32,7 +38,7 @@ export const CardTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElemen
     <div
       ref={ref}
       className={cn(
-        "text-h3 leading-tight tracking-[-0.24px] font-[590] text-foreground",
+        "text-h3 font-[590] text-foreground",
         className,
       )}
       {...props}
@@ -45,7 +51,7 @@ export const CardDescription = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDiv
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("text-small text-muted-foreground tracking-[-0.165px]", className)}
+      className={cn("text-small text-muted-foreground", className)}
       {...props}
     />
   ),

@@ -201,7 +201,7 @@ function TemplateRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{template.name}</TableCell>
+      <TableCell className="font-[510]">{template.name}</TableCell>
       <TableCell className="font-mono text-xs text-muted-foreground">
         {template.slug}
       </TableCell>

@@ -112,7 +112,7 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
       </div>
 
       <div className="rounded-lg border border-border bg-surface-1 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
           <thead className="border-b border-border">
             <tr>
               <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Node</th>
@@ -139,12 +139,12 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
 
 function StatBlock({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Card className="bg-surface-1">
+    <Card>
       <CardContent className="p-4">
         <div className="text-caption text-text-tertiary uppercase tracking-wide font-[510]">
           {label}
         </div>
-        <div className="text-h3 font-[510] mt-1 tabular-nums tracking-[-0.24px]">
+        <div className="text-h3 font-[510] mt-1 tabular-nums">
           {children}
         </div>
       </CardContent>
@@ -166,13 +166,13 @@ function NodeRow({
   const isOnline = node.status === "Online" || node.status === "ONLINE";
 
   return (
-    <tr className="border-t border-border hover:bg-surface-2 transition-colors">
+    <tr className="group/row border-t border-border">
       <td className="px-4 py-2 font-mono">{node.server_name}</td>
       <td className="px-4 py-2">
         <StatusPill status={isOnline ? "success" : "error"}>{node.status}</StatusPill>
       </td>
       <td className="px-4 py-2 text-text-tertiary text-caption">{node.message}</td>
-      <td className="px-4 py-2 text-right">
+      <td className="px-4 py-2 text-right opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
         {isOnline ? (
           <Button
             size="sm"
@@ -291,18 +291,18 @@ function HistoryPanel({
       </div>
 
       <div className="border border-border rounded-lg overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/30">
+        <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+          <thead className="bg-surface-1 border-b border-border">
             <tr>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colTime")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colCluster")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colNode")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colTrigger")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colActor")}</th>
-              <th className="text-right px-3 py-2 font-medium">{t("ha.colVMCount")}</th>
-              <th className="text-left px-3 py-2 font-medium">{t("ha.colStatus")}</th>
-              <th className="text-right px-3 py-2 font-medium">{t("ha.colDuration")}</th>
-              <th className="text-right px-3 py-2 font-medium"></th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colTime")}</th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colCluster")}</th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colNode")}</th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colTrigger")}</th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colActor")}</th>
+              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colVMCount")}</th>
+              <th className="text-left px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colStatus")}</th>
+              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary">{t("ha.colDuration")}</th>
+              <th className="text-right px-3 py-2 text-label font-[510] text-text-tertiary"></th>
             </tr>
           </thead>
           <tbody>
@@ -462,9 +462,9 @@ function EventDetailDialog({
   return (
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
         <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-elevated border border-border rounded-xl shadow-[var(--shadow-dialog)] p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-          <Dialog.Title className="text-h3 font-[590] tracking-[-0.24px] mb-4">
+          <Dialog.Title className="text-h3 font-[590] mb-4">
             {t("ha.detailTitle", { id })}
           </Dialog.Title>
           {isLoading && <Skeleton className="h-32" />}
@@ -495,20 +495,20 @@ function EventDetailDialog({
                 </div>
               )}
               <div>
-                <div className="text-sm font-medium mb-2">
+                <div className="text-sm font-[510] mb-2">
                   {t("ha.evacuatedVMsHeading")} ({event.evacuated_vms?.length ?? 0})
                 </div>
                 {(event.evacuated_vms?.length ?? 0) === 0 ? (
                   <div className="text-xs text-muted-foreground">{t("ha.noVMsMoved")}</div>
                 ) : (
                   <div className="border border-border rounded overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/30">
+                    <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+                      <thead className="bg-surface-1 border-b border-border">
                         <tr>
-                          <th className="text-left px-3 py-1.5 font-medium">ID</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmName")}</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmFrom")}</th>
-                          <th className="text-left px-3 py-1.5 font-medium">{t("ha.vmTo")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">ID</th>
+                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmName")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmFrom")}</th>
+                          <th className="text-left px-3 py-1.5 text-label font-[510] text-text-tertiary">{t("ha.vmTo")}</th>
                         </tr>
                       </thead>
                       <tbody>

@@ -59,13 +59,13 @@ function IPPoolsPage() {
                 <CardContent className="p-4 pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className="font-semibold">{pool.cluster_name}</h3>
+                      <h3 className="font-[590]">{pool.cluster_name}</h3>
                       <div className="text-sm text-muted-foreground">
                         {pool.cidr} · Gateway {pool.gateway} · VLAN {pool.vlan}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold">{pool.available}</div>
+                      <div className="text-h2 font-[510] tabular-nums">{pool.available}</div>
                       <div className="text-xs text-muted-foreground">
                         {t("admin.ipPools.available", { defaultValue: "available" })}
                       </div>

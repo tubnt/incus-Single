@@ -68,10 +68,10 @@ export function VMMetricsPanel({ vmName, apiBase, cluster }: VMMetricsPanelProps
           />
           <div className="rounded-lg border border-border p-3">
             <div className="text-xs text-muted-foreground mb-1">{t("vm.network", { defaultValue: "Network" })}</div>
-            <div className="text-sm font-medium">
+            <div className="text-sm font-[510]">
               ↓ {fmtBytes(m.net_rx_bytes)}
             </div>
-            <div className="text-sm font-medium">
+            <div className="text-sm font-[510]">
               ↑ {fmtBytes(m.net_tx_bytes)}
             </div>
           </div>
@@ -101,7 +101,7 @@ function MetricGauge({
     <div className="rounded-lg border border-border p-3">
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-muted-foreground">{label}</span>
-        <span className="text-xs font-medium">{pct.toFixed(1)}%</span>
+        <span className="text-xs font-[510]">{pct.toFixed(1)}%</span>
       </div>
       <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
         <div

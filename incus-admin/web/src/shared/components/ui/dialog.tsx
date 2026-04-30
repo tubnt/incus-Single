@@ -30,7 +30,7 @@ export function DialogContent({
     <BaseDialog.Portal>
       <BaseDialog.Backdrop
         className={cn(
-          "fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
+          "fixed inset-0 z-50 bg-black/85 backdrop-blur-sm",
           "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
           "transition-opacity duration-150",
         )}
@@ -79,7 +79,7 @@ export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElem
 export function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseDialog.Title
-      className={cn("text-h3 font-[590] tracking-[-0.24px] text-foreground", className)}
+      className={cn("text-h3 font-[590] text-foreground", className)}
       {...props}
     />
   );
@@ -92,7 +92,7 @@ export function DialogDescription({
   return (
     <BaseDialog.Description
       className={cn(
-        "text-small text-muted-foreground leading-relaxed whitespace-pre-wrap",
+        "text-small text-muted-foreground whitespace-pre-wrap",
         className,
       )}
       {...props}

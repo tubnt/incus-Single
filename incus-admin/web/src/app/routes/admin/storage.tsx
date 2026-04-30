@@ -135,13 +135,13 @@ function StoragePage() {
                 <div className="px-4 py-3 border-b border-border bg-surface-2/40">
                   <h3 className="font-[590] text-sm">{t("storage.osdListTitle")} ({osds.length})</h3>
                 </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-surface-2/30">
+                <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+                  <thead className="bg-surface-1 border-b border-border">
                     <tr>
-                      <th className="text-left px-4 py-2 font-medium">OSD</th>
-                      <th className="text-left px-4 py-2 font-medium">{t("storage.status")}</th>
-                      <th className="text-right px-4 py-2 font-medium">{t("storage.weight")}</th>
-                      <th className="text-right px-4 py-2 font-medium">{t("common.actions")}</th>
+                      <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">OSD</th>
+                      <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.status")}</th>
+                      <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.weight")}</th>
+                      <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("common.actions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -216,20 +216,20 @@ function PoolSection() {
         </div>
 
         {poolList.length > 0 && (
-          <table className="w-full text-sm">
-            <thead className="bg-surface-2/30">
+          <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+            <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Pool</th>
-                <th className="text-left px-4 py-2 font-medium">{t("storage.poolTypeLabel")}</th>
-                <th className="text-right px-4 py-2 font-medium">Size</th>
-                <th className="text-right px-4 py-2 font-medium">PGs</th>
-                <th className="text-left px-4 py-2 font-medium">Apps</th>
-                <th className="text-right px-4 py-2 font-medium">{t("common.actions")}</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Pool</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">{t("storage.poolTypeLabel")}</th>
+                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">Size</th>
+                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">PGs</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Apps</th>
+                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">{t("common.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {poolList.map((p: CephPool) => (
-                <tr key={p.pool_id} className="border-t border-border">
+                <tr key={p.pool_id} className="group/row border-t border-border">
                   <td className="px-4 py-1.5 font-mono text-xs">{p.pool_name}</td>
                   <td className="px-4 py-1.5 text-xs text-muted-foreground">{poolTypeLabel(p.type, t)}</td>
                   <td className="px-4 py-1.5 text-right text-xs">{p.size}</td>
@@ -237,7 +237,7 @@ function PoolSection() {
                   <td className="px-4 py-1.5 text-xs text-muted-foreground">
                     {p.application_metadata ? Object.keys(p.application_metadata).join(", ") : "-"}
                   </td>
-                  <td className="px-4 py-1.5 text-right">
+                  <td className="px-4 py-1.5 text-right opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
                     <Button
                       variant="destructive"
                       size="sm"
@@ -345,7 +345,7 @@ function OSDRow({ osd }: { osd: OSDTreeNode }) {
   const isPending = outMutation.isPending || inMutation.isPending;
 
   return (
-    <tr className="border-t border-border">
+    <tr className="group/row border-t border-border">
       <td className="px-4 py-1.5 font-mono text-xs">{osd.name}</td>
       <td className="px-4 py-1.5">
         <StatusPill status={osd.status === "up" ? "success" : "error"}>
@@ -354,7 +354,7 @@ function OSDRow({ osd }: { osd: OSDTreeNode }) {
       </td>
       <td className="px-4 py-1.5 text-right font-mono text-xs">{osd.crush_weight?.toFixed(3) ?? "—"}</td>
       <td className="px-4 py-1.5 text-right">
-        <div className="flex justify-end gap-1">
+        <div className="flex justify-end gap-1 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
           <Button
             variant="outline"
             size="sm"
@@ -389,7 +389,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
     <Card>
       <CardContent className="p-4 pt-4">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className={`text-lg font-bold mt-1 ${color ?? ""}`}>{value}</div>
+        <div className={`text-lg font-[590] mt-1 ${color ?? ""}`}>{value}</div>
       </CardContent>
     </Card>
   );

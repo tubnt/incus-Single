@@ -162,7 +162,7 @@ function StatCard({
   icon?: React.ReactNode;
 }) {
   return (
-    <Card className="bg-surface-1">
+    <Card>
       <CardContent className="p-5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-caption font-[510] text-text-tertiary uppercase tracking-wide">
@@ -170,7 +170,7 @@ function StatCard({
           </span>
           <span className="text-text-tertiary">{icon}</span>
         </div>
-        <div className="mt-1 text-h2 font-[510] tabular-nums text-foreground tracking-[-0.288px]">
+        <div className="mt-1 text-h2 font-[510] tabular-nums text-foreground">
           {value}
         </div>
       </CardContent>

@@ -116,7 +116,7 @@ function BillingPage() {
         ) : null}
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] tracking-[-0.24px] text-foreground">
+          <h2 className="text-h3 font-[590] text-foreground">
             {t("billing.products")}
           </h2>
           {products.length === 0 ? (
@@ -138,7 +138,7 @@ function BillingPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] tracking-[-0.24px] text-foreground">
+          <h2 className="text-h3 font-[590] text-foreground">
             {t("billing.orders")}
           </h2>
           {orders.length === 0 ? (
@@ -166,7 +166,7 @@ function BillingPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-[590] tracking-[-0.24px] text-foreground">
+          <h2 className="text-h3 font-[590] text-foreground">
             {t("billing.invoices")}
           </h2>
           {invoices.length === 0 ? (
@@ -233,7 +233,7 @@ function BalanceCard({ balance }: { balance: number }) {
           <div className="text-caption text-text-tertiary uppercase tracking-wide font-[510]">
             {t("billing.balance", { defaultValue: "账户余额" })}
           </div>
-          <div className="text-h2 font-[510] font-mono mt-1 tabular-nums tracking-[-0.288px]">
+          <div className="text-h2 font-[510] font-mono mt-1 tabular-nums">
             ${balance.toFixed(2)}
           </div>
           <div className="text-caption text-text-tertiary mt-1">
@@ -273,7 +273,7 @@ function ProductCard({
           </div>
         </div>
         <div className="flex items-baseline gap-1">
-          <span className="text-h2 font-[510] tracking-[-0.288px]">
+          <span className="text-h2 font-[510]">
             {formatCurrency(p.price_monthly, p.currency)}
           </span>
           <span className="text-caption text-text-tertiary">/mo</span>

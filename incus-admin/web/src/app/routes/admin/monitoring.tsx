@@ -135,12 +135,12 @@ function SummaryCards({ vms }: { vms: VMMetric[] }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((c) => (
-        <Card key={c.label} className="bg-surface-1">
+        <Card key={c.label}>
           <CardContent className="p-4">
             <div className="text-caption font-[510] text-text-tertiary uppercase tracking-wide mb-1">
               {c.label}
             </div>
-            <div className="text-h3 font-[510] tabular-nums tracking-[-0.24px] text-foreground">
+            <div className="text-h3 font-[510] tabular-nums text-foreground">
               {c.value}
             </div>
           </CardContent>
@@ -158,7 +158,7 @@ function ChartCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-surface-1">
+    <Card>
       <CardHeader className="border-b border-border">
         <CardTitle className="text-h3">{title}</CardTitle>
       </CardHeader>
@@ -295,7 +295,7 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
     s === "cpu" ? "CPU" : s === "mem" ? t("monitoring.sortMem") : t("monitoring.sortDisk");
 
   return (
-    <Card className="bg-surface-1 overflow-hidden">
+    <Card className="overflow-hidden">
       <CardHeader className="border-b border-border flex-row items-center justify-between">
         <CardTitle className="text-h3">{t("monitoring.vmMetricsTitle")}</CardTitle>
         <div className="flex gap-1">
@@ -318,7 +318,7 @@ function VMTable({ vms }: { vms: VMMetric[] }) {
       </CardHeader>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
             <thead className="bg-surface-1 border-b border-border">
               <tr>
                 <th className="text-left px-4 py-2 font-[510] text-label text-text-tertiary">VM</th>

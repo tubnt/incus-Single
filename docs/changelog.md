@@ -1,5 +1,27 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [docs+sync]
+
+PLAN-022 / PLAN-023 / PLAN-024 git 同步收口 —— 把已部署到生产 sha `27b7fd8ed180`
+但未 commit 的累积前端改动（PLAN-022 Linear 重设计 M1/M2 + 后续两轮迭代
+hover-gated 主操作 / g-序列导航 / j/k 键盘列表 / 原生 table 视觉统一 +
+PLAN-024 Linear 三件套：浮层 BatchToolbar / DataTable 列宽持久化 /
+VM 详情 peek 抽屉）一次推上 git。
+
+**docs 收口**：
+- `docs/plan/index.md` 补齐 PLAN-024 行（先前漏写）
+- `docs/task/INFRA-005.md` `status: pending → wontdo`（PLAN-013 Phase C.3
+  反代 + 前端相对路径已覆盖；与 task index `[~]` 标记对齐）
+- 新立 `OPS-020`（P3）跟踪 PLAN-022/024 引入的 arbitrary value 全量替换
+  （`shadow-[var(--shadow-X)]` → `shadow-X`、`font-[510]/590` →
+  `font-emphasis/strong`、`bg-[color:var(--accent-hover)]` 暴露成
+  `--color-accent-hover`），按 DESIGN.md "无 hex 字面量、无 arbitrary value"
+  纪律一次性整体替换 + 视觉回归
+
+**未变更**：生产二进制、数据库 migration、后端 API。本次为纯 git 同步 + docs。
+
+---
+
 ## 2026-04-29 04:20 [feat+fix+deploy]
 
 OPS-016 / OPS-017 / OPS-018 / OPS-019 一次性合并部署。生产 dist 备份 `incus-admin.bak-ops016-021-20260429-0420xx`，前端 bundle hash 重新生成，migration 014 已应用。

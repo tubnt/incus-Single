@@ -21,21 +21,23 @@ export function EmptyState({
   return (
     <div
       className={cn(
+        // Linear 风：空态不要"巨大留白"，10rem 高即可，dashed border 弱化、bg
+        // 干掉避免和卡片混淆
         "flex flex-col items-center justify-center text-center",
-        "rounded-lg border border-dashed border-border bg-surface-1 px-6 py-16",
+        "rounded-lg border border-dashed border-border px-6 py-10",
         className,
       )}
     >
       {Icon ? (
-        <span className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-surface-2 text-text-tertiary">
-          <Icon size={20} aria-hidden="true" />
+        <span className="mb-3 inline-flex size-10 items-center justify-center rounded-full bg-surface-2 text-text-tertiary">
+          <Icon size={18} aria-hidden="true" />
         </span>
       ) : null}
-      <h3 className="text-h3 font-[590] text-foreground tracking-[-0.24px]">{title}</h3>
+      <h3 className="text-body font-[510] text-foreground">{title}</h3>
       {description ? (
-        <p className="mt-1 max-w-md text-small text-muted-foreground">{description}</p>
+        <p className="mt-1 max-w-md text-caption text-text-tertiary">{description}</p>
       ) : null}
-      {action ? <div className="mt-5">{action}</div> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }

@@ -121,8 +121,8 @@ function PerspectiveSwitch({
       title={!showLabels ? label : undefined}
       className={cn(
         "flex items-center gap-2 mx-2 my-2 rounded-md px-3 py-2 text-sm",
-        "border border-border bg-surface-1 text-foreground",
-        "hover:bg-surface-2 transition-colors",
+        "border border-border bg-surface-2 text-foreground",
+        "hover:bg-surface-3 transition-colors",
         !showLabels && "justify-center px-0",
       )}
     >
@@ -152,8 +152,8 @@ function NavLinkRow({ item, active, showLabels, onNavigate, inset }: NavLinkRowP
       onClick={onNavigate}
       title={!showLabels ? t(item.key) : undefined}
       className={cn(
-        "group relative flex items-center gap-3 mx-2 rounded-md text-sm transition-colors",
-        inset ? "pl-6 pr-3 py-1.5" : "px-3 py-1.5",
+        "group relative flex items-center gap-2.5 mx-2 rounded-md text-sm font-[510] transition-colors",
+        inset ? "pl-6 pr-3 py-1" : "px-3 py-1",
         active
           ? "text-foreground bg-surface-2"
           : "text-text-secondary hover:text-foreground hover:bg-surface-1",

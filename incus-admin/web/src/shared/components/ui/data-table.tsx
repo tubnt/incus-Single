@@ -1,4 +1,4 @@
-import type {ColumnDef, RowSelectionState, SortingState} from "@tanstack/react-table";
+import type {ColumnDef, ColumnSizingState, RowSelectionState, SortingState} from "@tanstack/react-table";
 import type {ReactNode} from "react";
 import {
   flexRender,
@@ -7,7 +7,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -26,14 +26,14 @@ import { cn } from "@/shared/lib/utils";
  *
  * 特性：
  *   - 列头排序（chevron 提示）
+ *   - 列宽 resize + localStorage 持久化（PLAN-024.B；通过 `tableId` 启用）
  *   - 行选择（多选 + Batch toolbar 由调用方提供）
  *   - 空态 / 加载态 / 错误态
  *   - 分页（外部受控，配合 URL 参数）
- *   - 移动端：自动切卡片视图（小于 sm 断点）
  *
  * 路由用法：
  *   const cols = useMemo(() => [...], []);
- *   <DataTable columns={cols} data={vms} ... />
+ *   <DataTable tableId="admin.vms" columns={cols} data={vms} ... />
  */
 
 export interface DataTableProps<TData> {
@@ -63,11 +63,43 @@ export interface DataTableProps<TData> {
   };
   /** 行点击 */
   onRowClick?: (row: TData) => void;
-  /** 标题以下、表格之上的 sticky 区（一般是 BatchToolbar） */
+  /** 标题以下、表格之上的浮层 / sticky 区（一般是 BatchToolbar） */
   toolbar?: ReactNode;
   className?: string;
   /** 行密度：compact 36px / comfortable 48px */
   density?: "compact" | "comfortable";
+  /**
+   * 表格唯一 ID。传入后启用列宽 resize + localStorage 持久化。
+   * 例：`admin.vms`、`admin.floating-ips`。
+   * 不传则保持原行为（无 resize）。
+   */
+  tableId?: string;
+}
+
+const COL_SIZE_LS_PREFIX = "incus.table.";
+
+function loadColSizing(tableId: string): ColumnSizingState {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(`${COL_SIZE_LS_PREFIX}${tableId}.colSize`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as ColumnSizingState) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveColSizing(tableId: string, sizing: ColumnSizingState) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      `${COL_SIZE_LS_PREFIX}${tableId}.colSize`,
+      JSON.stringify(sizing),
+    );
+  } catch {
+    // localStorage 满 / 隐私模式 → 静默忽略
+  }
 }
 
 export function DataTable<TData>({
@@ -87,8 +119,18 @@ export function DataTable<TData>({
   toolbar,
   className,
   density = "comfortable",
+  tableId,
 }: DataTableProps<TData>) {
   const { t } = useTranslation();
+
+  // 列宽状态（仅 tableId 提供时启用持久化；否则纯 in-memory，组件销毁丢失）
+  const [colSizing, setColSizing] = useState<ColumnSizingState>(() =>
+    tableId ? loadColSizing(tableId) : {},
+  );
+  useEffect(() => {
+    if (!tableId) return;
+    saveColSizing(tableId, colSizing);
+  }, [tableId, colSizing]);
 
   const table = useReactTable({
     data,
@@ -97,6 +139,7 @@ export function DataTable<TData>({
     state: {
       ...(rowSelection ? { rowSelection } : {}),
       ...(sorting ? { sorting } : {}),
+      columnSizing: colSizing,
     },
     enableRowSelection,
     onRowSelectionChange:
@@ -113,6 +156,12 @@ export function DataTable<TData>({
               typeof updater === "function" ? updater(sorting ?? []) : updater,
             )
         : undefined,
+    onColumnSizingChange: (updater) =>
+      setColSizing((prev) =>
+        typeof updater === "function" ? updater(prev) : updater,
+      ),
+    columnResizeMode: "onChange",
+    enableColumnResizing: true,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     manualPagination: !!pagination,
@@ -132,10 +181,16 @@ export function DataTable<TData>({
                 {hg.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const sortDir = header.column.getIsSorted();
+                  const canResize = header.column.getCanResize();
+                  const isResizing = header.column.getIsResizing();
                   return (
                     <TableHead
                       key={header.id}
-                      className={cn(canSort && "cursor-pointer select-none")}
+                      className={cn(
+                        "relative",
+                        canSort && "cursor-pointer select-none",
+                      )}
+                      style={{ width: header.getSize() }}
                       onClick={
                         canSort ? header.column.getToggleSortingHandler() : undefined
                       }
@@ -152,6 +207,37 @@ export function DataTable<TData>({
                               : <ChevronsUpDown size={12} aria-hidden="true" className="opacity-40" />
                           : null}
                       </span>
+                      {/* Resize handle —— hover 显现，活跃时常亮（Linear 风）。
+                          stopPropagation 防止触发列头点击排序。 */}
+                      {canResize ? (
+                        <span
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={t("dataTable.resizeColumn", { defaultValue: "拖动调整列宽" })}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            header.getResizeHandler()(e);
+                          }}
+                          onTouchStart={(e) => {
+                            e.stopPropagation();
+                            header.getResizeHandler()(e);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            header.column.resetSize();
+                          }}
+                          className={cn(
+                            "absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none",
+                            "after:absolute after:right-[2px] after:top-1/4 after:bottom-1/4",
+                            "after:w-[2px] after:rounded after:bg-border",
+                            "after:opacity-0 group-hover/row:after:opacity-60 hover:after:opacity-100 hover:after:bg-accent",
+                            "after:transition-opacity",
+                            isResizing && "after:opacity-100 after:bg-accent",
+                          )}
+                          data-no-row-click
+                        />
+                      ) : null}
                     </TableHead>
                   );
                 })}
@@ -190,14 +276,63 @@ export function DataTable<TData>({
                 <Fragment key={row.id}>
                   <TableRow
                     data-state={row.getIsSelected() ? "selected" : undefined}
-                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    onClick={
+                      onRowClick
+                        ? (e) => {
+                            // 整行可点击但不要劫持 button/link/checkbox/menu。Linear 风：
+                            // 行级悬浮 → 点击 = 主操作；行内交互元素仍按自身语义。
+                            // 注意：base-ui 的 Checkbox 渲染为 <button role="checkbox">；
+                            // dropdown trigger 渲染为 <button aria-haspopup>。closest("button")
+                            // 已经覆盖了它们，但额外加 role 选择器是为了防御 render prop 替换
+                            // 成 div/span 的边角情况。
+                            const target = e.target as HTMLElement;
+                            if (
+                              target.closest(
+                                [
+                                  "button",
+                                  "a",
+                                  "input",
+                                  "label",
+                                  "select",
+                                  "[role='menuitem']",
+                                  "[role='menu']",
+                                  "[role='checkbox']",
+                                  "[role='radio']",
+                                  "[role='switch']",
+                                  "[role='separator']",
+                                  "[role='dialog']",
+                                  "[data-no-row-click]",
+                                ].join(","),
+                              )
+                            ) {
+                              return;
+                            }
+                            onRowClick(row.original);
+                          }
+                        : undefined
+                    }
                     className={cn(
+                      // group/row 让行内 children（如 VMRowActions）能用
+                      // group-hover/row 控制可见性 — Linear 风"平静态干净"
+                      "group/row relative",
                       onRowClick && "cursor-pointer",
                       density === "compact" ? "[&>td]:py-1.5" : "[&>td]:py-2.5",
+                      // Linear 行 hover：左侧 2px accent indicator（仅在第一个 td 上叠加伪元素）
+                      "[&>td:first-child]:relative",
+                      "[&>td:first-child]:before:absolute [&>td:first-child]:before:left-0",
+                      "[&>td:first-child]:before:top-1 [&>td:first-child]:before:bottom-1",
+                      "[&>td:first-child]:before:w-[2px] [&>td:first-child]:before:rounded-r",
+                      "[&>td:first-child]:before:bg-accent",
+                      "[&>td:first-child]:before:opacity-0 group-hover/row:[&>td:first-child]:before:opacity-100",
+                      "[&>td:first-child]:before:transition-opacity",
+                      "data-[state=selected]:[&>td:first-child]:before:opacity-100",
                     )}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id}>
+                      <TableCell
+                        key={cell.id}
+                        style={{ width: cell.column.getSize() }}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}

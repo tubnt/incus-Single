@@ -17,7 +17,7 @@ const badgeVariants = cva(
     variants: {
       variant: {
         neutral: "bg-transparent text-text-secondary border-[color:var(--border-primary)]",
-        subtle: "bg-surface-3 text-foreground border-[color:var(--border-subtle)] rounded-sm",
+        subtle: "bg-surface-3 text-foreground border-[color:var(--border-subtle)] rounded-micro",
         success: "bg-transparent text-status-success border-status-success/40",
         error: "bg-transparent text-status-error border-status-error/40",
         warning: "bg-transparent text-status-warning border-status-warning/40",

@@ -85,7 +85,7 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
     <Card className="overflow-hidden">
       <div className="p-4 flex items-center justify-between border-b border-border">
         <div>
-          <h3 className="font-semibold text-lg">{cluster.display_name || cluster.name}</h3>
+          <h3 className="font-[590] text-lg">{cluster.display_name || cluster.name}</h3>
           <div className="text-sm text-muted-foreground mt-1">
             {cluster.api_url} · {nodes.length} nodes
           </div>
@@ -95,15 +95,15 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
 
       {nodes.length > 0 && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/30">
+          <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
+            <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Node</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">CPU</th>
-                <th className="text-left px-4 py-2 font-medium">Memory</th>
-                <th className="text-left px-4 py-2 font-medium">Free %</th>
-                <th className="text-right px-4 py-2 font-medium">Actions</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Node</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Status</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">CPU</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Memory</th>
+                <th className="text-left px-4 py-2 text-label font-[510] text-text-tertiary">Free %</th>
+                <th className="text-right px-4 py-2 text-label font-[510] text-text-tertiary">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -131,7 +131,7 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
   const statusKind = isOnline ? "success" : isEvacuated ? "warning" : "error";
 
   return (
-    <tr className="border-t border-border">
+    <tr className="group/row border-t border-border">
       <td className="px-4 py-2 font-mono">{n.server_name}</td>
       <td className="px-4 py-2">
         <StatusPill status={statusKind}>{n.status}</StatusPill>
@@ -150,7 +150,7 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
         </div>
       </td>
       <td className="px-4 py-2 text-right">
-        <div className="flex gap-1 justify-end">
+        <div className="flex gap-1 justify-end opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
           {isOnline && (
             <Button
               variant="subtle"

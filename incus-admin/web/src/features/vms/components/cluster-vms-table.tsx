@@ -12,6 +12,7 @@ import {
   useClusterVMsQuery,
 } from "@/features/vms/api";
 import { VMActionSheets } from "@/features/vms/components/vm-action-sheets";
+import { VMPeekPanel } from "@/features/vms/components/vm-peek-panel";
 import { VMRowActions } from "@/features/vms/components/vm-row-actions";
 import { Badge } from "@/shared/components/ui/badge";
 import { BatchToolbar } from "@/shared/components/ui/batch-toolbar";
@@ -37,6 +38,8 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
   const [sheetKind, setSheetKind] = useState<VMSheetKind | null>(null);
   const [sheetVM, setSheetVM] = useState<IncusInstance | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  /** PLAN-024.C: 行点击的 inline detail peek，不打断列表浏览。 */
+  const [peekVM, setPeekVM] = useState<IncusInstance | null>(null);
 
   const batchMutation = useBatchVMMutation();
 
@@ -158,7 +161,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
               cluster: clusterName,
               project: row.original.project ?? "customers",
             } as any}
-            className="font-mono text-accent hover:underline"
+            className="font-mono font-[510] text-foreground hover:text-accent transition-colors"
           >
             {row.original.name}
           </Link>
@@ -219,7 +222,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
   return (
     <section className="flex flex-col gap-3">
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-h3 font-[590] tracking-[-0.24px] text-foreground">
+        <h2 className="text-h3 font-[590] text-foreground">
           {displayName}
         </h2>
         <span className="text-caption text-text-tertiary">
@@ -250,9 +253,11 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
           data={vms}
           isLoading={isLoading}
           getRowId={(row) => row.name}
+          tableId="admin.cluster-vms"
           enableRowSelection
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
+          onRowClick={(vm) => setPeekVM(vm)}
           toolbar={
             <BatchToolbar count={selectedNames.length} onClear={clearSelection}>
               <Button
@@ -312,6 +317,21 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
           }}
         />
       ) : null}
+
+      <VMPeekPanel
+        vm={peekVM}
+        cluster={clusterName}
+        onClose={() => setPeekVM(null)}
+        onOpenSnapshots={
+          peekVM
+            ? () => {
+                setSheetVM(peekVM);
+                setSheetKind("snapshots");
+                setPeekVM(null);
+              }
+            : undefined
+        }
+      />
     </section>
   );
 }

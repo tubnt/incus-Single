@@ -132,7 +132,7 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
     );
   };
 
-  // 主操作：按状态切换
+  // 主操作：按状态切换。光标 hover 行才 opacity-100 出现（row hover gate）
   const primary = (() => {
     if (vm.status === "Stopped") {
       return (
@@ -168,8 +168,13 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
   const isRescue = vm.status === "Rescue";
 
   return (
+    // Linear 模式：操作组在行 hover 时才完整显现（"平静态干净"），dropdown 触发器
+    // 永久可见（避免操作不可发现），主操作仅 hover 显现。focus-within 保证键盘
+    // 用户也能看到。row group 由父级 TableRow 提供 (`group/row`)。
     <div className="flex items-center justify-end gap-1.5">
-      {primary}
+      <span className="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
+        {primary}
+      </span>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

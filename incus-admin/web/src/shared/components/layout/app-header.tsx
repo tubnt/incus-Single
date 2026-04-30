@@ -113,7 +113,7 @@ export function AppHeader({
             <span className="flex-1 text-left">
               {t("topbar.search", { defaultValue: "搜索 / 跳转 / 操作..." })}
             </span>
-            <kbd className="inline-flex items-center gap-0.5 rounded-sm border border-border px-1 py-0.5 text-[10px] font-mono">
+            <kbd className="inline-flex items-center gap-0.5 rounded-sm border border-border px-1 py-0.5 text-tiny font-mono">
               ⌘K
             </kbd>
           </button>

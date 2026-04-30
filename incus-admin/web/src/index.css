@@ -46,7 +46,9 @@
   --status-success-soft: #10b981;   /* badge 变体（Emerald） */
   --status-pending: #7170ff;
   --status-error: #e5484d;
-  --status-warning: #f59e0b;
+  /* DESIGN.md §7 "Don't introduce warm colors" —— 用偏冷的琥珀黄
+     (#eab308 lemon yellow tint shifted slightly cool)，避免橙暖色调污染 */
+  --status-warning: #eab308;
 
   /* 边框（3 实 + 2 透明） */
   --border-primary: #23252a;
@@ -71,6 +73,12 @@
   --focus-ring: 0 0 0 1px rgba(113, 112, 255, 0.3),
     0 0 0 4px rgba(113, 112, 255, 0.12);
   --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.4);
+  /* 浮层（floating action bar / batch toolbar）：比 elevated 更"飘"，
+     再叠 1px ring 让暗背景下边缘可辨；ring 部分照搬 DESIGN.md §6 L3 */
+  --shadow-floating:
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.36),
+    0 2px 6px rgba(0, 0, 0, 0.24);
   --shadow-dialog:
     0 8px 2px rgba(0, 0, 0, 0),
     0 5px 2px rgba(0, 0, 0, 0.01),
@@ -236,6 +244,7 @@
   /* 阴影 */
   --shadow-elevated: var(--shadow-elevated);
   --shadow-dialog: var(--shadow-dialog);
+  --shadow-floating: var(--shadow-floating);
   --shadow-ring: var(--shadow-ring);
   --shadow-inset: var(--shadow-inset);
 
@@ -246,19 +255,105 @@
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
     "SF Mono", Menlo, Consolas, monospace;
 
-  /* 字号 token（DESIGN.md 排版表，按 rem 折算） */
+  /* ----------------------------------------------------------------
+   * 字号 token（DESIGN.md §3 排版表）
+   *
+   * Tailwind v4 支持每个 --text-{name} 跟随 line-height / letter-spacing 副变量，
+   * `text-h1` 类一次性给出 size + line-height + tracking 三个属性，组件不必再手
+   * 工写 `tracking-[-0.704px] leading-tight` 等 arbitrary value（违反 DESIGN.md
+   * "无 hex 字面量、无 arbitrary value" 纪律）。
+   *
+   * letter-spacing 全部用 em（按字号比例缩放）：
+   *   display 系列 -1.584/72 ≈ -1.408/64 ≈ -1.056/48 ≈ -0.704/32 ≈ -0.022em
+   *   h2/h3       -0.288/24 ≈ -0.24/20  ≈ -0.012em
+   *   small/caption  -0.165/15 ≈ -0.13/13 ≈ -0.011em
+   * ---------------------------------------------------------------- */
+
   --text-display-xl: 4.5rem;        /* 72px */
+  --text-display-xl--line-height: 1;
+  --text-display-xl--letter-spacing: -0.022em;
+
+  --text-display-lg: 4rem;          /* 64px (DESIGN.md Display Large) */
+  --text-display-lg--line-height: 1;
+  --text-display-lg--letter-spacing: -0.022em;
+
   --text-display: 3rem;             /* 48px */
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: -0.022em;
+
   --text-h1: 2rem;                  /* 32px */
+  --text-h1--line-height: 1.13;
+  --text-h1--letter-spacing: -0.022em;
+
   --text-h2: 1.5rem;                /* 24px */
+  --text-h2--line-height: 1.33;
+  --text-h2--letter-spacing: -0.012em;
+
   --text-h3: 1.25rem;               /* 20px */
+  --text-h3--line-height: 1.33;
+  --text-h3--letter-spacing: -0.012em;
+
   --text-body-lg: 1.125rem;         /* 18px */
+  --text-body-lg--line-height: 1.6;
+  --text-body-lg--letter-spacing: -0.009em;
+
+  --text-body-emphasis: 1.0625rem;  /* 17px (DESIGN.md Body Emphasis, weight 590) */
+  --text-body-emphasis--line-height: 1.6;
+
   --text-body: 1rem;                /* 16px */
+  --text-body--line-height: 1.5;
+
   --text-small: 0.9375rem;          /* 15px */
+  --text-small--line-height: 1.6;
+  --text-small--letter-spacing: -0.011em;
+
   --text-caption: 0.8125rem;        /* 13px */
+  --text-caption--line-height: 1.5;
+  --text-caption--letter-spacing: -0.01em;
+
   --text-label: 0.75rem;            /* 12px */
+  --text-label--line-height: 1.4;
+
   --text-micro: 0.6875rem;          /* 11px */
+  --text-micro--line-height: 1.4;
+
   --text-tiny: 0.625rem;            /* 10px */
+  --text-tiny--line-height: 1.5;
+  --text-tiny--letter-spacing: -0.015em;
+
+  /* ----------------------------------------------------------------
+   * 覆写 Tailwind v4 默认字号（text-xs/sm/base/lg/xl/2xl/3xl 等）的
+   * line-height + letter-spacing，让历史 className="text-sm" 也自动符合
+   * DESIGN.md §3 排版表。这样几百处遗留 text-sm/text-xs 不用人工迁移。
+   *
+   * Tailwind v4 默认字号：
+   *   text-xs   = 0.75rem  (12px)  → DESIGN.md Label
+   *   text-sm   = 0.875rem (14px)  → DESIGN.md Caption Large
+   *   text-base = 1rem     (16px)  → DESIGN.md Body
+   *   text-lg   = 1.125rem (18px)  → DESIGN.md Body Large
+   *   text-xl   = 1.25rem  (20px)  → DESIGN.md Heading 3
+   *   text-2xl  = 1.5rem   (24px)  → DESIGN.md Heading 2
+   *   text-3xl  = 1.875rem (30px)  → 介于 H1 和 H2，按 H1 处理
+   * ---------------------------------------------------------------- */
+
+  --text-xs--line-height: 1.4;
+
+  --text-sm--line-height: 1.5;
+  --text-sm--letter-spacing: -0.013em;
+
+  --text-base--line-height: 1.5;
+
+  --text-lg--line-height: 1.6;
+  --text-lg--letter-spacing: -0.009em;
+
+  --text-xl--line-height: 1.33;
+  --text-xl--letter-spacing: -0.012em;
+
+  --text-2xl--line-height: 1.33;
+  --text-2xl--letter-spacing: -0.012em;
+
+  --text-3xl--line-height: 1.13;
+  --text-3xl--letter-spacing: -0.022em;
 
   /* 字重 token —— Linear 三层（400/510/590），上限 590 */
   --font-weight-normal: 400;
@@ -281,6 +376,8 @@ body {
   font-family: var(--font-sans);
   font-feature-settings: "cv01", "ss03"; /* DESIGN.md 不可省略 */
   font-variant-numeric: tabular-nums;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height); /* 默认 1.5 */
   background-color: var(--background);
   color: var(--foreground);
   -webkit-font-smoothing: antialiased;
