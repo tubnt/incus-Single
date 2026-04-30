@@ -115,10 +115,35 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 
 	// step 2..8：远程跑 join-node.sh，流式解析 marker 推进 step
 	runner := sshexec.New(params.NodePublicIP, sshUser, params.SSHKeyFile).WithKnownHosts(params.KnownHostsFile)
-	cmd := fmt.Sprintf(
-		"bash %s/scripts/join-node.sh --name %s --pub-ip %s --incus-token %s",
-		shellQuote(scriptDir), shellQuote(params.NodeName), shellQuote(params.NodePublicIP), shellQuote(token),
-	)
+	cmdParts := []string{
+		"bash", shellQuote(scriptDir + "/scripts/join-node.sh"),
+		"--name", shellQuote(params.NodeName),
+		"--pub-ip", shellQuote(params.NodePublicIP),
+		"--incus-token", shellQuote(token),
+	}
+	// OPS-026 / PLAN-028：拓扑覆盖
+	if params.NICPrimary != "" {
+		cmdParts = append(cmdParts, "--nic-primary", shellQuote(params.NICPrimary))
+	}
+	if params.NICCluster != "" {
+		cmdParts = append(cmdParts, "--nic-cluster", shellQuote(params.NICCluster))
+	}
+	if params.BridgeName != "" {
+		cmdParts = append(cmdParts, "--bridge-name", shellQuote(params.BridgeName))
+	}
+	if params.MgmtIP != "" {
+		cmdParts = append(cmdParts, "--mgmt-ip", shellQuote(params.MgmtIP))
+	}
+	if params.CephPubIP != "" {
+		cmdParts = append(cmdParts, "--ceph-pub-ip", shellQuote(params.CephPubIP))
+	}
+	if params.CephClusterIP != "" {
+		cmdParts = append(cmdParts, "--ceph-cluster-ip", shellQuote(params.CephClusterIP))
+	}
+	if params.SkipNetwork {
+		cmdParts = append(cmdParts, "--skip-network")
+	}
+	cmd := strings.Join(cmdParts, " ")
 
 	var (
 		mu              sync.Mutex

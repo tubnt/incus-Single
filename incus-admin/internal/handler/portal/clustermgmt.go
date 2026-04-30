@@ -408,6 +408,14 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		SSHUser      string `json:"ssh_user"       validate:"omitempty,safename,max=64"`
 		SSHKeyFile   string `json:"ssh_key_file"   validate:"omitempty,max=512"`
 		Role         string `json:"role"           validate:"omitempty,oneof=osd mon-mgr-osd"`
+		// OPS-026 / PLAN-028：拓扑覆盖（可选；不传走 cluster-env.sh 默认）
+		NICPrimary    string `json:"nic_primary"      validate:"omitempty,max=64"`
+		NICCluster    string `json:"nic_cluster"      validate:"omitempty,max=64"`
+		BridgeName    string `json:"bridge_name"      validate:"omitempty,max=64"`
+		MgmtIP        string `json:"mgmt_ip"          validate:"omitempty,ip"`
+		CephPubIP     string `json:"ceph_pub_ip"      validate:"omitempty,ip"`
+		CephClusterIP string `json:"ceph_cluster_ip"  validate:"omitempty,ip"`
+		SkipNetwork   bool   `json:"skip_network"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
@@ -457,6 +465,14 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		SSHUser:        sshUser,
 		SSHKeyFile:     keyFile,
 		KnownHostsFile: h.knownHostsFile,
+		// OPS-026 / PLAN-028 拓扑覆盖
+		NICPrimary:    req.NICPrimary,
+		NICCluster:    req.NICCluster,
+		BridgeName:    req.BridgeName,
+		MgmtIP:        req.MgmtIP,
+		CephPubIP:     req.CephPubIP,
+		CephClusterIP: req.CephClusterIP,
+		SkipNetwork:   req.SkipNetwork,
 	}); err != nil {
 		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue: " + err.Error()})

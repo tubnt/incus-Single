@@ -50,4 +50,13 @@ type Params struct {
 	LeaderHost     string // 跑 incus cluster add / scale-node.sh 的目标 host，默认配置取
 	IncusToken     string // add 时 leader 生成的 join token（在 leader_token 步骤前置同步阶段写入）
 	ScriptDir      string // 远端脚本暂存目录，默认 /tmp/incus-admin-scripts
+
+	// OPS-026 / PLAN-028：node 拓扑覆盖（仅 add 用）
+	NICPrimary     string // 主网卡名覆盖；为空走 cluster-env.sh 默认
+	NICCluster     string // 集群网卡名覆盖
+	BridgeName     string // 桥接名覆盖
+	MgmtIP         string // mgmt 网 IP 覆盖（不传 = 按 pub IP 末位推算）
+	CephPubIP      string // Ceph public 网 IP 覆盖
+	CephClusterIP  string // Ceph cluster 网 IP 覆盖
+	SkipNetwork    bool   // 跳过 do_network 阶段（运维已预配 IP / 路由 / 桥）
 }

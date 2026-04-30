@@ -2,6 +2,30 @@
 
 ## 2026-04-30 [feat]
 
+PLAN-028 / OPS-026 — `join-node.sh` 兼容 bonded NIC + 异构网络拓扑 + skip-network 模式：
+
+**问题**：INFRA-002 e2e 在 node6 上撞到 — node6 用了 bonded 25G NIC（bond-mgmt + bond-ceph），与脚本写死的 `NIC_PRIMARY=eno1` 假设不匹配；硬跑会拆掉 node6 现有 bond + apply-network.sh revert，最坏 mgmt 失联。
+
+**修复**：
+- `join-node.sh` 加 7 个新 flag：`--nic-primary` / `--nic-cluster` / `--bridge-name` / `--mgmt-ip` / `--ceph-pub-ip` / `--ceph-cluster-ip` / `--skip-network`
+- `--skip-network` 模式：do_network 直接 return；preflight 改为验证 mgmt IP / 默认路由是否就位；verify 跳过 VLAN / bridge 检查；firewall 在 br-pub 缺失时跳过（OSD-only 节点不需要 VM 网络规则）
+- `cluster-env.sh` 默认值依然有效；命令行 flag 覆盖
+- `service/jobs/Params` + `cluster_node_add.go::Run` + `handler/portal/clustermgmt.go::AddNode` 全链路透传新字段
+- 前端 `admin/node-join` 加 `<details>` 折叠 advanced section：bonded NIC 字段 + skip-network checkbox + 6 个 IP 覆盖输入
+
+**生产 vmc.5ok.co 实测**：
+- 部署后 admin POST /admin/clusters/cn-sz-01/nodes 接受 `skip_network: true / nic_primary: bond-mgmt` 等新字段（被 step-up 拦 401 是预期）
+- B2 batch admin create count=2 e2e 通过：双 job 30s 内 succeeded，2 VMs running on node4，IPs / vm_names 各自独立
+- B2 测试 VM 已清理（Incus 实例删除 + DB deleted + IPs cooldown）
+
+**node6 真实 e2e 仍未跑**：node6 当前不仅 bonded 拓扑差异，还缺 10.0.10.6 mgmt 网（join Incus 集群必需）；要让 node6 加入需要 ops 先在 bond-mgmt 加 mgmt IP。代码已就绪，运维补好 mgmt 网后用 `--skip-network --mgmt-ip 10.0.10.6 --ceph-pub-ip 10.0.20.6 --ceph-cluster-ip 10.0.30.6` 即可加入。
+
+**D2 maintenance toggle 部署到位**：路由 `POST /admin/clusters/{name}/nodes/{node}/maintenance` 验证返 401 step-up 拦截（plumbing 通），实际 Incus PATCH 由 admin 通过 UI 操作时手工触发。
+
+---
+
+## 2026-04-30 [feat]
+
 OPS-024 — admin batch VM create / cluster-env.sh 自动生成 / 节点 maintenance mode（用户决策）：
 
 - **B2 admin batch create**：`POST /admin/clusters/{name}/vms` 接 `count: 1..16` 字段。多 VM 分别 allocate IP + INSERT vms row + 入队 jobs runner + 返 `items[]: {job_id, vm_id, vm_name, ip}`。中途失败返 `partial` + `failed_at` 已成功的不回滚。前端 admin create-vm 页加数量输入 + 批量结果展示 list。
