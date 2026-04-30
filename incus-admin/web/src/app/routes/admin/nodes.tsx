@@ -63,7 +63,16 @@ function NodesPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => downloadClusterEnvScript(nodes[0]!.cluster)}
+                    onClick={() => {
+                      // OPS-028 M1：catch 防 unhandled rejection；step-up 跳转
+                      // 不会到这里（已 redirect），其他错误显式 toast。
+                      downloadClusterEnvScript(nodes[0]!.cluster).catch((err: unknown) => {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        toast.error(
+                          t("admin.nodes.downloadEnvScriptFailed", { defaultValue: "下载失败：{{msg}}", msg }),
+                        );
+                      });
+                    }}
                   >
                     {t("admin.nodes.downloadEnvScript", "下载 cluster-env.sh")}
                   </Button>
