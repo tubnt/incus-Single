@@ -1,5 +1,25 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [feat]
+
+PLAN-027 / INFRA-003 — standalone Incus host 管理 + DB-driven cluster config 落地。先前所有 cluster 配置都来自 env CLUSTER_*，admin 通过 UI 添加的 cluster 只活在 in-memory（重启即丢）。这次：
+
+- migration 017：clusters 表加 `cert_file` / `key_file` / `ca_file` / `kind`('cluster'|'standalone') / `default_project` / `storage_pool` / `network` / `ip_pools_json`
+- `ClusterRepo`：新增 `CreateFull`（INSERT ... ON CONFLICT 全字段 upsert）/ `DeleteByName` / `ListFull`
+- `main.go` 启动顺序改为：env 配置先 upsert 进 DB → 从 DB 加载完整 cluster 列表 → 喂给 NewManager。env 是 bootstrap，DB 是源
+- `clustermgmt.go::AddCluster` 双写 Manager + DB；DB 失败时 rollback Manager（保两边一致）
+- `clustermgmt.go::RemoveCluster` 双写删除（DB 失败仅 log，重启会再清）
+- `AddClusterParams` 前端类型扩展支持 kind / default_project / storage_pool / network / ip_pools 字段（form 可选输入）
+- `cluster.tls_fingerprint` 列、SPKI pin 机制、TOFU 行为均不变
+
+**生产 vmc.5ok.co 实测**：部署后 `cn-sz-01` cluster 行已被 env 兜底 upsert 自动填充：`kind=cluster, cert_file=/etc/incus-admin/certs/client.crt, default_project=customers`。重启验证通过 systemd active。
+
+**安全**：TLS cert/key 文件依然只存路径不存内容（不在 DB 增加密钥泄露面）；admin 添加 cluster 前必须先把 cert 文件 scp 到 admin server 本地。
+
+**范围外**：cert/key 内容存 DB（保留文件路径方案）、跨集群 VM 调度策略、cluster 配置版本化历史。
+
+---
+
 ## 2026-04-30 [refactor]
 
 OPS-021 — PLAN-025/026 后续 cleanup（4 项打包）：

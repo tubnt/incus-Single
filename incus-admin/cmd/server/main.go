@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,17 +67,30 @@ func main() {
 	var scheduler *cluster.Scheduler
 	var vmSvc *service.VMService
 
+	// PLAN-027 / INFRA-003：DB-driven cluster config。env cfg.Clusters 仅作 bootstrap，
+	// 启动时持久化进 clusters 表（CreateFull 含 cert/kind/projects/pools），之后 DB
+	// 是源。Admin 通过 UI add 的 cluster / standalone host 重启后仍在。
+	bootCtx := context.Background()
 	if len(cfg.Clusters) > 0 {
+		upsertEnvClusters(bootCtx, clusterRepo, cfg.Clusters)
+	}
+	dbClusters, dbLoadErr := loadClustersFromDB(bootCtx, clusterRepo)
+	if dbLoadErr != nil {
+		slog.Error("load clusters from DB failed; falling back to env", "error", dbLoadErr)
+		dbClusters = cfg.Clusters
+	}
+
+	if len(dbClusters) > 0 {
 		// SPKI pin store backed by clusters.tls_fingerprint (migration 006).
 		// TOFU on first connect, refuses peers that diverge from the learned pin.
 		pinStore := &clusterPinStore{repo: clusterRepo}
-		clusterMgr, err = cluster.NewManager(cfg.Clusters, pinStore)
+		clusterMgr, err = cluster.NewManager(dbClusters, pinStore)
 		if err != nil {
 			slog.Warn("cluster manager init failed, running without clusters", "error", err)
 		} else {
-			// Seed DB clusters table from config and populate ID↔Name maps.
-			for _, cc := range cfg.Clusters {
-				id, upErr := clusterRepo.Upsert(context.Background(), cc.Name, cc.DisplayName, cc.APIURL)
+			// Populate ID↔Name maps from DB rows
+			for _, cc := range dbClusters {
+				id, upErr := clusterRepo.Upsert(bootCtx, cc.Name, cc.DisplayName, cc.APIURL)
 				if upErr != nil {
 					slog.Error("cluster upsert failed", "name", cc.Name, "error", upErr)
 					continue
@@ -322,7 +336,7 @@ func main() {
 	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
 	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr).
 		WithQuotas(quotaRepo) // OPS-021：购买前 quota 强制
-	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr)
+	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr).WithPersistence(clusterRepo)
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
 		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
@@ -501,4 +515,76 @@ func jobsHandlerOrNil(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo,
 		return nil
 	}
 	return portal.NewJobsHandler(jobRepo, vmRepo, rt)
+}
+
+// PLAN-027 / INFRA-003：DB 行 → config.ClusterConfig 转换。
+//   - ip_pools_json 反序列化到 []config.IPPoolConfig
+//   - kind 不放进 ClusterConfig（Manager 不区分；UI 通过 DB query 拿 kind 展示）
+//   - projects 暂时维持空数组（projects 是 env 配的高级字段，DB 里没有专门列；
+//     若未来需要可以扩 projects_json 列）
+func clusterFromDB(c model.Cluster) (config.ClusterConfig, error) {
+	cc := config.ClusterConfig{
+		Name:           c.Name,
+		DisplayName:    c.DisplayName,
+		APIURL:         c.APIURL,
+		CertFile:       c.CertFile,
+		KeyFile:        c.KeyFile,
+		CAFile:         c.CAFile,
+		StoragePool:    c.StoragePool,
+		Network:        c.Network,
+		DefaultProject: c.DefaultProject,
+	}
+	if s := strings.TrimSpace(c.IPPoolsJSON); s != "" {
+		if err := json.Unmarshal([]byte(s), &cc.IPPools); err != nil {
+			return cc, fmt.Errorf("parse ip_pools_json for %s: %w", c.Name, err)
+		}
+	}
+	return cc, nil
+}
+
+// upsertEnvClusters 启动时把 env 配置的 cluster 持久化到 DB（含 cert/key/ca/
+// kind=cluster 默认值）。已存在同名 row 时只覆盖 env 提供的字段，admin 后期
+// 通过 UI 改的 cert/kind 不会被 env 重启吞掉 —— 但 cert/api_url/etc 仍以 env
+// 为准（设计假设：env 改了等价于"想要它生效"）。
+func upsertEnvClusters(ctx context.Context, repo *repository.ClusterRepo, envClusters []config.ClusterConfig) {
+	for _, cc := range envClusters {
+		row := &model.Cluster{
+			Name:           cc.Name,
+			DisplayName:    cc.DisplayName,
+			APIURL:         cc.APIURL,
+			Kind:           model.ClusterKindCluster,
+			CertFile:       cc.CertFile,
+			KeyFile:        cc.KeyFile,
+			CAFile:         cc.CAFile,
+			DefaultProject: cc.DefaultProject,
+			StoragePool:    cc.StoragePool,
+			Network:        cc.Network,
+		}
+		var pools any
+		if len(cc.IPPools) > 0 {
+			pools = cc.IPPools
+		}
+		if _, err := repo.CreateFull(ctx, row, pools); err != nil {
+			slog.Warn("env cluster upsert to DB failed", "name", cc.Name, "error", err)
+		}
+	}
+}
+
+// loadClustersFromDB 读 DB 全部 clusters 行 → []config.ClusterConfig。
+// 返回空切片表示 DB 没有 cluster（首次部署且 env 也无）。
+func loadClustersFromDB(ctx context.Context, repo *repository.ClusterRepo) ([]config.ClusterConfig, error) {
+	rows, err := repo.ListFull(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]config.ClusterConfig, 0, len(rows))
+	for _, r := range rows {
+		cc, err := clusterFromDB(r)
+		if err != nil {
+			slog.Warn("skip invalid cluster row", "name", r.Name, "error", err)
+			continue
+		}
+		out = append(out, cc)
+	}
+	return out, nil
 }
