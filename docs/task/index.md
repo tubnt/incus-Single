@@ -76,3 +76,5 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-019 杂项打磨：lint / i18n / stateful / Bug#4 / log / audit**](OPS-019.md) `P3`
 - [x] [**OPS-020 前端 arbitrary value 全量替换为 @theme utility 直引**](OPS-020.md) `P3`
 - [x] [**INFRA-007 VM provisioning 异步化 + SSE 进度流**](INFRA-007.md) `P1`
+- [x] [**OPS-027 admin/vms 跨 project 列表 0 VM 修复**](OPS-027.md) `P1`
+- [ ] [**SEC-002 portal API cloud-init 字段过滤（含 password）**](SEC-002.md) `P2`

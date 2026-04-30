@@ -1,5 +1,21 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [fix]
+
+PLAN-029 / OPS-027 — `admin/vms` 跨 project 列表 0 VM 修复（P1）：
+
+**问题**：PLAN-028 收尾后做全功能 UI 回归发现生产 `/admin/vms` 列表显示 0 VM；同时 admin/monitoring 显示 5 VM、portal/vms 显示 1 VM (MyVM)。三条路径不一致，admin 视角彻底看不到 VM。
+
+**根因**：PLAN-027 把 cluster 配置从 env-only 切到 DB-driven 时，`cmd/server/main.go::clusterFromDB` 注释明确"projects 暂时维持空数组"。但 `handler/portal/vm.go::ListClusterVMs` 用 `cc.Projects` 迭代查 instances，nil 时 fallback `["default"]`，结果 customers project 里的所有 VM 全漏。env-bootstrap 路径硬编码 `[default, customers]` 仅在第一次启动 / clusters 表为空时生效；后续重启全走 DB-load → cc.Projects=nil。
+
+**修复**：`clusterFromDB` 加 `Projects: defaultProjectsFor(c.DefaultProject)` 兜底，helper 返回 `[default, DefaultProject]` 去重列表。语义跟 env-bootstrap 路径完全等价；DefaultProject="customers" 时还原成 `[default, customers]`。
+
+**生产实测**：部署后 `GET /api/admin/clusters/cn-sz-01/vms` 返回 `count: 6`（MyVM + vm-cdc154 + vm-35762f + vm-73a439 + vm-784367 + vm-4609c0 stopped），全部带 `project: customers`。
+
+**附带发现**：响应 `config.user.cloud-init` 字段含明文 cloud-config password，admin 视角合理但 portal 用户视角应过滤——已开 SEC-002 P2 task。
+
+---
+
 ## 2026-04-30 [feat]
 
 PLAN-028 / OPS-026 — `join-node.sh` 兼容 bonded NIC + 异构网络拓扑 + skip-network 模式：
