@@ -14,12 +14,16 @@ import (
 // newFakeIncusClient wires a bare *Client directly at a fake Incus server.
 // Bypasses newClient() so we skip the mTLS pin / health-check round-trip —
 // the test server speaks plain HTTP, which is all these tests need.
+//
+// longClient 复用 httpClient 的 transport 但去掉 client-level Timeout，
+// WaitForOperation 单测里测重试 / op.status 解析不需要长连接行为。
 func newFakeIncusClient(t *testing.T, apiURL string) *Client {
 	t.Helper()
 	return &Client{
 		Name:       "fake",
 		APIURL:     strings.TrimRight(apiURL, "/"),
 		httpClient: &http.Client{Timeout: 5 * time.Second},
+		longClient: &http.Client{},
 	}
 }
 
@@ -155,5 +159,93 @@ func TestClient_WaitForOperation(t *testing.T) {
 	c := newFakeIncusClient(t, ts.URL)
 	if err := c.WaitForOperation(context.Background(), opID); err != nil {
 		t.Fatalf("WaitForOperation: %v", err)
+	}
+}
+
+// TestClient_WaitForOperation_RunningThenSuccess 验证 PLAN-025 修复：服务端
+// long-poll 超时返回 op.status="Running" 时不能直接当作成功，必须再轮询直到
+// 看到 "Success"。原 bug 是 HTTP 200 即视作成功。
+func TestClient_WaitForOperation_RunningThenSuccess(t *testing.T) {
+	opID := "op-running"
+	var calls int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		// 第一次返回 Running，第二次返回 Success
+		status := "Running"
+		if calls >= 2 {
+			status = "Success"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"type":        "sync",
+			"status":      "Success",
+			"status_code": 200,
+			"metadata":    map[string]any{"id": opID, "status": status},
+		})
+	}))
+	defer ts.Close()
+
+	c := newFakeIncusClient(t, ts.URL)
+	if err := c.WaitForOperation(context.Background(), opID); err != nil {
+		t.Fatalf("WaitForOperation: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("expected at least 2 polls, got %d (Running 不应被当成功)", calls)
+	}
+}
+
+// TestClient_WaitForOperation_Failure 验证 op.status="Failure" 时 metadata.err
+// 被正确解析为 Go error。原 bug 只看 HTTP 200 把所有失败都吞了。
+func TestClient_WaitForOperation_Failure(t *testing.T) {
+	opID := "op-fail"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"type":        "sync",
+			"status":      "Success",
+			"status_code": 200,
+			"metadata": map[string]any{
+				"id":     opID,
+				"status": "Failure",
+				"err":    "image not found",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := newFakeIncusClient(t, ts.URL)
+	err := c.WaitForOperation(context.Background(), opID)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "image not found") {
+		t.Fatalf("error missing op.err: %v", err)
+	}
+}
+
+// TestClient_WaitForOperation_ContextCancel 验证 ctx.Done 能立即终止轮询循环
+// 而不是被卡在下一次 long-poll 上。
+func TestClient_WaitForOperation_ContextCancel(t *testing.T) {
+	opID := "op-stuck"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"type":        "sync",
+			"status":      "Success",
+			"status_code": 200,
+			"metadata":    map[string]any{"id": opID, "status": "Running"},
+		})
+	}))
+	defer ts.Close()
+
+	c := newFakeIncusClient(t, ts.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := c.WaitForOperation(ctx, opID)
+	if err == nil {
+		t.Fatal("expected ctx error, got nil")
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Fatalf("error not from ctx: %v", err)
 	}
 }

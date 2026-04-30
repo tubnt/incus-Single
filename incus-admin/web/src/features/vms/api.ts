@@ -379,10 +379,17 @@ export function useResetVMPasswordMutation(vmId: number) {
 
 // Reinstall from the user (portal) side. Uses the same template_slug wire
 // format as the admin path; backend resolves the slug through os_templates.
+//
+// PLAN-025：异步路径返回 202 + job_id。同步兜底（jobs runtime 未注入）仍带
+// password/username。前端用 job_id 判定走哪条。
 export interface PortalReinstallResult {
   status: string;
-  password: string;
-  username: string;
+  // 异步路径
+  job_id?: number;
+  vm_id?: number;
+  // 同步路径兜底
+  password?: string;
+  username?: string;
 }
 
 export function usePortalReinstallVMMutation(vmId: number) {

@@ -306,6 +306,9 @@ function OrderRow({
         return "success" as const;
       case "pending":
         return "pending" as const;
+      case "provisioning":
+        // PLAN-025：订单已扣款，VM 正在异步 provision —— 视为进行中
+        return "pending" as const;
       case "expired":
         return "stale" as const;
       default:
@@ -337,7 +340,17 @@ function OrderRow({
                   { orderId: o.id },
                   {
                     onSuccess: (data) => {
-                      if (data.password) onProvisioned(data);
+                      // PLAN-025：异步路径（job_id 存在）此处暂不展示密码 ——
+                      // 用户回到 PurchaseSheet 才看到实时进度。同步路径
+                      // 兜底直接拿到 password 时仍在订单行右上 toast 出来。
+                      if (data.password && data.vm_name) {
+                        onProvisioned({
+                          vm_name: data.vm_name,
+                          ip: data.ip ?? "",
+                          username: data.username ?? "ubuntu",
+                          password: data.password,
+                        });
+                      }
                     },
                   },
                 )

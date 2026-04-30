@@ -42,6 +42,24 @@ export interface VMCredentials {
   password: string;
 }
 
+/**
+ * PLAN-025：付款现在通常返回 202 + job_id（异步路径）。
+ * 兼容兜底：服务端未启用 jobs runtime 时仍返回 200 + VMCredentials（同步路径）。
+ * 前端用 `job_id` 是否存在判定走哪条路径。
+ */
+export interface PayResponse {
+  status: string;
+  // 异步路径
+  job_id?: number;
+  vm_id?: number;
+  order_id?: number;
+  vm_name?: string;
+  ip?: string;
+  // 同步路径兜底
+  username?: string;
+  password?: string;
+}
+
 export const orderKeys = {
   all: ["order"] as const,
   myList: () => [...orderKeys.all, "list", "my"] as const,
@@ -92,7 +110,7 @@ export function useCreateOrderMutation() {
 export function usePayOrderMutation() {
   return useMutation({
     mutationFn: (params: { orderId: number; vm_name?: string; os_image?: string }) =>
-      http.post<VMCredentials & { status: string }>(`/portal/orders/${params.orderId}/pay`, {
+      http.post<PayResponse>(`/portal/orders/${params.orderId}/pay`, {
         vm_name: params.vm_name,
         os_image: params.os_image,
       }),

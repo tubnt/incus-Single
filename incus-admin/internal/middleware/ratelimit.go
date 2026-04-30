@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,6 +60,12 @@ var defaultLimiter = newRateLimiter(30, time.Minute)
 
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// PLAN-025：SSE 长连接不应该被请求频率限流。job 流就一条连接 + 心跳，
+		// 即使浏览器多 tab，per-user conn cap 在 JobsHandler 层另行控制。
+		if strings.HasSuffix(r.URL.Path, "/stream") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		key := r.RemoteAddr
 		if email, _ := r.Context().Value(CtxUserEmail).(string); email != "" {
 			key = email

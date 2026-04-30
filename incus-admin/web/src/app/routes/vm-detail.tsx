@@ -2,7 +2,7 @@ import type {FirewallGroup} from "@/features/firewall/api";
 import type {ResetPasswordMode} from "@/features/vms/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -11,6 +11,9 @@ import {
   usePortalUnbindVMFirewallMutation,
   usePortalVMFirewallBindingsQuery,
 } from "@/features/firewall/api";
+import { useJobQuery } from "@/features/jobs/api";
+import { JobProgress } from "@/features/jobs/components/job-progress";
+import { useJobStream } from "@/features/jobs/use-job-stream";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
 import { SnapshotPanel } from "@/features/snapshots/snapshot-panel";
 import { DEFAULT_TEMPLATE_SLUG, TemplatePicker } from "@/features/templates/template-picker";
@@ -67,6 +70,7 @@ function UserVMDetailPage() {
   const { id } = Route.useSearch();
   const [reinstallOpen, setReinstallOpen] = useState(false);
   const [reinstallSlug, setReinstallSlug] = useState(DEFAULT_TEMPLATE_SLUG);
+  const [reinstallJobId, setReinstallJobId] = useState<number | null>(null);
   const [resetPwdOpen, setResetPwdOpen] = useState(false);
   const [resetPwdMode, setResetPwdMode] = useState<ResetPasswordMode>("auto");
 
@@ -78,6 +82,37 @@ function UserVMDetailPage() {
   const reinstallMutation = usePortalReinstallVMMutation(id);
   const rescueEnterMutation = usePortalRescueEnterMutation(id);
   const rescueExitMutation = usePortalRescueExitMutation(id);
+
+  // PLAN-025：监听异步 reinstall job 进度
+  const reinstallStream = useJobStream(reinstallJobId);
+  const reinstallJobQuery = useJobQuery(
+    reinstallStream.terminal != null ? reinstallJobId : null,
+  );
+  useEffect(() => {
+    if (reinstallStream.terminal !== "succeeded") return;
+    const result = reinstallJobQuery.data?.result;
+    if (!result?.password) return;
+    toast.success(
+      t("vm.reinstallDone", {
+        username: result.username ?? "ubuntu",
+        password: result.password,
+        defaultValue: "重装完成 · {{username}} / {{password}}",
+      }),
+      { duration: 30_000 },
+    );
+    setReinstallJobId(null);
+    setReinstallOpen(false);
+  }, [reinstallStream.terminal, reinstallJobQuery.data, t]);
+  useEffect(() => {
+    if (reinstallStream.terminal === "failed" || reinstallStream.terminal === "partial") {
+      const lastFailed = reinstallStream.steps.slice().reverse().find((s) => s.status === "failed");
+      toast.error(
+        lastFailed?.detail
+        ?? t("vm.reinstallFailed", { defaultValue: "重装失败，VM 已标 error，请联系管理员。" }),
+      );
+      setReinstallJobId(null);
+    }
+  }, [reinstallStream.terminal, reinstallStream.steps, t]);
 
   const runResetPwd = () =>
     resetPwdMutation.mutate(resetPwdMode, {
@@ -131,15 +166,27 @@ function UserVMDetailPage() {
       { template_slug: reinstallSlug },
       {
         onSuccess: (data) => {
-          toast.success(
-            t("vm.reinstallDone", {
-              username: data.username,
-              password: data.password,
-              defaultValue: "重装完成 · {{username}} / {{password}}",
-            }),
-            { duration: 20_000 },
-          );
-          setReinstallOpen(false);
+          if (data.job_id) {
+            // PLAN-025：异步路径，开始 SSE 监听；新密码会在 done 时通过 GET /jobs 拉回。
+            setReinstallJobId(data.job_id);
+            toast.info(
+              t("vm.reinstallStarted", {
+                defaultValue: "重装已开始，进度展示中...",
+              }),
+            );
+            return;
+          }
+          if (data.password && data.username) {
+            toast.success(
+              t("vm.reinstallDone", {
+                username: data.username,
+                password: data.password,
+                defaultValue: "重装完成 · {{username}} / {{password}}",
+              }),
+              { duration: 20_000 },
+            );
+            setReinstallOpen(false);
+          }
         },
         onError: (err) => toast.error((err as Error).message),
       },
@@ -328,27 +375,53 @@ function UserVMDetailPage() {
             </SheetTitle>
           </SheetHeader>
           <SheetBody className="space-y-4">
-            <Alert variant="error">
-              <AlertDescription>{t("vm.reinstallWarning")}</AlertDescription>
-            </Alert>
-            <div className="space-y-1.5">
-              <label className="text-sm font-emphasis">
-                {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
-              </label>
-              <TemplatePicker
-                value={reinstallSlug}
-                onChange={setReinstallSlug}
-                className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-[color:var(--accent)]"
-              />
-            </div>
+            {reinstallJobId
+              ? (
+                  /* PLAN-025：异步进行中，展示进度，禁用表单 */
+                  <>
+                    <Alert variant="info">
+                      <AlertDescription>
+                        {t("vm.reinstallStarted", { defaultValue: "重装已开始，进度展示中..." })}
+                      </AlertDescription>
+                    </Alert>
+                    <JobProgress steps={reinstallStream.steps} />
+                  </>
+                )
+              : (
+                  <>
+                    <Alert variant="error">
+                      <AlertDescription>{t("vm.reinstallWarning")}</AlertDescription>
+                    </Alert>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-emphasis">
+                        {t("vm.targetTemplate", { defaultValue: "目标系统镜像" })}
+                      </label>
+                      <TemplatePicker
+                        value={reinstallSlug}
+                        onChange={setReinstallSlug}
+                        className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:outline-none focus:border-ring"
+                      />
+                    </div>
+                  </>
+                )}
           </SheetBody>
           <SheetFooter>
-            <Button variant="ghost" onClick={() => setReinstallOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button variant="destructive" disabled={reinstallMutation.isPending} onClick={runReinstall}>
-              {reinstallMutation.isPending ? t("vm.reinstalling") : t("vm.reinstallConfirm")}
-            </Button>
+            {reinstallJobId
+              ? (
+                  <Button variant="ghost" onClick={() => setReinstallOpen(false)}>
+                    {t("billing.closeAndContinue", { defaultValue: "关闭抽屉（后台继续）" })}
+                  </Button>
+                )
+              : (
+                  <>
+                    <Button variant="ghost" onClick={() => setReinstallOpen(false)}>
+                      {t("common.cancel")}
+                    </Button>
+                    <Button variant="destructive" disabled={reinstallMutation.isPending} onClick={runReinstall}>
+                      {reinstallMutation.isPending ? t("vm.reinstalling") : t("vm.reinstallConfirm")}
+                    </Button>
+                  </>
+                )}
           </SheetFooter>
         </SheetContent>
       </Sheet>

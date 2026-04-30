@@ -232,6 +232,36 @@ type OSTemplate struct {
 	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// ProvisioningJob 是一次 VM 创建/重装的异步执行单元。
+// 失败 / 进程崩溃后由 worker sweeper 兜底退款，refund_done_at 是幂等 guard。
+type ProvisioningJob struct {
+	ID            int64                 `json:"id" db:"id"`
+	Kind          string                `json:"kind" db:"kind"`
+	UserID        int64                 `json:"user_id" db:"user_id"`
+	ClusterID     int64                 `json:"cluster_id" db:"cluster_id"`
+	OrderID       *int64                `json:"order_id,omitempty" db:"order_id"`
+	VMID          *int64                `json:"vm_id,omitempty" db:"vm_id"`
+	TargetName    string                `json:"target_name" db:"target_name"`
+	Status        string                `json:"status" db:"status"`
+	Error         *string               `json:"error,omitempty" db:"error"`
+	RefundDoneAt  *time.Time            `json:"refund_done_at,omitempty" db:"refund_done_at"`
+	CreatedAt     time.Time             `json:"created_at" db:"created_at"`
+	StartedAt     *time.Time            `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt   *time.Time            `json:"completed_at,omitempty" db:"completed_at"`
+	Steps         []ProvisioningJobStep `json:"steps,omitempty"`
+}
+
+type ProvisioningJobStep struct {
+	ID          int64      `json:"id" db:"id"`
+	JobID       int64      `json:"job_id" db:"job_id"`
+	Seq         int        `json:"seq" db:"seq"`
+	Name        string     `json:"name" db:"name"`
+	Status      string     `json:"status" db:"status"`
+	Detail      *string    `json:"detail,omitempty" db:"detail"`
+	StartedAt   *time.Time `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+}
+
 const (
 	RoleAdmin    = "admin"
 	RoleCustomer = "customer"
@@ -254,4 +284,20 @@ const (
 	IPAssigned  = "assigned"
 	IPReserved  = "reserved"
 	IPCooldown  = "cooldown"
+
+	// PLAN-025 / INFRA-007 provisioning job
+	JobKindVMCreate    = "vm.create"
+	JobKindVMReinstall = "vm.reinstall"
+
+	JobStatusQueued    = "queued"
+	JobStatusRunning   = "running"
+	JobStatusSucceeded = "succeeded"
+	JobStatusFailed    = "failed"
+	JobStatusPartial   = "partial"
+
+	StepStatusPending   = "pending"
+	StepStatusRunning   = "running"
+	StepStatusSucceeded = "succeeded"
+	StepStatusFailed    = "failed"
+	StepStatusSkipped   = "skipped"
 )

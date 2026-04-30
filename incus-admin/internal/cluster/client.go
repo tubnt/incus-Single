@@ -20,10 +20,18 @@ type Client struct {
 	Projects    []config.ProjectConfig
 	IPPools     []config.IPPoolConfig
 	httpClient  *http.Client
+	// longClient 没有 client-level Timeout，仅由 ctx 控制；专门给
+	// /operations/{id}/wait?timeout=... 这种"客户端要忍受很长 op"的端点用。
+	// 普通短请求继续走 httpClient（10s 兜底）防止 dead-stuck。
+	longClient *http.Client
 }
 
 func newClient(cc config.ClusterConfig, store FingerprintStore) (*Client, error) {
 	hc, err := buildHTTPClient(cc, store)
+	if err != nil {
+		return nil, err
+	}
+	lc, err := buildLongHTTPClient(cc, store)
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +43,7 @@ func newClient(cc config.ClusterConfig, store FingerprintStore) (*Client, error)
 		Projects:    cc.Projects,
 		IPPools:     cc.IPPools,
 		httpClient:  hc,
+		longClient:  lc,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -57,6 +66,12 @@ type IncusResponse struct {
 }
 
 func (c *Client) apiRequest(ctx context.Context, method, path string, body io.Reader) (*IncusResponse, error) {
+	return c.apiRequestWith(ctx, c.httpClient, method, path, body)
+}
+
+// apiRequestWith 是 apiRequest 的可替换 transport 版本，给 WaitForOperation
+// 这种长 polling 调用用 longClient，避免 client-level 10s timeout 误杀。
+func (c *Client) apiRequestWith(ctx context.Context, hc *http.Client, method, path string, body io.Reader) (*IncusResponse, error) {
 	url := c.APIURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -66,7 +81,7 @@ func (c *Client) apiRequest(ctx context.Context, method, path string, body io.Re
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -133,17 +148,64 @@ func (c *Client) RawGet(ctx context.Context, path string) (string, error) {
 	return string(data), nil
 }
 
-// WaitForOperation blocks until an async operation completes.
+// operationMetadata 是 /1.0/operations/{id}/wait 返回 metadata 的最小子集。
+// Status: "Pending" / "Running" / "Success" / "Failure" / "Cancelled" 等
+// （Incus 6.x op.status_code 200 是 Success，400+ 是各种 Failure）。
+type operationMetadata struct {
+	Status     string `json:"status"`
+	StatusCode int    `json:"status_code"`
+	Err        string `json:"err"`
+}
+
+// WaitForOperation 阻塞直到 op 真正达到终态。
+//
+// 历史 bug 修复（PLAN-025）：
+//
+//  1. 走 longClient（无 client-level Timeout），让 ctx 决定上限。原 httpClient
+//     10s 兜底会比 ?timeout=120 的服务端 long-poll 早超时，导致 op 仍 Running
+//     就把"WaitForOperation 失败"返给调用方，handler 误判失败继续 start
+//     instance，再撞"already in use"等下游错误。
+//
+//  2. 解析 metadata 取 op.status，"Success" 才视为成功。原版只看 HTTP 200
+//     就 return nil —— Incus 在 op 仍 Running 时也是 200，那相当于 fake-wait。
+//
+// timeout=60s 是单次 long-poll 上限；外层 for 循环让总等待由 ctx 控制，
+// 镜像拉取 5min+ 也能正常等到。
 func (c *Client) WaitForOperation(ctx context.Context, operationID string) error {
-	path := fmt.Sprintf("/1.0/operations/%s/wait?timeout=120", operationID)
-	resp, err := c.APIGet(ctx, path)
-	if err != nil {
-		return err
+	path := fmt.Sprintf("/1.0/operations/%s/wait?timeout=60", operationID)
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("wait operation %s: %w", operationID, err)
+		}
+
+		resp, err := c.apiRequestWith(ctx, c.longClient, http.MethodGet, path, nil)
+		if err != nil {
+			return fmt.Errorf("wait operation %s: %w", operationID, err)
+		}
+
+		var op operationMetadata
+		if len(resp.Metadata) > 0 {
+			if jerr := json.Unmarshal(resp.Metadata, &op); jerr != nil {
+				return fmt.Errorf("parse operation %s metadata: %w", operationID, jerr)
+			}
+		}
+
+		switch op.Status {
+		case "Success":
+			return nil
+		case "Failure", "Cancelled":
+			msg := op.Err
+			if msg == "" {
+				msg = op.Status
+			}
+			return fmt.Errorf("operation %s failed: %s", operationID, msg)
+		case "Running", "Pending", "":
+			// 服务端 60s long-poll 超时返回；继续下一轮，由 ctx 决定整体何时放弃。
+			continue
+		default:
+			return fmt.Errorf("operation %s unexpected status %q", operationID, op.Status)
+		}
 	}
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("operation failed: status %d", resp.StatusCode)
-	}
-	return nil
 }
 
 // GetClusterMembers returns all cluster members (nodes).

@@ -115,6 +115,10 @@ type Handlers struct {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
 	}
+	// Jobs (PLAN-025) 暴露 portal-only 异步 provisioning 进度查询 + SSE：
+	//   GET /portal/jobs/{id}        → 当前状态 + 全部 step + 完成态结果
+	//   GET /portal/jobs/{id}/stream → SSE 流（Last-Event-ID 重连）
+	Jobs PortalRouteRegistrar
 	// Auth exposes the step-up OIDC round-trip handlers. Start requires an
 	// active session (mounted inside the ProxyAuth group); Callback is reached
 	// directly from Logto (mounted outside, allowlisted by oauth2-proxy's
@@ -227,6 +231,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.FloatingIPs != nil {
 				h.FloatingIPs.PortalRoutes(r)
+			}
+			if h.Jobs != nil {
+				h.Jobs.PortalRoutes(r)
 			}
 		})
 
