@@ -39,4 +39,15 @@ type Params struct {
 	ServerURL   string
 	Protocol    string
 	DefaultUser string
+
+	// cluster.node.add / cluster.node.remove
+	NodeName       string // 新节点名 / 待移除节点名
+	NodePublicIP   string // 新节点公网 IP（add 必填）
+	NodeRole       string // "osd" 或 "mon-mgr-osd"（add 用，远端 join-node.sh 暂未消费但保留）
+	SSHUser        string // 远端 SSH 用户（add）/ leader SSH 用户（remove），默认 root
+	SSHKeyFile     string // 私钥路径（admin 服务器本地）
+	KnownHostsFile string // known_hosts 文件路径
+	LeaderHost     string // 跑 incus cluster add / scale-node.sh 的目标 host，默认配置取
+	IncusToken     string // add 时 leader 生成的 join token（在 leader_token 步骤前置同步阶段写入）
+	ScriptDir      string // 远端脚本暂存目录，默认 /tmp/incus-admin-scripts
 }

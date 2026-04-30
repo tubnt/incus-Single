@@ -1,12 +1,16 @@
 package sshexec
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -76,6 +80,194 @@ func (r *Runner) Run(ctx context.Context, cmd string) (string, error) {
 		return string(out), fmt.Errorf("ssh exec: %w", err)
 	}
 	return string(out), nil
+}
+
+// WriteFile 把 data 通过 SSH 写到远端 remotePath（用 `tee` 接收 stdin）。
+// 远端目录必须已存在；mode 为 8 进制权限（如 0o755）。
+//
+// 用途：PLAN-026 add-node 把 join-node.sh / cluster-env.sh 等脚本批量铺到
+// 新节点。比 SFTP 简单（不依赖 OpenSSH SFTP 子系统启用），SSH 通就能写。
+//
+// 安全：remotePath 必须是 admin 服务自己拼出来的 absolute path（不接受
+// 用户输入），调用方控制注入面；这里 POSIX-quote 一下做最低层防御。
+func (r *Runner) WriteFile(ctx context.Context, remotePath string, data []byte, mode os.FileMode) error {
+	key, err := os.ReadFile(r.keyFile)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return fmt.Errorf("parse key: %w", err)
+	}
+	hostKeyCB, err := r.hostKeyCallback()
+	if err != nil {
+		return fmt.Errorf("host key callback: %w", err)
+	}
+
+	config := &ssh.ClientConfig{
+		User:            r.user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: hostKeyCB,
+		Timeout:         15 * time.Second,
+	}
+	addr := r.host
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		addr += ":22"
+	}
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return fmt.Errorf("ssh dial %s: %w", addr, err)
+	}
+	defer func() { _ = client.Close() }()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("ssh session: %w", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	session.Stdin = bytes.NewReader(data)
+	cmd := fmt.Sprintf("install -m %04o /dev/stdin %s", mode, shellQuote(remotePath))
+
+	// ctx 取消即关 session
+	ctxDone := make(chan struct{})
+	defer close(ctxDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+		case <-ctxDone:
+		}
+	}()
+
+	if out, err := session.CombinedOutput(cmd); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("write %s: %w (output: %s)", remotePath, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// MkdirAll 在远端 mkdir -p path。简化的 helper，path 经 POSIX-quote 后传入 mkdir。
+func (r *Runner) MkdirAll(ctx context.Context, remotePath string) error {
+	out, err := r.RunArgs(ctx, "mkdir", "-p", remotePath)
+	if err != nil {
+		return fmt.Errorf("mkdir %s: %w (output: %s)", remotePath, err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// RunStream 流式执行远端命令并把每一行 stdout/stderr 推给 onLine 回调。
+// 阻塞至 cmd 退出；ctx 取消会主动 close session。
+//
+// 用途：PLAN-026 add-node / remove-node 编排器需要从 join-node.sh / scale-node.sh
+// 的 stdout 实时识别 "====== 步骤 N/7 XXX ======" 段落 marker 推进 step 进度。
+// onLine 必须线程安全（因 stdout/stderr 两条 goroutine 各自调）；调用方通常
+// 在 onLine 内部用单一 mutex 串行处理，或直接送 chan。
+//
+// 退出语义：
+//   - 远端命令零退出 → 返回 nil
+//   - 远端命令非零退出 → 返回 *ssh.ExitError（带 ExitStatus()）
+//   - ctx 取消 → 返回 ctx.Err()
+//   - SSH 层错误（dial / session）→ 返回包装后的错误
+func (r *Runner) RunStream(ctx context.Context, cmd string, onLine func(line string)) error {
+	if onLine == nil {
+		return fmt.Errorf("onLine callback must be non-nil")
+	}
+
+	key, err := os.ReadFile(r.keyFile)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return fmt.Errorf("parse key: %w", err)
+	}
+	hostKeyCB, err := r.hostKeyCallback()
+	if err != nil {
+		return fmt.Errorf("host key callback: %w", err)
+	}
+
+	config := &ssh.ClientConfig{
+		User:            r.user,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: hostKeyCB,
+		Timeout:         15 * time.Second,
+	}
+
+	addr := r.host
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		addr += ":22"
+	}
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return fmt.Errorf("ssh dial %s: %w", addr, err)
+	}
+	defer func() { _ = client.Close() }()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("ssh session: %w", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	if err := session.Start(cmd); err != nil {
+		return fmt.Errorf("session start: %w", err)
+	}
+
+	// ctx 取消 → 主动 close session 强制 server 端 SIGHUP 远程进程
+	ctxDone := make(chan struct{})
+	defer close(ctxDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Signal(ssh.SIGTERM)
+			_ = session.Close()
+		case <-ctxDone:
+		}
+	}()
+
+	// 串行化 onLine 调用（stdout / stderr 两 goroutine 共享）
+	var mu sync.Mutex
+	emit := func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		onLine(line)
+	}
+
+	var wg sync.WaitGroup
+	scan := func(rdr io.Reader) {
+		defer wg.Done()
+		s := bufio.NewScanner(rdr)
+		// 支持长行（远端 incus 输出偶有 4KB+），上限 1MB
+		s.Buffer(make([]byte, 64*1024), 1024*1024)
+		for s.Scan() {
+			emit(s.Text())
+		}
+	}
+	wg.Add(2)
+	go scan(stdout)
+	go scan(stderr)
+
+	waitErr := session.Wait()
+	wg.Wait()
+
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return waitErr
 }
 
 // RunArgs 以参数化方式执行远端命令，所有 token 经 POSIX 单引号转义后拼接，

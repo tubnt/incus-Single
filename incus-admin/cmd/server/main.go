@@ -321,10 +321,19 @@ func main() {
 	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)
 	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
 	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr)
+	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr)
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
 		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
 		orderHandler.WithJobs(jobsRuntime, jobRepo)
+		// PLAN-026 / INFRA-002：注入节点编排依赖。SSH 凭据复用 Ceph 维护通道
+		// 同一对私钥（cfg.Monitor.CephSSHKey）—— 与 nodeops test-ssh / exec 一致。
+		clusterMgmtHandler.WithNodeOrchestration(
+			jobsRuntime, jobRepo,
+			cfg.Monitor.CephSSHUser,
+			cfg.Monitor.CephSSHKey,
+			cfg.Monitor.SSHKnownHostsFile,
+		)
 	}
 
 	srv := server.New(cfg, userLookup, roleLookup, balanceLookup, stepUpLookup, auditWriter, server.Handlers{
@@ -342,7 +351,7 @@ func main() {
 		Audit:     portal.NewAuditHandler(auditRepo),
 		APITokens: portal.NewAPITokenHandler(apiTokenRepo),
 		Invoices:    portal.NewInvoiceHandler(invoiceRepo),
-		ClusterMgmt: portal.NewClusterMgmtHandler(clusterMgr),
+		ClusterMgmt: clusterMgmtHandler,
 		Ceph:        portal.NewCephHandler(cfg.Monitor.CephSSHHost, cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey, cfg.Monitor.SSHKnownHostsFile),
 		NodeOps:     portal.NewNodeOpsHandler(cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey, cfg.Monitor.SSHKnownHostsFile),
 		Quotas:      portal.NewQuotaHandler(quotaRepo, vmRepo),

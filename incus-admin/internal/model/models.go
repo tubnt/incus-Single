@@ -289,6 +289,10 @@ const (
 	JobKindVMCreate    = "vm.create"
 	JobKindVMReinstall = "vm.reinstall"
 
+	// PLAN-026 / INFRA-002 cluster node orchestration（复用 jobs runtime + SSE）
+	JobKindClusterNodeAdd    = "cluster.node.add"
+	JobKindClusterNodeRemove = "cluster.node.remove"
+
 	JobStatusQueued    = "queued"
 	JobStatusRunning   = "running"
 	JobStatusSucceeded = "succeeded"
