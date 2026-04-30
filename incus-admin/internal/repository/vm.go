@@ -160,6 +160,18 @@ func (r *VMRepo) UpdateNode(ctx context.Context, id int64, node string) error {
 	return err
 }
 
+// UpdateAfterProvision 在 jobs runner finalize 步骤一次性把 status / node /
+// password 写回。仅在 status='creating' 或 status='running'（重装情形）时改，
+// 防止把 admin 已手动转 'error' 的行又翻回 running。
+func (r *VMRepo) UpdateAfterProvision(ctx context.Context, id int64, node, password string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE vms
+		 SET status = 'running', node = $1, password = $2, updated_at = $3
+		 WHERE id = $4 AND status IN ('creating','running')`,
+		node, password, time.Now(), id)
+	return err
+}
+
 func (r *VMRepo) Delete(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE vms SET status = 'deleted', updated_at = $1 WHERE id = $2`,

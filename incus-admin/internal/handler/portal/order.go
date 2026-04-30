@@ -14,6 +14,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service"
+	"github.com/incuscloud/incus-admin/internal/service/jobs"
 )
 
 type OrderHandler struct {
@@ -23,10 +24,20 @@ type OrderHandler struct {
 	vmRepo   *repository.VMRepo
 	sshKeys  *repository.SSHKeyRepo
 	clusters *cluster.Manager
+	// PLAN-025：异步 provisioning 入口。jobs == nil 时回退同步路径（保留无异步运行时的部署兜底）。
+	jobs    *jobs.Runtime
+	jobRepo *repository.ProvisioningJobRepo
 }
 
 func NewOrderHandler(orders *repository.OrderRepo, products *repository.ProductRepo, vmSvc *service.VMService, vmRepo *repository.VMRepo, sshKeys *repository.SSHKeyRepo, clusters *cluster.Manager) *OrderHandler {
 	return &OrderHandler{orders: orders, products: products, vmSvc: vmSvc, vmRepo: vmRepo, sshKeys: sshKeys, clusters: clusters}
+}
+
+// WithJobs 注入 PLAN-025 异步 provisioning 运行时。main 在 wire 阶段调一次。
+func (h *OrderHandler) WithJobs(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo) *OrderHandler {
+	h.jobs = rt
+	h.jobRepo = jobRepo
+	return h
 }
 
 func (h *OrderHandler) PortalRoutes(r chi.Router) {
@@ -216,11 +227,104 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		osImage = "images:ubuntu/24.04/cloud"
 	}
 
+	// 生成最终 VM 名（与原 service.Create 同规则：用户给名 / 自动生成）
+	vmName := payReq.VMName
+	if vmName == "" {
+		vmName = service.GenerateVMName()
+	}
+
+	if h.jobs == nil || h.jobRepo == nil {
+		// 兜底：未注入 jobs runtime 时回退到旧同步路径，保证未启用异步的部署仍可用
+		h.payWithSyncProvisioning(w, r, order, orderID, userID, client, product, vmName, osImage, sshKeys, defProject, ip, gateway, cidr, pool, network)
+		return
+	}
+
+	// 异步路径：先把订单推到 provisioning，INSERT vms row(creating)，attach IP，
+	// INSERT provisioning_jobs，Enqueue 后立刻 202 返回。
+	if err := h.orders.UpdateStatus(r.Context(), orderID, model.OrderProvisioning); err != nil {
+		slog.Error("order status -> provisioning failed", "order", orderID, "error", err)
+		h.rollbackPayment(r.Context(), order, ip, "set provisioning failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal error, payment refunded"})
+		return
+	}
+
+	clusterID := h.clusters.IDByName(client.Name)
+
+	ipRef := ip
+	vm := &model.VM{
+		Name:      vmName,
+		ClusterID: clusterID,
+		UserID:    userID,
+		OrderID:   &orderID,
+		Status:    model.VMStatusCreating,
+		CPU:       product.CPU,
+		MemoryMB:  product.MemoryMB,
+		DiskGB:    product.DiskGB,
+		OSImage:   osImage,
+		IP:        &ipRef,
+	}
+	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+		slog.Error("vm row insert failed", "order", orderID, "name", vmName, "error", err)
+		h.rollbackPayment(r.Context(), order, ip, "vm row insert failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "VM record creation failed, payment refunded"})
+		return
+	}
+	attachIPToVM(r.Context(), ip, vm.ID)
+
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindVMCreate, userID, clusterID, &orderID, &vm.ID, vmName)
+	if err != nil {
+		slog.Error("create provisioning job failed", "order", orderID, "error", err)
+		h.rollbackPayment(r.Context(), order, ip, "job create failed: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal error, payment refunded"})
+		return
+	}
+
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+		Project:     defProject,
+		CPU:         product.CPU,
+		MemoryMB:    product.MemoryMB,
+		DiskGB:      product.DiskGB,
+		OSImage:     osImage,
+		SSHKeys:     sshKeys,
+		IP:          ip,
+		Gateway:     gateway,
+		SubnetCIDR:  cidr,
+		StoragePool: pool,
+		Network:     network,
+		OrderAmount: order.Amount,
+	}); err != nil {
+		slog.Error("enqueue job failed", "order", orderID, "job_id", job.ID, "error", err)
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue failed: "+err.Error())
+		h.rollbackPayment(r.Context(), order, ip, "enqueue failed")
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "internal error, payment refunded"})
+		return
+	}
+
+	audit(r.Context(), r, "order.pay", "order", orderID, map[string]any{
+		"vm_name": vmName,
+		"ip":      ip,
+		"amount":  order.Amount,
+		"job_id":  job.ID,
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":   "provisioning",
+		"job_id":   job.ID,
+		"vm_id":    vm.ID,
+		"order_id": orderID,
+		"vm_name":  vmName,
+		"ip":       ip,
+	})
+}
+
+// payWithSyncProvisioning 是 jobs runtime 未注入时的回退路径：维持原 sync 行为
+// 不变，避免没启用异步运行时的部署在升级期间断流。新部署应配置 jobs runtime。
+func (h *OrderHandler) payWithSyncProvisioning(w http.ResponseWriter, r *http.Request, order *model.Order, orderID, userID int64, client *cluster.Client, product *model.Product, vmName, osImage string, sshKeys []string, defProject, ip, gateway, cidr, pool, network string) {
 	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
 		ClusterName: client.Name,
 		Project:     defProject,
 		UserID:      userID,
-		VMName:      payReq.VMName,
+		VMName:      vmName,
 		CPU:         product.CPU,
 		MemoryMB:    product.MemoryMB,
 		DiskGB:      product.DiskGB,
@@ -330,7 +434,11 @@ func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, ip, reason string) {
 	if userRepo != nil {
 		desc := fmt.Sprintf("订单 #%d 失败退款: %s", order.ID, reason)
-		if err := userRepo.AdjustBalance(ctx, order.UserID, order.Amount, "refund", desc, &order.ID); err != nil {
+		// 不传 createdBy=order.ID —— transactions.created_by FK 指向 users.id，
+		// 传订单 ID 会触发 FK 23503。订单关联信息已写入 desc 中，足够审计。
+		// PLAN-025 交互测试发现：历史代码这里就有此 bug，但 refund 路径从未真在生产
+		// 触发过所以一直未暴露；异步化首次跑通失败 case 时直接撞上。
+		if err := userRepo.AdjustBalance(ctx, order.UserID, order.Amount, "refund", desc, nil); err != nil {
 			slog.Error("payment refund failed", "order", order.ID, "error", err)
 		}
 	}

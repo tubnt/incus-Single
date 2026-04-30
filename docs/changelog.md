@@ -1,5 +1,64 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [feat]
+
+PLAN-025 / INFRA-007 — VM provisioning 异步化 + SSE 进度流落地。订单付款不再握 30–90s HTTP，handler 立即返 202 + job_id；前端通过 SSE 实时看 5 阶段进度，完成后 SecretReveal 一次性展示密码。Reinstall 同形态异步化（同步前置仍保留 probe + prePullImage 数据保护）。Admin direct create 走相同 jobs runner。
+
+**核心修复（深度审查发现的 fake-wait bug）**：
+- `cluster.Client.httpClient.Timeout = 10s` vs `WaitForOperation` 调 `?timeout=120` 服务端 long-poll —— 客户端先 timeout 把 op 当失败，handler 误判继续 start，一直靠 `vm_reconciler` 60s 兜底纠偏。新增 `longClient`（无 client-level Timeout，依赖 ctx）专用此调用。
+- `WaitForOperation` 只判 HTTP 200 不解析 `metadata.status` —— Incus 在 op `Running` 时也是 200。改为循环直到 op.status=Success/Failure，60s 单次 long-poll 上限循环到 ctx done 为止。
+
+**新建基础设施**：
+- migration 015：`provisioning_jobs` + `provisioning_job_steps` 表 + `vms (cluster_id, name)` partial UNIQUE（不含 deleted/gone 历史墓碑行）
+- `internal/service/jobs/`：Broker（pub/sub for SSE）+ Runtime（worker pool N=4 + recovery sweeper）+ vmCreateExecutor + vmReinstallExecutor
+- `internal/handler/portal/jobs.go`：`GET /portal/jobs/{id}` + `GET /portal/jobs/{id}/stream`（SSE，Last-Event-ID 重连，per-user ≤ 4 并发）
+- `RateLimit` 中间件 bypass 任何以 `/stream` 结尾的路径
+- `worker.RunVMReconciler` 等已有 worker 不变；jobs runtime 与之并存（job 是事前编排，reconciler 是事后纠偏）
+
+**改造的三处调用站点**：
+- `OrderHandler.Pay`：付款（同步）→ 分配 IP（同步）→ INSERT vms(creating)（同步）→ INSERT job + Enqueue → 202
+- `VMHandler.Reinstall`：probe + prePullImage（同步保数据）→ INSERT job + Enqueue → 202
+- `AdminVMHandler.CreateVM`：分配 IP + INSERT vms + INSERT job → 202
+- 全部保留兜底同步路径：jobs runtime 缺失（DB-only 测试 / 老配置）时回退 PLAN-025 前同步行为
+
+**失败补偿矩阵**：
+- 任意 step 失败 → executor.Rollback：删 Incus instance（幂等 404 OK）+ 释放 IP + 退款（`refund_done_at IS NULL` guard 防双倍）+ order=cancelled + vm row=error
+- 进程崩溃恢复：sweeper 5min tick 找超 30min 仍 running 的 row → 标 partial → 同 rollback
+- audit 三段独立：`vm.provisioning.{started,succeeded,failed}`
+
+**前端**（pma-web 合规、DESIGN.md token 全部就位、零 hex 字面量、零 arbitrary value）：
+- `shared/lib/sse-client.ts`：fetch + ReadableStream 实现的 SSE 客户端，自动重连 + Last-Event-ID 续传
+- `features/jobs/`：`useJobQuery` + `useJobStream` + `<JobProgress />` 进度组件（StatusDot pulse / surface-1 / radius-md）
+- `purchase-sheet.tsx`：FORM → SUBMITTING → PROVISIONING(SSE) → DONE(密码) | FAILED 状态机；密码不走 SSE，done 后由 `GET /portal/jobs/{id}` 拉
+- `vm-detail.tsx` reinstall 抽屉：异步进行中展示 JobProgress，完成 toast 出新密码
+- i18n：zh / en 各加 11 个 jobs.* + 4 个 billing.* 新 key
+
+**测试**：
+- `cluster/client_integration_test.go`：4 个 case 覆盖 WaitForOperation Success / Running→Success / Failure / ContextCancel
+- `service/jobs/broker_test.go`：4 个 case 覆盖订阅广播 / unsubscribe / 按 jobID 路由 / 满 buffer 不阻塞
+- `go test ./...` 全绿、`go vet` clean、frontend `tsc` 0 / vitest 37/37 / build OK
+
+**范围外（显式排除，单立 task）**：
+- `vms.password` plaintext DB 存储 vs "shown only once" UX 矛盾（pre-existing）
+- 用户级 quota 强制（pre-existing；repo 存在但无 handler 调用）
+- `VMHandler.CreateService`（portal 直创入口，前端无引用，疑似死代码）
+
+**pma-cr 审查发现 + 修复（部署前）**：
+- **CRITICAL**：`runtime.runOne` 在 `exec.Run` 失败时只 `finalize` 不调 `Rollback` —— 用户付款后 VM 创建失败既不退款也不释放 IP。修：失败路径加 `exec.Rollback(jobCtx, r, job, runErr.Error())`。
+- **HIGH**：`purchase-sheet.tsx` 把 `setCredentials` / `setAsyncFinalError` 在 render 期间直接调用（违反 React 19）。修：迁到 `useEffect`。
+- **HIGH+MEDIUM**：SSE handler `ListSteps` → `Subscribe` 之间 job 终态 publish 给空订阅集合；step 在窗口期推出会漏。修：subscribe-first，再 list+check，前端 reducer 用 seq 自动 upsert 去重。
+- **MEDIUM**：worker goroutine panic 会导致 pool 永久缩容。修：runOne 内 `defer recover` 裹 `exec.Run`，外层 worker 再裹一层兜底 dispatch / finalize 路径的 panic。
+- 单测：`broker_test.go` + `WaitForOperation` 4 case 覆盖 race / 超时 / 状态解析。
+
+**生产交互测试发现 + 修复（部署后）**：
+- **CRITICAL**：`UserRepo.AdjustBalance(... createdBy=&orderID)` 把订单 ID 写入 `transactions.created_by` —— 但该列 FK 指向 `users.id`，触发 23503。历史 `OrderHandler.rollbackPayment` 同样 bug，因为 PLAN-025 之前 refund 路径在生产从未真跑通过所以一直未暴露；异步化首次失败 case 直接撞上。
+- **修法 v1**（边修边发现不彻底）：把 `createdBy` 改传 `nil`，订单关联留在 `desc` 字段。
+- **修法 v2（最终）**：把 `MarkRefunded` + `AdjustBalance` 两步合成原子 `RefundOnce(jobID, userID, amount, desc)` repo 方法 —— 单事务 `UPDATE refund_done_at WHERE IS NULL` + `UPDATE balance` + `INSERT transactions`，任一步失败整体回滚 → sweeper / worker 重试可重做。原 v1 是"先标 done 再扣款"，扣款失败 done 标记仍在，永不重试，用户余额永远没退。
+- 同时把同样 bug 修到 `OrderHandler.rollbackPayment`（同步兜底路径，传 `createdBy=nil`）。
+- 生产 vmc.5ok.co 实测：成功 case 完整 5 步进度（job 1/4）；失败 case 完整补偿（job 3，order=cancelled / vm=error / IP=cooldown / 余额回退 / refund tx 入账）；SSE 实时推送 + Last-Event-ID 续传双双通过。
+
+---
+
 ## 2026-04-30 [ci+merge]
 
 PR #1（PLAN-022/023/024 + OPS-020 + CR 修复）合并到 main，并修通 5 个 pre-existing CI 雷点 —— main 上 GitHub Actions CI 第一次三 job 全绿。

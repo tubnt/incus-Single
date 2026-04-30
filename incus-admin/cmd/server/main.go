@@ -23,6 +23,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/server"
 	"github.com/incuscloud/incus-admin/internal/service"
+	"github.com/incuscloud/incus-admin/internal/service/jobs"
 	"github.com/incuscloud/incus-admin/internal/worker"
 )
 
@@ -297,9 +298,38 @@ func main() {
 		})
 	}
 
+	// PLAN-025 / INFRA-007 异步 provisioning runtime。clusterMgr 为 nil 时
+	// （DB-only 测试 / 配置缺失）跳过启动；handler 走兜底同步路径。
+	jobRepo := repository.NewProvisioningJobRepo(db)
+	var jobsRuntime *jobs.Runtime
+	if clusterMgr != nil {
+		jobsRuntime = jobs.NewRuntime(jobs.Deps{
+			Jobs:        jobRepo,
+			VMs:         vmRepo,
+			IPAddrs:     ipAddrRepo,
+			Users:       userRepo,
+			Orders:      orderRepo,
+			Audit:       auditAdapter{repo: auditRepo},
+			Clusters:    clusterMgr,
+			OSTemplates: osTemplateRepo,
+			PoolSize:    4,
+		})
+		jobsRuntime.Start(workerCtx)
+		slog.Info("provisioning jobs runtime started", "pool_size", 4)
+	}
+
+	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)
+	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
+	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr)
+	if jobsRuntime != nil {
+		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
+		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
+		orderHandler.WithJobs(jobsRuntime, jobRepo)
+	}
+
 	srv := server.New(cfg, userLookup, roleLookup, balanceLookup, stepUpLookup, auditWriter, server.Handlers{
-		Admin:     portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler),
-		Portal:    portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr),
+		Admin:     adminVMHandler,
+		Portal:    portalVMHandler,
 		Users:     portal.NewUserHandler(userRepo),
 		IPPools:   portal.NewIPPoolHandler(clusterMgr),
 		Console:   portal.NewConsoleHandler(clusterMgr, vmRepo),
@@ -308,7 +338,7 @@ func main() {
 		SSHKeys:   portal.NewSSHKeyHandler(sshKeyRepo),
 		Tickets:   portal.NewTicketHandler(ticketRepo),
 		Products:  portal.NewProductHandler(productRepo),
-		Orders:    portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr),
+		Orders:    orderHandler,
 		Audit:     portal.NewAuditHandler(auditRepo),
 		APITokens: portal.NewAPITokenHandler(apiTokenRepo),
 		Invoices:    portal.NewInvoiceHandler(invoiceRepo),
@@ -322,6 +352,7 @@ func main() {
 		Firewall:    portal.NewFirewallHandler(firewallRepo, service.NewFirewallService(clusterMgr, vmSvc), vmRepo, clusterMgr),
 		FloatingIPs: portal.NewFloatingIPHandler(floatingIPRepo, service.NewFloatingIPService(clusterMgr), vmRepo, clusterRepo, clusterMgr),
 		Rescue:      portal.NewRescueHandler(vmRepo, service.NewRescueService(vmSvc, clusterMgr), clusterMgr),
+		Jobs:        jobsHandlerOrNil(jobsRuntime, jobRepo, vmRepo),
 		Auth:        stepUpHandler,
 		Shadow:      shadowHandler,
 	})
@@ -440,4 +471,24 @@ func (a healingTrackerAdapter) AppendEvacuatedVM(ctx context.Context, eventID in
 
 func (a healingTrackerAdapter) CompleteByNode(ctx context.Context, clusterID int64, nodeName string) (int64, error) {
 	return a.repo.CompleteByNode(ctx, clusterID, nodeName)
+}
+
+// auditAdapter 把 repository.AuditRepo.Log 转成 jobs.AuditWriter 接口。
+// 与 server.AuditWriter 类似，jobs runtime 通过这个 adapter 写
+// vm.provisioning.{started,succeeded,failed} 三段 audit。
+type auditAdapter struct {
+	repo *repository.AuditRepo
+}
+
+func (a auditAdapter) Log(ctx context.Context, userID *int64, action, targetType string, targetID int64, details map[string]any, ip string) {
+	a.repo.Log(ctx, userID, action, targetType, targetID, details, ip)
+}
+
+// jobsHandlerOrNil 在 jobs runtime 缺失时返回 nil（让 server.go 跳过路由注册），
+// 避免空 handler 把 /portal/jobs/* 拉成 5xx。
+func jobsHandlerOrNil(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo, vmRepo *repository.VMRepo) *portal.JobsHandler {
+	if rt == nil {
+		return nil
+	}
+	return portal.NewJobsHandler(jobRepo, vmRepo, rt)
 }

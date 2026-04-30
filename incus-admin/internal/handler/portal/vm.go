@@ -20,6 +20,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service"
+	"github.com/incuscloud/incus-admin/internal/service/jobs"
 )
 
 type VMHandler struct {
@@ -27,10 +28,21 @@ type VMHandler struct {
 	vmRepo   *repository.VMRepo
 	sshKeys  *repository.SSHKeyRepo
 	clusters *cluster.Manager
+	// PLAN-025：异步 reinstall 入口
+	jobs    *jobs.Runtime
+	jobRepo *repository.ProvisioningJobRepo
 }
 
 func NewVMHandler(vmSvc *service.VMService, vmRepo *repository.VMRepo, sshKeys *repository.SSHKeyRepo, clusters *cluster.Manager) *VMHandler {
 	return &VMHandler{vmSvc: vmSvc, vmRepo: vmRepo, sshKeys: sshKeys, clusters: clusters}
+}
+
+// WithJobs 注入 PLAN-025 异步运行时；handler 在两个写入站点（Reinstall + AdminVMHandler.CreateVM）
+// 都判 nil 走兼容兜底。
+func (h *VMHandler) WithJobs(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo) *VMHandler {
+	h.jobs = rt
+	h.jobRepo = jobRepo
+	return h
 }
 
 func (h *VMHandler) Routes(r chi.Router) {
@@ -78,21 +90,75 @@ func (h *VMHandler) Reinstall(w http.ResponseWriter, r *http.Request) {
 	resolved.Project = project
 	resolved.VMName = vm.Name
 
-	result, err := h.vmSvc.Reinstall(r.Context(), resolved)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	if h.jobs == nil || h.jobRepo == nil {
+		// 兜底：未注入 jobs runtime 时回退同步路径，行为与 PLAN-025 前完全一致
+		result, err := h.vmSvc.Reinstall(r.Context(), resolved)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		auditDetails := map[string]any{"name": vm.Name, "source": resolved.ImageSource, "user": resolved.DefaultUser}
+		if req.TemplateSlug != "" {
+			auditDetails["template_slug"] = req.TemplateSlug
+		}
+		audit(r.Context(), r, "vm.reinstall", "vm", vmID, auditDetails)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":   "reinstalled",
+			"password": result.Password,
+			"username": result.Username,
+		})
 		return
 	}
 
-	auditDetails := map[string]any{"name": vm.Name, "source": resolved.ImageSource, "user": resolved.DefaultUser}
+	// 异步路径：保留 probe + prePullImage 同步前置（OPS-008/012/016 数据保护防线）。
+	// 拉失败 → 立即 4xx 返回；原 VM 完整保留，未删除。
+	client, ok := h.clusters.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "cluster not registered"})
+		return
+	}
+	if err := service.ProbeImageServer(r.Context(), resolved.ServerURL); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": fmt.Sprintf("镜像服务器 %s 不可达，已取消重装以保护原 VM 数据: %v", resolved.ServerURL, err),
+		})
+		return
+	}
+	if err := service.PrePullImage(r.Context(), client, resolved.Project, resolved.ServerURL, resolved.Protocol, resolved.ImageSource); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": fmt.Sprintf("镜像 %s 预拉取失败，已取消重装以保护原 VM 数据: %v", resolved.ImageSource, err),
+		})
+		return
+	}
+
+	clusterID := h.clusters.IDByName(clusterName)
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindVMReinstall, userID, clusterID, nil, &vm.ID, vm.Name)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
+		return
+	}
+
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+		Project:     resolved.Project,
+		ImageSource: resolved.ImageSource,
+		ServerURL:   resolved.ServerURL,
+		Protocol:    resolved.Protocol,
+		DefaultUser: resolved.DefaultUser,
+	}); err != nil {
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue job: " + err.Error()})
+		return
+	}
+
+	auditDetails := map[string]any{"name": vm.Name, "source": resolved.ImageSource, "user": resolved.DefaultUser, "job_id": job.ID}
 	if req.TemplateSlug != "" {
 		auditDetails["template_slug"] = req.TemplateSlug
 	}
 	audit(r.Context(), r, "vm.reinstall", "vm", vmID, auditDetails)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   "reinstalled",
-		"password": result.Password,
-		"username": result.Username,
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status": "provisioning",
+		"job_id": job.ID,
+		"vm_id":  vm.ID,
 	})
 }
 
@@ -363,10 +429,19 @@ type AdminVMHandler struct {
 	sshKeys   *repository.SSHKeyRepo
 	clusters  *cluster.Manager
 	scheduler *cluster.Scheduler
+	jobs      *jobs.Runtime
+	jobRepo   *repository.ProvisioningJobRepo
 }
 
 func NewAdminVMHandler(vmSvc *service.VMService, vmRepo *repository.VMRepo, sshKeys *repository.SSHKeyRepo, clusters *cluster.Manager, scheduler *cluster.Scheduler) *AdminVMHandler {
 	return &AdminVMHandler{vmSvc: vmSvc, vmRepo: vmRepo, sshKeys: sshKeys, clusters: clusters, scheduler: scheduler}
+}
+
+// WithJobs 注入 PLAN-025 异步运行时；admin direct create 也走相同 jobs runner。
+func (h *AdminVMHandler) WithJobs(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo) *AdminVMHandler {
+	h.jobs = rt
+	h.jobRepo = jobRepo
+	return h
 }
 
 func (h *AdminVMHandler) Routes(r chi.Router) {
@@ -961,10 +1036,88 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		req.SSHKeys = sshKeys
 	}
 
-	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
-		ClusterName: clusterName,
+	if h.jobs == nil || h.jobRepo == nil {
+		// 兜底：未注入 jobs runtime 时同步路径
+		result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
+			ClusterName: clusterName,
+			Project:     req.Project,
+			UserID:      userID,
+			CPU:         req.CPU,
+			MemoryMB:    req.MemoryMB,
+			DiskGB:      req.DiskGB,
+			OSImage:     req.OSImage,
+			SSHKeys:     req.SSHKeys,
+			IP:          ip,
+			Gateway:     gateway,
+			SubnetCIDR:  cidr,
+			StoragePool: pool,
+			Network:     network,
+		})
+		if err != nil {
+			slog.Error("create VM failed", "cluster", clusterName, "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		vm := &model.VM{
+			Name:      result.VMName,
+			ClusterID: h.clusters.IDByName(clusterName),
+			UserID:    userID,
+			Status:    model.VMStatusRunning,
+			CPU:       req.CPU,
+			MemoryMB:  req.MemoryMB,
+			DiskGB:    req.DiskGB,
+			OSImage:   req.OSImage,
+			Node:      result.Node,
+			Password:  &result.Password,
+		}
+		if result.IP != "" {
+			vm.IP = &result.IP
+		}
+		if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+			slog.Error("vm row insert failed", "name", result.VMName, "error", err)
+		} else {
+			attachIPToVM(r.Context(), result.IP, vm.ID)
+		}
+		audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})
+		slog.Info("VM created via admin", "vm", result.VMName, "ip", result.IP)
+		writeJSON(w, http.StatusCreated, result)
+		return
+	}
+
+	// 异步路径
+	clusterID := h.clusters.IDByName(clusterName)
+	vmName := service.GenerateVMName()
+
+	ipRef := ip
+	vm := &model.VM{
+		Name:      vmName,
+		ClusterID: clusterID,
+		UserID:    userID,
+		Status:    model.VMStatusCreating,
+		CPU:       req.CPU,
+		MemoryMB:  req.MemoryMB,
+		DiskGB:    req.DiskGB,
+		OSImage:   req.OSImage,
+		IP:        &ipRef,
+	}
+	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
+		// IP 已分配 → release
+		_ = ipAddrRepo.Release(r.Context(), ip)
+		slog.Error("vm row insert failed (admin)", "name", vmName, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "vm row create failed: " + err.Error()})
+		return
+	}
+	attachIPToVM(r.Context(), ip, vm.ID)
+
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindVMCreate, userID, clusterID, nil, &vm.ID, vmName)
+	if err != nil {
+		_ = ipAddrRepo.Release(r.Context(), ip)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
+		return
+	}
+
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
 		Project:     req.Project,
-		UserID:      userID,
 		CPU:         req.CPU,
 		MemoryMB:    req.MemoryMB,
 		DiskGB:      req.DiskGB,
@@ -975,37 +1128,23 @@ func (h *AdminVMHandler) CreateVM(w http.ResponseWriter, r *http.Request) {
 		SubnetCIDR:  cidr,
 		StoragePool: pool,
 		Network:     network,
-	})
-	if err != nil {
-		slog.Error("create VM failed", "cluster", clusterName, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}); err != nil {
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+		_ = ipAddrRepo.Release(r.Context(), ip)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue job: " + err.Error()})
 		return
 	}
 
-	vm := &model.VM{
-		Name:      result.VMName,
-		ClusterID: h.clusters.IDByName(clusterName),
-		UserID:    userID,
-		Status:    model.VMStatusRunning,
-		CPU:       req.CPU,
-		MemoryMB:  req.MemoryMB,
-		DiskGB:    req.DiskGB,
-		OSImage:   req.OSImage,
-		Node:      result.Node,
-		Password:  &result.Password,
-	}
-	if result.IP != "" {
-		vm.IP = &result.IP
-	}
-	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
-		slog.Error("vm row insert failed", "name", result.VMName, "error", err)
-	} else {
-		attachIPToVM(r.Context(), result.IP, vm.ID)
-	}
-	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{"name": result.VMName, "ip": result.IP, "admin": true})
-
-	slog.Info("VM created via admin", "vm", result.VMName, "ip", result.IP)
-	writeJSON(w, http.StatusCreated, result)
+	audit(r.Context(), r, "vm.create", "vm", vm.ID, map[string]any{
+		"name": vmName, "ip": ip, "admin": true, "job_id": job.ID,
+	})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":  "provisioning",
+		"job_id":  job.ID,
+		"vm_id":   vm.ID,
+		"vm_name": vmName,
+		"ip":      ip,
+	})
 }
 
 func (h *AdminVMHandler) ListAllVMs(w http.ResponseWriter, r *http.Request) {

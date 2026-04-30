@@ -243,3 +243,24 @@ func buildHTTPClient(cc config.ClusterConfig, store FingerprintStore) (*http.Cli
 		},
 	}, nil
 }
+
+// buildLongHTTPClient 给 WaitForOperation 这种"客户端必须忍受 op 跑很久"的
+// 调用用：去掉 client-level Timeout（依赖 ctx 控制总时长），其余 transport
+// 设置与 buildHTTPClient 一致以共享 SPKI pin。
+//
+// 历史 bug：原 httpClient 10s timeout vs Incus side `?timeout=120` long-poll，
+// 客户端先 timeout 把 op 当失败 —— 异步化后必须修，否则 worker 也会 fake-wait。
+func buildLongHTTPClient(cc config.ClusterConfig, store FingerprintStore) (*http.Client, error) {
+	tlsConfig, err := BuildTLSConfigWithPin(cc, store)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{
+		// 不设 Timeout —— ctx.Done() 是唯一 cancel 路径
+		Transport: &http.Transport{
+			TLSClientConfig:     tlsConfig,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}, nil
+}

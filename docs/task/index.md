@@ -71,3 +71,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-018 Floating IP portal attach/detach + Admin VM firewall bind**](OPS-018.md) `P2`
 - [x] [**OPS-019 杂项打磨：lint / i18n / stateful / Bug#4 / log / audit**](OPS-019.md) `P3`
 - [x] [**OPS-020 前端 arbitrary value 全量替换为 @theme utility 直引**](OPS-020.md) `P3`
+- [x] [**INFRA-007 VM provisioning 异步化 + SSE 进度流**](INFRA-007.md) `P1`

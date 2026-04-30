@@ -666,3 +666,25 @@ ethernets:
 
 // Ensure VMService implements status constants from model
 var _ = model.VMStatusCreating
+
+// PLAN-025 / INFRA-007 桥接：异步 jobs runner 在 internal/service/jobs/
+// 子包内调用以下辅助函数。直接导出（GeneratePassword 等）会破坏旧调用方，
+// 这里以小包装函数的形式提供 stable API。
+func GeneratePassword() string                                 { return generatePassword() }
+func BuildCloudInit(password string, sshKeys []string) string  { return buildCloudInit(password, sshKeys) }
+func BuildNetworkConfig(ip, cidr, gateway string) string       { return buildNetworkConfig(ip, cidr, gateway) }
+func StripVolatileConfig(config map[string]string)             { stripVolatileConfig(config) }
+func ProbeImageServer(ctx context.Context, serverURL string) error {
+	return probeImageServer(ctx, serverURL)
+}
+func PrePullImage(ctx context.Context, client *cluster.Client, project, serverURL, protocol, alias string) error {
+	return prePullImage(ctx, client, project, serverURL, protocol, alias)
+}
+
+// GenerateVMName 给 handler 同步路径用：用户没填名字时生成 vm-{6hex}。
+// 与 VMService.Create 内部生成规则一致，保证异步 / 同步路径产物同形态。
+func GenerateVMName() string {
+	b := make([]byte, 3)
+	rand.Read(b)
+	return fmt.Sprintf("vm-%s", hex.EncodeToString(b))
+}

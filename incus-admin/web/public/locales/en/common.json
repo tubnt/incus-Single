@@ -413,7 +413,11 @@
     "vmCreatedTitle": "VM 创建成功",
     "vmName": "VM 名称（可选）",
     "vmNameInvalid": "VM name must start with a letter or digit and contain only [a-zA-Z0-9._-]",
-    "vmNamePlaceholder": "VM name (optional)"
+    "vmNamePlaceholder": "VM name (optional)",
+    "provisioning": "Provisioning VM",
+    "provisioningHint": "Live progress streaming. You can close this drawer; check the Orders page later to follow up.",
+    "closeAndContinue": "Close (continue in background)",
+    "allocatedIP": "Allocated IP"
   },
   "cluster": {
     "addCluster": "Add Cluster",
@@ -983,5 +987,22 @@
     "unfreeze": "解冻",
     "unknownError": "Unknown error",
     "username": "Username"
+  },
+  "jobs": {
+    "queued": "Queued, waiting for a worker...",
+    "failedGeneric": "VM creation failed; payment was refunded.",
+    "step": {
+      "submitInstance": "Submit create request",
+      "waitCreate": "Pull image and create instance",
+      "startInstance": "Start instance",
+      "waitStart": "Wait for boot",
+      "finalize": "Record node + credentials",
+      "fetchInstance": "Read original config",
+      "stop": "Stop current instance",
+      "delete": "Delete original instance",
+      "recreate": "Recreate instance",
+      "waitRecreate": "Wait for image + disk",
+      "startAfterReinstall": "Start new instance"
+    }
   }
 }

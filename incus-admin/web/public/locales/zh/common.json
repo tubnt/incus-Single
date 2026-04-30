@@ -415,7 +415,11 @@
     "vmCreatedTitle": "VM 创建成功",
     "vmName": "VM 名称（可选）",
     "vmNameInvalid": "VM 名称只能包含字母、数字、点 . 横杠 - 和下划线 _，且必须以字母或数字开头",
-    "vmNamePlaceholder": "VM 名称（可选）"
+    "vmNamePlaceholder": "VM 名称（可选）",
+    "provisioning": "正在创建 VM",
+    "provisioningHint": "进度实时更新中，可关闭抽屉稍后到「订单」页继续查看。",
+    "closeAndContinue": "关闭抽屉（后台继续）",
+    "allocatedIP": "已分配 IP"
   },
   "cluster": {
     "addCluster": "添加集群",
@@ -985,5 +989,22 @@
     "unfreeze": "解冻",
     "unknownError": "未知错误",
     "username": "用户名"
+  },
+  "jobs": {
+    "queued": "已排队，等待 worker 拾取...",
+    "failedGeneric": "VM 创建失败，已自动退款。",
+    "step": {
+      "submitInstance": "提交创建请求",
+      "waitCreate": "拉取镜像并创建实例",
+      "startInstance": "启动实例",
+      "waitStart": "等待启动完成",
+      "finalize": "记录运行节点与凭据",
+      "fetchInstance": "读取原实例配置",
+      "stop": "停止当前实例",
+      "delete": "删除原实例",
+      "recreate": "重建实例",
+      "waitRecreate": "等待镜像与磁盘就绪",
+      "startAfterReinstall": "启动新实例"
+    }
   }
 }
