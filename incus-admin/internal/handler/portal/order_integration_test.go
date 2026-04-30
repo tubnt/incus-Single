@@ -103,11 +103,14 @@ func TestPay_RollbackOnIPAllocFail(t *testing.T) {
 		t.Errorf("ip.vm_id = %v, want NULL", vmID.Int64)
 	}
 
+	// transactions schema 没有 order_id 字段（生产 AdjustBalance 也不写
+	// order_id），用 user_id + type='refund' 取该用户最近一条退款记录即可。
+	_ = orderID
 	var refundAmount float64
 	var txType string
 	if err := db.QueryRow(
-		`SELECT amount, type FROM transactions WHERE user_id=$1 AND order_id=$2 ORDER BY id DESC LIMIT 1`,
-		userID, orderID).Scan(&refundAmount, &txType); err != nil {
+		`SELECT amount, type FROM transactions WHERE user_id=$1 AND type='refund' ORDER BY id DESC LIMIT 1`,
+		userID).Scan(&refundAmount, &txType); err != nil {
 		t.Fatalf("load refund tx: %v", err)
 	}
 	if refundAmount != amount {
