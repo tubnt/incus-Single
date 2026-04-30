@@ -2,6 +2,28 @@
 
 ## 2026-04-30 [fix]
 
+PLAN-030 / OPS-028 — 全功能 UI 测试遗留打磨：1 P2 + 4 P3 + 3 CR 改进打包：
+
+**SEC-002 (P2)**: admin VM list/detail/节点详情响应**新增 redactInstanceMap/JSON/List** 裁掉 `config.user.cloud-init` / `expanded_config.user.cloud-init`（含明文初始 root 密码）。fail-open 设计：decode 失败时 raw 透传 + warn log（admin 已 gate，Incus 形状极少变）。3 个 site 全覆盖（vm.go ListClusterVMs / ListAllVMs / GetClusterVMDetail + clustermgmt.go 节点详情），单测覆盖。
+
+**M1 (CR-MEDIUM)**: `defaultProjectsFor` 加 4-case table test（""/`default`/`customers`/`internal`），protect OPS-027 修复回归。
+
+**L1 (CR-LOW)**: `AddNode` body 的 NICPrimary/NICCluster/BridgeName 加 `safename` validator（双重防御；shellQuote 已防 shell injection，safename 让奇怪输入早死于 422）。
+
+**P3.1**: `billing.tsx` Invoices 表头 `t("invoice.amount")` / `t("invoice.status")` 加 defaultValue 兜底（en locale 下不再渲染 i18n key 字面量）。
+
+**P3.2**: `admin/orders` User 列改显示 email、Product 列改显示产品名；用 `useAdminUsersQuery` + `useAdminProductsQuery` (limit=200) 建 ID→name 映射。
+
+**P3.3**: `admin/tickets` 用户列同样从 user_id 解析 email；en/common.json 把 hardcoded "用户" / "工单管理" / "暂无工单" / "用户配额" 切到英文翻译。
+
+**P3.4**: env-script 下载从 `<a href download>` 改 `<Button onClick downloadClusterEnvScript>`，走 fetch + 401 step-up 拦截 → 跳 OIDC 而不是落到裸 JSON 响应页。
+
+**L2 (CR-LOW)**: `node-join.tsx` skip-network 高级区 IP placeholder 改为 `derivedInternalIP("10.0.10", publicIP)` 跟 publicIP 末位走；勾 skip-network 但 mgmtIP 空时显示 warn 提示运维。
+
+---
+
+## 2026-04-30 [fix]
+
 PLAN-029 / OPS-027 — `admin/vms` 跨 project 列表 0 VM 修复（P1）：
 
 **问题**：PLAN-028 收尾后做全功能 UI 回归发现生产 `/admin/vms` 列表显示 0 VM；同时 admin/monitoring 显示 5 VM、portal/vms 显示 1 VM (MyVM)。三条路径不一致，admin 视角彻底看不到 VM。

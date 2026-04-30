@@ -359,14 +359,14 @@
       "title": "Ticket Management",
       "view": "View"
     },
-    "ticketsEmpty": "暂无工单。",
-    "ticketsTitle": "工单管理",
+    "ticketsEmpty": "No tickets.",
+    "ticketsTitle": "Tickets",
     "topUp": "Top Up",
     "topUpConfirmMessage": "确认给 {{email}} 充值 {{amount}}？",
     "topUpConfirmTitle": "确认充值",
     "totalRows": "{{count}} total",
-    "user": "用户",
-    "userQuotaTitle": "用户配额",
+    "user": "User",
+    "userQuotaTitle": "User Quota",
     "users": {
       "title": "Users",
       "batchDowngradeCustomer": "批量降级 customer",

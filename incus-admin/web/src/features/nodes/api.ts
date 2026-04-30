@@ -200,6 +200,41 @@ export function clusterEnvScriptURL(clusterName: string): string {
   return `/api/admin/clusters/${clusterName}/env-script`;
 }
 
+// OPS-028 P3.4：fetch 走 step-up 401 拦截 → 跳 OIDC；避免浏览器直链落到
+// step-up JSON 裸页。返回 ok=true 时浏览器开始下载；ok=false 时已被
+// step-up 接管或抛出错误。
+export async function downloadClusterEnvScript(clusterName: string): Promise<void> {
+  const url = clusterEnvScriptURL(clusterName);
+  const resp = await fetch(url, { credentials: "same-origin" });
+  if (resp.status === 401) {
+    const body: unknown = await resp.json().catch(() => null);
+    if (
+      body
+      && typeof body === "object"
+      && (body as Record<string, unknown>).error === "step_up_required"
+    ) {
+      const redirect = (body as Record<string, unknown>).redirect;
+      if (typeof redirect === "string" && redirect.startsWith("/api/auth/stepup/")) {
+        window.location.href = redirect;
+        return;
+      }
+    }
+    throw new Error("unauthorized");
+  }
+  if (!resp.ok) {
+    throw new Error(`download failed: HTTP ${resp.status}`);
+  }
+  const blob = await resp.blob();
+  const objectURL = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectURL;
+  a.download = "cluster-env.sh";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectURL);
+}
+
 export function useRemoveNodeMutation(clusterName: string) {
   return useMutation({
     mutationFn: (params: { nodeName: string; leader?: string }) => {

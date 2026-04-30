@@ -854,19 +854,23 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 }
 
 // injectDBIPs decodes each instance payload, looks up the DB-recorded IP by VM name,
-// and re-encodes with an `ip` field when a match is found. On any decode / lookup
-// failure we silently keep the original payload — the UI already falls back to the
-// Incus state.network block.
+// re-encodes with an `ip` field when a match is found, and redacts sensitive
+// cloud-init / volatile fields in one pass. On any decode / lookup failure we
+// silently keep the original payload — the UI already falls back to the Incus
+// state.network block. Redaction is best-effort: a decode failure means the
+// original (still containing cloud-init) is returned, but Incus JSON shape
+// changes are essentially never silent.
 func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMessage) []json.RawMessage {
 	if len(instances) == 0 || h.vmRepo == nil {
-		return instances
+		// 没有 DB 注入需求时仍要做敏感字段裁剪（SEC-002 / OPS-028）
+		return redactInstanceList(instances)
 	}
 	decoded := make([]map[string]any, 0, len(instances))
 	names := make([]string, 0, len(instances))
 	for _, raw := range instances {
 		var m map[string]any
 		if err := json.Unmarshal(raw, &m); err != nil {
-			return instances
+			return redactInstanceList(instances)
 		}
 		decoded = append(decoded, m)
 		if n, ok := m["name"].(string); ok && n != "" {
@@ -876,7 +880,6 @@ func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMe
 	ipByName, err := h.vmRepo.IPsByNames(ctx, names)
 	if err != nil {
 		slog.Warn("lookup VM IPs from DB failed", "error", err)
-		return instances
 	}
 	out := make([]json.RawMessage, len(decoded))
 	for i, m := range decoded {
@@ -885,11 +888,61 @@ func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMe
 				m["ip"] = ip
 			}
 		}
+		redactInstanceMap(m)
 		buf, err := json.Marshal(m)
 		if err != nil {
-			return instances
+			out[i] = instances[i]
+			continue
 		}
 		out[i] = buf
+	}
+	return out
+}
+
+// redactInstanceMap 原地移除 Incus instance JSON 中的敏感字段。当前覆盖：
+//   - config.user.cloud-init / expanded_config.user.cloud-init 含明文初始
+//     root 密码（cloud-config password: <hex>），即便对 admin 也应过滤以
+//     减少响应体散布到日志 / 屏幕快照 / 浏览器缓存的暴露面（SEC-002 / OPS-028）。
+//
+// 这是 admin 视角双重防御 —— admin 本身有 reset-password 权限，但响应体
+// 比按需走 reset-password 接口扩散面更大。
+func redactInstanceMap(m map[string]any) {
+	for _, key := range []string{"config", "expanded_config"} {
+		if cfg, ok := m[key].(map[string]any); ok {
+			delete(cfg, "user.cloud-init")
+		}
+	}
+}
+
+// redactInstanceJSON 是 redactInstanceMap 的 raw-JSON 版本，用于单实例
+// pass-through 路径（GetClusterVMDetail / 节点详情）。Decode 失败时返回
+// 原样（fail-open），因为 admin 已 gate 且 Incus JSON 形状稳定。
+func redactInstanceJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		slog.Warn("redact instance: decode failed; passing through raw (cloud-init may leak)", "error", err)
+		return raw
+	}
+	redactInstanceMap(m)
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// redactInstanceList 批量版本，用于 ListAllVMs / 节点详情这些不走 injectDBIPs
+// 的路径。
+func redactInstanceList(instances []json.RawMessage) []json.RawMessage {
+	if len(instances) == 0 {
+		return instances
+	}
+	out := make([]json.RawMessage, len(instances))
+	for i, raw := range instances {
+		out[i] = redactInstanceJSON(raw)
 	}
 	return out
 }
@@ -1110,6 +1163,7 @@ func (h *AdminVMHandler) ListAllVMs(w http.ResponseWriter, r *http.Request) {
 	if allInstances == nil {
 		allInstances = []json.RawMessage{}
 	}
+	allInstances = redactInstanceList(allInstances)
 	writeJSON(w, http.StatusOK, map[string]any{"vms": allInstances, "count": len(allInstances)})
 }
 
@@ -1564,7 +1618,7 @@ func (h *AdminVMHandler) GetClusterVMDetail(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"vm":        instance,
+		"vm":        redactInstanceJSON(instance),
 		"state":     state,
 		"snapshots": snapshots,
 		"project":   project,
