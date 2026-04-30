@@ -26,10 +26,19 @@ type ClusterMgmtHandler struct {
 	sshUser        string
 	sshKeyFile     string
 	knownHostsFile string
+	// PLAN-027 / INFRA-003：cluster 持久化
+	clusterRepo *repository.ClusterRepo
 }
 
 func NewClusterMgmtHandler(mgr *cluster.Manager) *ClusterMgmtHandler {
 	return &ClusterMgmtHandler{mgr: mgr}
+}
+
+// WithPersistence 注入 ClusterRepo 启用 add/remove 双写 DB（PLAN-027）。
+// 不注入时退化为旧行为（in-memory only，重启即丢）。
+func (h *ClusterMgmtHandler) WithPersistence(repo *repository.ClusterRepo) *ClusterMgmtHandler {
+	h.clusterRepo = repo
+	return h
 }
 
 // WithNodeOrchestration 注入节点编排所需依赖。nil jobs runtime 时 add/remove
@@ -57,24 +66,33 @@ func (h *ClusterMgmtHandler) AdminRoutes(r chi.Router) {
 
 func (h *ClusterMgmtHandler) AddCluster(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"         validate:"required,safename"`
-		DisplayName string `json:"display_name" validate:"omitempty,max=200"`
-		APIURL      string `json:"api_url"      validate:"required,url"`
-		CertFile    string `json:"cert_file"    validate:"omitempty,max=512"`
-		KeyFile     string `json:"key_file"     validate:"omitempty,max=512"`
-		CAFile      string `json:"ca_file"      validate:"omitempty,max=512"`
+		Name           string                 `json:"name"            validate:"required,safename"`
+		DisplayName    string                 `json:"display_name"    validate:"omitempty,max=200"`
+		APIURL         string                 `json:"api_url"         validate:"required,url"`
+		CertFile       string                 `json:"cert_file"       validate:"omitempty,max=512"`
+		KeyFile        string                 `json:"key_file"        validate:"omitempty,max=512"`
+		CAFile         string                 `json:"ca_file"         validate:"omitempty,max=512"`
+		Kind           string                 `json:"kind"            validate:"omitempty,oneof=cluster standalone"`
+		DefaultProject string                 `json:"default_project" validate:"omitempty,safename"`
+		StoragePool    string                 `json:"storage_pool"    validate:"omitempty,safename"`
+		Network        string                 `json:"network"         validate:"omitempty,safename"`
+		IPPools        []config.IPPoolConfig  `json:"ip_pools"        validate:"omitempty,dive"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
 
 	cc := config.ClusterConfig{
-		Name:        req.Name,
-		DisplayName: req.DisplayName,
-		APIURL:      req.APIURL,
-		CertFile:    req.CertFile,
-		KeyFile:     req.KeyFile,
-		CAFile:      req.CAFile,
+		Name:           req.Name,
+		DisplayName:    req.DisplayName,
+		APIURL:         req.APIURL,
+		CertFile:       req.CertFile,
+		KeyFile:        req.KeyFile,
+		CAFile:         req.CAFile,
+		DefaultProject: req.DefaultProject,
+		StoragePool:    req.StoragePool,
+		Network:        req.Network,
+		IPPools:        req.IPPools,
 	}
 
 	if err := h.mgr.AddCluster(cc); err != nil {
@@ -83,8 +101,42 @@ func (h *ClusterMgmtHandler) AddCluster(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	audit(r.Context(), r, "cluster.add", "cluster", 0, map[string]any{"name": req.Name, "url": req.APIURL})
-	slog.Info("cluster added", "name", req.Name, "url", req.APIURL)
+	// PLAN-027：双写 DB。Manager 已经成功，DB 失败时把 Manager 也回滚回去，
+	// 保证两边一致 —— 否则下次重启会少这条 cluster 但内存里还有，状态漂移。
+	if h.clusterRepo != nil {
+		kind := req.Kind
+		if kind == "" {
+			kind = model.ClusterKindCluster
+		}
+		var pools any
+		if len(req.IPPools) > 0 {
+			pools = req.IPPools
+		}
+		row := &model.Cluster{
+			Name:           req.Name,
+			DisplayName:    req.DisplayName,
+			APIURL:         req.APIURL,
+			Kind:           kind,
+			CertFile:       req.CertFile,
+			KeyFile:        req.KeyFile,
+			CAFile:         req.CAFile,
+			DefaultProject: req.DefaultProject,
+			StoragePool:    req.StoragePool,
+			Network:        req.Network,
+		}
+		if id, perr := h.clusterRepo.CreateFull(r.Context(), row, pools); perr != nil {
+			// rollback Manager-side add to keep state consistent
+			_ = h.mgr.RemoveCluster(req.Name)
+			slog.Error("persist cluster to DB failed; rolled back manager", "name", req.Name, "error", perr)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "persist cluster: " + perr.Error()})
+			return
+		} else {
+			h.mgr.SetID(req.Name, id)
+		}
+	}
+
+	audit(r.Context(), r, "cluster.add", "cluster", 0, map[string]any{"name": req.Name, "url": req.APIURL, "kind": req.Kind})
+	slog.Info("cluster added", "name", req.Name, "url", req.APIURL, "kind", req.Kind)
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "added", "name": req.Name})
 }
 
@@ -94,6 +146,13 @@ func (h *ClusterMgmtHandler) RemoveCluster(w http.ResponseWriter, r *http.Reques
 	if err := h.mgr.RemoveCluster(name); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
+	}
+
+	// PLAN-027：DB 删除。Manager 删除已成功，DB 失败仅记日志（重启会再次发现并清理）。
+	if h.clusterRepo != nil {
+		if _, derr := h.clusterRepo.DeleteByName(r.Context(), name); derr != nil {
+			slog.Error("delete cluster row failed; will reappear on restart", "name", name, "error", derr)
+		}
 	}
 
 	audit(r.Context(), r, "cluster.remove", "cluster", 0, map[string]any{"name": name})

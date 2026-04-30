@@ -1,9 +1,11 @@
 # INFRA-003 Add standalone Incus host management
 
-- **status**: pending
+- **status**: completed
+- **completedAt**: 2026-04-30
 - **priority**: P2
-- **owner**: (unassigned)
+- **owner**: claude
 - **createdAt**: 2026-04-15 18:00
+- **plan**: [PLAN-027](../plan/PLAN-027.md)
 
 ## Description
 

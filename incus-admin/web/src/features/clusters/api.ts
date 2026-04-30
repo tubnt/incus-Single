@@ -28,6 +28,12 @@ export interface AddClusterParams {
   api_url: string;
   cert_file: string;
   key_file: string;
+  // PLAN-027 / INFRA-003 扩展字段（可选；老 form 不传等价于 cluster + 默认）
+  ca_file?: string;
+  kind?: "cluster" | "standalone";
+  default_project?: string;
+  storage_pool?: string;
+  network?: string;
 }
 
 export const clusterKeys = {

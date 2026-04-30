@@ -21,6 +21,16 @@ type Cluster struct {
 	DisplayName string    `json:"display_name" db:"display_name"`
 	APIURL      string    `json:"api_url" db:"api_url"`
 	Status      string    `json:"status" db:"status"`
+	// PLAN-027 / INFRA-003：完整运行时配置进 DB
+	Kind           string `json:"kind" db:"kind"` // 'cluster' | 'standalone'
+	CertFile       string `json:"cert_file,omitempty" db:"cert_file"`
+	KeyFile        string `json:"key_file,omitempty" db:"key_file"`
+	CAFile         string `json:"ca_file,omitempty" db:"ca_file"`
+	DefaultProject string `json:"default_project,omitempty" db:"default_project"`
+	StoragePool    string `json:"storage_pool,omitempty" db:"storage_pool"`
+	Network        string `json:"network,omitempty" db:"network"`
+	// IPPoolsJSON 是 config.IPPoolConfig 数组的序列化形式；repo 层 unmarshal
+	IPPoolsJSON string    `json:"-" db:"ip_pools_json"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -292,6 +302,10 @@ const (
 	// PLAN-026 / INFRA-002 cluster node orchestration（复用 jobs runtime + SSE）
 	JobKindClusterNodeAdd    = "cluster.node.add"
 	JobKindClusterNodeRemove = "cluster.node.remove"
+
+	// PLAN-027 / INFRA-003 cluster topology kind
+	ClusterKindCluster    = "cluster"
+	ClusterKindStandalone = "standalone"
 
 	JobStatusQueued    = "queued"
 	JobStatusRunning   = "running"
