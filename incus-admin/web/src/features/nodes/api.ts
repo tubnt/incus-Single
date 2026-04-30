@@ -146,6 +146,14 @@ export interface AddNodeParams {
   ssh_user?: string;
   ssh_key_file?: string;
   role?: "osd" | "mon-mgr-osd";
+  // OPS-026 / PLAN-028 advanced：bonded NIC / 异构拓扑
+  nic_primary?: string;
+  nic_cluster?: string;
+  bridge_name?: string;
+  mgmt_ip?: string;
+  ceph_pub_ip?: string;
+  ceph_cluster_ip?: string;
+  skip_network?: boolean;
 }
 
 export interface NodeJobResponse {

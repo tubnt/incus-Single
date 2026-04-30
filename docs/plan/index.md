@@ -56,3 +56,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-025 VM provisioning 异步化 + SSE 进度流**](PLAN-025.md) `2026-04-30`
 - [x] [**PLAN-026 集群节点管理 UI + 自动化（INFRA-002 落地）**](PLAN-026.md) `2026-04-30`
 - [x] [**PLAN-027 Standalone Incus host 管理 + DB-driven cluster config（INFRA-003）**](PLAN-027.md) `2026-04-30`
+- [x] [**PLAN-028 join-node.sh 兼容 bonded NIC + skip-network（OPS-026）**](PLAN-028.md) `2026-04-30`

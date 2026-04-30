@@ -226,7 +226,15 @@
         "progressTitle": "Joining node {{name}}",
         "progressHint": "Live progress streaming. You may close this page; check back from the nodes list.",
         "done": "Node {{name}} joined the cluster",
-        "failed": "Node join failed; check the progress card"
+        "failed": "Node join failed; check the progress card",
+        "advanced": "Advanced (bonded NIC / heterogeneous topology)",
+        "skipNetwork": "Skip network configuration (node already pre-configured by ops with IP / routes / bridge)",
+        "nicPrimary": "Primary NIC name (default eno1)",
+        "nicCluster": "Ceph cluster NIC name (default eno2)",
+        "bridgeName": "Bridge name (default br-pub)",
+        "mgmtIP": "Mgmt IP (default derived from pub IP last octet)",
+        "cephPubIP": "Ceph public IP (default derived 10.0.20.X)",
+        "cephClusterIP": "Ceph cluster IP (default derived 10.0.30.X)"
       },
       "remove": {
         "title": "Remove Node",

@@ -38,6 +38,14 @@ log_step()  { echo -e "\n${BLUE}====== $* ======${NC}"; }
 NODE_NAME=""
 PUB_IP=""
 INCUS_TOKEN=""
+# OPS-026：NIC 名称 + IP 覆盖（默认从 cluster-env.sh / pub IP 反推）
+OVR_NIC_PRIMARY=""
+OVR_NIC_CLUSTER=""
+OVR_BRIDGE_NAME=""
+OVR_MGMT_IP=""
+OVR_CEPH_PUB_IP=""
+OVR_CEPH_CLUSTER_IP=""
+SKIP_NETWORK=false
 
 usage() {
   cat <<EOF
@@ -45,29 +53,47 @@ usage() {
 
 新节点加入 Incus + Ceph 集群的一站式脚本。
 
-选项:
+必填:
   --name <name>          节点名称（如 node6）
   --pub-ip <ip>          节点公网 IP
   --incus-token <token>  Incus 集群 join token
+
+可选（OPS-026 兼容 bonded NIC / 异构拓扑）:
+  --nic-primary <name>   主网卡名（默认从 cluster-env.sh: ${NIC_PRIMARY}）
+  --nic-cluster <name>   集群网卡名（默认 cluster-env.sh: ${NIC_CLUSTER}）
+  --bridge-name <name>   桥接名（默认 cluster-env.sh: ${BRIDGE_NAME}）
+  --mgmt-ip <ip>         mgmt 网 IP（默认按 pub IP 末位推算 10.0.10.X）
+  --ceph-pub-ip <ip>     Ceph public 网 IP（默认 10.0.20.X）
+  --ceph-cluster-ip <ip> Ceph cluster 网 IP（默认 10.0.30.X）
+  --skip-network         跳过 do_network（节点已由运维预配 IP/路由/桥接）；
+                         preflight 改为验证 mgmt IP / 默认路由是否到位
   --help                 显示帮助
 
 示例:
-  # 在已有集群节点上生成 token:
-  incus cluster add node6
+  # 标准 5 节点同款拓扑（eno1 单网卡 + VLAN）：
+  $(basename "$0") --name node3 --pub-ip 202.151.179.228 --incus-token eyJ...
 
-  # 在新节点上执行:
-  $(basename "$0") --name node6 --pub-ip 202.151.179.231 --incus-token eyJ...
+  # bonded NIC + 预配网络（如 node6）：
+  $(basename "$0") --name node6 --pub-ip 202.151.179.231 --incus-token eyJ... \\
+    --skip-network --mgmt-ip 10.0.10.6 --ceph-pub-ip 10.0.20.6 --ceph-cluster-ip 10.0.30.6
 EOF
   exit 0
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --name)        NODE_NAME="$2";    shift 2 ;;
-    --pub-ip)      PUB_IP="$2";       shift 2 ;;
-    --incus-token) INCUS_TOKEN="$2";  shift 2 ;;
-    --help|-h)     usage ;;
-    *)             log_error "未知参数: $1"; usage ;;
+    --name)             NODE_NAME="$2";          shift 2 ;;
+    --pub-ip)           PUB_IP="$2";             shift 2 ;;
+    --incus-token)      INCUS_TOKEN="$2";        shift 2 ;;
+    --nic-primary)      OVR_NIC_PRIMARY="$2";    shift 2 ;;
+    --nic-cluster)      OVR_NIC_CLUSTER="$2";    shift 2 ;;
+    --bridge-name)      OVR_BRIDGE_NAME="$2";    shift 2 ;;
+    --mgmt-ip)          OVR_MGMT_IP="$2";        shift 2 ;;
+    --ceph-pub-ip)      OVR_CEPH_PUB_IP="$2";    shift 2 ;;
+    --ceph-cluster-ip)  OVR_CEPH_CLUSTER_IP="$2"; shift 2 ;;
+    --skip-network)     SKIP_NETWORK=true;       shift 1 ;;
+    --help|-h)          usage ;;
+    *)                  log_error "未知参数: $1"; usage ;;
   esac
 done
 
@@ -75,6 +101,11 @@ if [[ -z "$NODE_NAME" || -z "$PUB_IP" || -z "$INCUS_TOKEN" ]]; then
   log_error "必须指定 --name, --pub-ip, --incus-token"
   usage
 fi
+
+# OPS-026：让 cluster-env.sh 默认值被命令行覆盖
+[[ -n "$OVR_NIC_PRIMARY" ]] && NIC_PRIMARY="$OVR_NIC_PRIMARY"
+[[ -n "$OVR_NIC_CLUSTER" ]] && NIC_CLUSTER="$OVR_NIC_CLUSTER"
+[[ -n "$OVR_BRIDGE_NAME" ]] && BRIDGE_NAME="$OVR_BRIDGE_NAME"
 
 # 校验 IP 格式和子网范围
 validate_ip() {
@@ -118,12 +149,13 @@ fi
 # ==================== 从节点名推算内网 IP ====================
 # 规则: 公网 IP 末位数字作为内网 IP 后缀
 # 例如: 202.151.179.231 → 10.0.10.231, 10.0.20.231, 10.0.30.231
+# OPS-026: --mgmt-ip / --ceph-pub-ip / --ceph-cluster-ip 命令行覆盖 derive
 derive_internal_ips() {
   local octet
   octet=$(echo "$PUB_IP" | cut -d. -f4)
-  MGMT_IP="10.0.10.${octet}"
-  CEPH_PUB_IP="10.0.20.${octet}"
-  CEPH_CLUSTER_IP="10.0.30.${octet}"
+  MGMT_IP="${OVR_MGMT_IP:-10.0.10.${octet}}"
+  CEPH_PUB_IP="${OVR_CEPH_PUB_IP:-10.0.20.${octet}}"
+  CEPH_CLUSTER_IP="${OVR_CEPH_CLUSTER_IP:-10.0.30.${octet}}"
 }
 
 derive_internal_ips
@@ -150,18 +182,34 @@ do_preflight() {
     exit 1
   fi
 
-  # 检查双网卡
-  if ! ip link show "${NIC_PRIMARY}" &>/dev/null; then
-    log_error "主网卡 ${NIC_PRIMARY} 不存在"
-    exit 1
-  fi
-  log_info "主网卡 ${NIC_PRIMARY} 存在"
+  # OPS-026：skip-network 模式下，不检查 NIC 名（运维已预配），改为
+  # 验证 mgmt IP 是否在本机存在 + 默认路由 + 公网可达
+  if [[ "$SKIP_NETWORK" == "true" ]]; then
+    log_info "skip-network 模式：跳过 NIC 名称检查"
+    if ! ip -4 addr show | grep -q "inet ${MGMT_IP}/"; then
+      log_error "mgmt IP ${MGMT_IP} 未在本机任何网卡上配置（skip-network 模式要求运维预配）"
+      exit 1
+    fi
+    log_info "mgmt IP ${MGMT_IP} 已就位"
+    if ! ip route show default | grep -q "default"; then
+      log_error "默认路由不存在"
+      exit 1
+    fi
+    log_info "默认路由就位"
+  else
+    # 检查双网卡
+    if ! ip link show "${NIC_PRIMARY}" &>/dev/null; then
+      log_error "主网卡 ${NIC_PRIMARY} 不存在"
+      exit 1
+    fi
+    log_info "主网卡 ${NIC_PRIMARY} 存在"
 
-  if ! ip link show "${NIC_CLUSTER}" &>/dev/null; then
-    log_error "集群网卡 ${NIC_CLUSTER} 不存在"
-    exit 1
+    if ! ip link show "${NIC_CLUSTER}" &>/dev/null; then
+      log_error "集群网卡 ${NIC_CLUSTER} 不存在"
+      exit 1
+    fi
+    log_info "集群网卡 ${NIC_CLUSTER} 存在"
   fi
-  log_info "集群网卡 ${NIC_CLUSTER} 存在"
 
   # 检查磁盘（至少有可用的数据盘）
   local avail_disks
@@ -242,6 +290,14 @@ ZABBLY
 # ==================== 步骤 3: 网络配置 ====================
 do_network() {
   log_step "步骤 3/7: 网络配置"
+
+  if [[ "$SKIP_NETWORK" == "true" ]]; then
+    log_info "skip-network 模式：跳过 netplan 生成 / 应用（运维已预配）"
+    log_info "  mgmt:    ${MGMT_IP}"
+    log_info "  ceph_pub: ${CEPH_PUB_IP}"
+    log_info "  ceph_clu: ${CEPH_CLUSTER_IP}"
+    return 0
+  fi
 
   local netplan_file
   netplan_file=$(mktemp "/tmp/netplan-${NODE_NAME}-XXXXXX.yaml")
@@ -447,6 +503,11 @@ print(count)
 do_firewall() {
   log_step "步骤 6/7: 部署防火墙规则"
 
+  if [[ "$SKIP_NETWORK" == "true" ]] && ! ip link show "${BRIDGE_NAME}" &>/dev/null; then
+    log_info "skip-network 模式且 ${BRIDGE_NAME} 桥未配置：跳过防火墙（OSD-only 节点不需要 VM 网络规则）"
+    return 0
+  fi
+
   local firewall_script="${SCRIPT_DIR}/setup-firewall.sh"
   if [[ -f "$firewall_script" ]]; then
     log_info "调用 setup-firewall.sh 部署防火墙..."
@@ -471,21 +532,33 @@ do_verify() {
     errors=$((errors + 1))
   fi
 
-  # 检查网桥
-  log_info "检查网络接口..."
-  if ip link show "${BRIDGE_NAME}" &>/dev/null; then
-    log_info "  [OK] ${BRIDGE_NAME} 网桥存在"
+  # OPS-026：skip-network 模式跳过 netplan 派生的检查（运维负责），但仍
+  # 验证 mgmt IP / 默认路由是否就位
+  if [[ "$SKIP_NETWORK" == "true" ]]; then
+    log_info "检查网络（skip-network 模式）..."
+    if ip -4 addr show | grep -q "inet ${MGMT_IP}/"; then
+      log_info "  [OK] mgmt IP ${MGMT_IP} 已配置"
+    else
+      log_error "  [FAIL] mgmt IP ${MGMT_IP} 未配置"
+      errors=$((errors + 1))
+    fi
   else
-    log_error "  [FAIL] ${BRIDGE_NAME} 网桥不存在"
-    errors=$((errors + 1))
-  fi
+    # 检查网桥
+    log_info "检查网络接口..."
+    if ip link show "${BRIDGE_NAME}" &>/dev/null; then
+      log_info "  [OK] ${BRIDGE_NAME} 网桥存在"
+    else
+      log_error "  [FAIL] ${BRIDGE_NAME} 网桥不存在"
+      errors=$((errors + 1))
+    fi
 
-  # 检查 VLAN 接口
-  if ip link show "${NIC_PRIMARY}.${VLAN_MGMT}" &>/dev/null; then
-    log_info "  [OK] VLAN ${VLAN_MGMT} 接口存在"
-  else
-    log_error "  [FAIL] VLAN ${VLAN_MGMT} 接口不存在"
-    errors=$((errors + 1))
+    # 检查 VLAN 接口
+    if ip link show "${NIC_PRIMARY}.${VLAN_MGMT}" &>/dev/null; then
+      log_info "  [OK] VLAN ${VLAN_MGMT} 接口存在"
+    else
+      log_error "  [FAIL] VLAN ${VLAN_MGMT} 接口不存在"
+      errors=$((errors + 1))
+    fi
   fi
 
   # 检查 Ceph 连通

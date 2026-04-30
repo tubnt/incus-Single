@@ -55,6 +55,15 @@ function NodeJoinPage() {
   const [sshKey, setSshKey] = useState("");
   const [sshOK, setSshOK] = useState(false);
   const [jobId, setJobId] = useState<number | null>(null);
+  // OPS-026 / PLAN-028 advanced：bonded NIC / 异构拓扑
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [skipNetwork, setSkipNetwork] = useState(false);
+  const [nicPrimary, setNicPrimary] = useState("");
+  const [nicCluster, setNicCluster] = useState("");
+  const [bridgeName, setBridgeName] = useState("");
+  const [mgmtIP, setMgmtIP] = useState("");
+  const [cephPubIP, setCephPubIP] = useState("");
+  const [cephClusterIP, setCephClusterIP] = useState("");
 
   const testSSH = useTestSSHMutation();
   const addNode = useAddNodeMutation(cluster);
@@ -116,6 +125,14 @@ function NodeJoinPage() {
         ssh_user: sshUser || undefined,
         ssh_key_file: sshKey || undefined,
         role,
+        // OPS-026 / PLAN-028 advanced 覆盖
+        nic_primary: nicPrimary || undefined,
+        nic_cluster: nicCluster || undefined,
+        bridge_name: bridgeName || undefined,
+        mgmt_ip: mgmtIP || undefined,
+        ceph_pub_ip: cephPubIP || undefined,
+        ceph_cluster_ip: cephClusterIP || undefined,
+        skip_network: skipNetwork || undefined,
       },
       {
         onSuccess: (res) => {
@@ -234,6 +251,44 @@ function NodeJoinPage() {
                       placeholder="/etc/incus-admin/keys/cluster-deploy"
                     />
                   </FormField>
+
+                  {/* OPS-026 / PLAN-028 advanced：bonded NIC / 异构拓扑 */}
+                  <details open={advancedOpen} onToggle={(e) => setAdvancedOpen((e.target as HTMLDetailsElement).open)}>
+                    <summary className="cursor-pointer text-small font-emphasis text-text-secondary py-1.5 select-none">
+                      {t("admin.nodes.add.advanced", "高级（bonded NIC / 异构拓扑）")}
+                    </summary>
+                    <div className="space-y-3 mt-3 pl-3 border-l border-border">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={skipNetwork}
+                          onChange={(e) => setSkipNetwork(e.target.checked)}
+                          className="size-4"
+                        />
+                        <span className="text-small">
+                          {t("admin.nodes.add.skipNetwork", "跳过网络配置（节点已由运维预配 IP / 路由 / 桥接）")}
+                        </span>
+                      </label>
+                      <FormField label={t("admin.nodes.add.nicPrimary", "主网卡名（默认 eno1）")}>
+                        <Input value={nicPrimary} onChange={(e) => setNicPrimary(e.target.value)} placeholder="bond-mgmt" />
+                      </FormField>
+                      <FormField label={t("admin.nodes.add.nicCluster", "Ceph 集群网卡名（默认 eno2）")}>
+                        <Input value={nicCluster} onChange={(e) => setNicCluster(e.target.value)} placeholder="bond-ceph" />
+                      </FormField>
+                      <FormField label={t("admin.nodes.add.bridgeName", "桥接名（默认 br-pub）")}>
+                        <Input value={bridgeName} onChange={(e) => setBridgeName(e.target.value)} placeholder="br-pub" />
+                      </FormField>
+                      <FormField label={t("admin.nodes.add.mgmtIP", "mgmt IP（默认按 pub IP 末位推算）")}>
+                        <Input value={mgmtIP} onChange={(e) => setMgmtIP(e.target.value)} placeholder="10.0.10.6" />
+                      </FormField>
+                      <FormField label={t("admin.nodes.add.cephPubIP", "Ceph public IP（默认推算 10.0.20.X）")}>
+                        <Input value={cephPubIP} onChange={(e) => setCephPubIP(e.target.value)} placeholder="10.0.20.6" />
+                      </FormField>
+                      <FormField label={t("admin.nodes.add.cephClusterIP", "Ceph cluster IP（默认推算 10.0.30.X）")}>
+                        <Input value={cephClusterIP} onChange={(e) => setCephClusterIP(e.target.value)} placeholder="10.0.30.6" />
+                      </FormField>
+                    </div>
+                  </details>
 
                   {formError
                     ? (
