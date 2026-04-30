@@ -60,6 +60,11 @@ type AuthConfig struct {
 	// ShadowSessionSecret signs shadow_session cookies (HMAC-SHA256). Falls
 	// back to Server.SessionSecret when unset to simplify single-node deploys.
 	ShadowSessionSecret string `json:"shadow_session_secret"`
+
+	// PasswordEncryptionKey enables OPS-022 vms.password 字段 AES-256-GCM 加密。
+	// 32 字节 base64 编码（生成方式：openssl rand -base64 32）。
+	// 空值 → 加密 disabled，passthrough 模式（向后兼容老部署）。
+	PasswordEncryptionKey string `json:"password_encryption_key"`
 }
 
 type ClusterConfig struct {
@@ -128,8 +133,9 @@ func Load() (*Config, error) {
 			StepUpCallbackURL: envOr("STEPUP_CALLBACK_URL", ""),
 			StepUpStateSecret: envOr("STEPUP_STATE_SECRET", ""),
 			StepUpMaxAge:       parseDurationOr("STEPUP_MAX_AGE", 5*time.Minute),
-			AuditRetentionDays:  parseIntOr("AUDIT_RETENTION_DAYS", 365),
-			ShadowSessionSecret: envOr("SHADOW_SESSION_SECRET", ""),
+			AuditRetentionDays:    parseIntOr("AUDIT_RETENTION_DAYS", 365),
+			ShadowSessionSecret:   envOr("SHADOW_SESSION_SECRET", ""),
+			PasswordEncryptionKey: envOr("PASSWORD_ENCRYPTION_KEY", ""),
 		},
 		Billing: BillingConfig{
 			Currency: envOr("BILLING_CURRENCY", "USD"),

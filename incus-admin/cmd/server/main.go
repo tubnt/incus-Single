@@ -156,6 +156,17 @@ func main() {
 	portal.SetAppEnv(cfg.Server.Env)
 	middleware.SetEmergencySecret(cfg.Auth.EmergencyToken)
 
+	// OPS-022：vms.password 字段 AES-256-GCM 加密。空 key → passthrough。
+	if err := authcore.SetPasswordEncryptionKey(cfg.Auth.PasswordEncryptionKey); err != nil {
+		slog.Error("password encryption init failed", "error", err)
+		os.Exit(1)
+	}
+	// 启动时把所有还是明文的 vms.password 行加密 in-place。Idempotent：v1: 前缀的跳过。
+	// 生产首次部署时跑一次；之后每次启动都跑（迁移完成后扫到 0 行，毫秒级）。
+	if authcore.PasswordEncryptionEnabled() {
+		go migrateVMPasswordsToEncrypted(db) // 不阻塞启动；异步跑 + 失败 log
+	}
+
 	middleware.SetTokenValidator(func(ctx context.Context, token string) (int64, error) {
 		t, err := apiTokenRepo.ValidateToken(ctx, token)
 		if err != nil || t == nil {
@@ -587,4 +598,61 @@ func loadClustersFromDB(ctx context.Context, repo *repository.ClusterRepo) ([]co
 		out = append(out, cc)
 	}
 	return out, nil
+}
+
+// migrateVMPasswordsToEncrypted 启动时把所有遗留明文 vms.password 行 in-place
+// 加密。OPS-022 v1：循环 SELECT 一批 → 用 auth.EncryptPassword 加密 → UPDATE。
+// 单条出错 → log warn + 继续；批量完成或 0 行时 return。Idempotent：WHERE 子句
+// 排除已 'v1:' 前缀的行，重启反复跑也不会重新加密。
+func migrateVMPasswordsToEncrypted(db *sql.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	const batch = 200
+	migrated := 0
+	for {
+		rows, err := db.QueryContext(ctx,
+			`SELECT id, password FROM vms
+			 WHERE password IS NOT NULL AND password <> ''
+			   AND password NOT LIKE 'v1:%'
+			 ORDER BY id LIMIT $1`, batch)
+		if err != nil {
+			slog.Error("migrate vm passwords select failed", "error", err)
+			return
+		}
+		type rec struct {
+			id    int64
+			plain string
+		}
+		var todo []rec
+		for rows.Next() {
+			var r rec
+			if scanErr := rows.Scan(&r.id, &r.plain); scanErr == nil {
+				todo = append(todo, r)
+			}
+		}
+		_ = rows.Close()
+
+		if len(todo) == 0 {
+			break
+		}
+		for _, r := range todo {
+			enc, err := authcore.EncryptPassword(r.plain)
+			if err != nil {
+				slog.Warn("encrypt vm password failed; skipping", "vm_id", r.id, "error", err)
+				continue
+			}
+			if _, err := db.ExecContext(ctx,
+				`UPDATE vms SET password = $1, updated_at = NOW() WHERE id = $2 AND password = $3`,
+				enc, r.id, r.plain,
+			); err != nil {
+				slog.Warn("update encrypted vm password failed", "vm_id", r.id, "error", err)
+				continue
+			}
+			migrated++
+		}
+	}
+	if migrated > 0 {
+		slog.Info("vms.password migrated to encrypted", "count", migrated)
+	}
 }

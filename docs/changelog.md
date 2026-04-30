@@ -1,5 +1,24 @@
 # IncusAdmin Changelog
 
+## 2026-04-30 [security]
+
+OPS-022 — `vms.password` DB 字段 AES-256-GCM 加密。先前明文存储，admin 直接 `psql` 查询或 `pg_dump` 备份能看到所有用户密码，前端"密码仅显示一次"文案对用户是误导。
+
+- `internal/auth/password_crypto.go`：`AES-256-GCM`，key 从 env `PASSWORD_ENCRYPTION_KEY`（base64 32 字节，`openssl rand -base64 32`）；密文格式 `v1:base64(nonce||ciphertext)`，版本前缀给 rotation 留口
+- 空 key → passthrough 模式向后兼容（旧部署不破）；有 v1 密文但 key 没配 → 解密返错误（避免静默泄露密文给前端）
+- 旧明文（无 v1 前缀）解密时 passthrough（migration 期间过渡）；新写入一律加密
+- `VMRepo` 4 个写路径（Create / UpdatePassword / UpdateAfterProvision / scanVMs Read）全部 wrap 加密 / 解密；`encryptForWrite` / `decryptOnRead` 在 nil 安全 + 错误降级（解密失败返 nil + warn 不阻塞业务）
+- `main.go` 启动：`SetPasswordEncryptionKey(cfg.Auth.PasswordEncryptionKey)` → 异步 `migrateVMPasswordsToEncrypted`：循环 batch=200 SELECT WHERE password NOT LIKE 'v1:%' → 加密 → UPDATE。Idempotent（已加密的跳过），重启反复跑不会重新加密
+- 4 case 单测覆盖 round-trip / passthrough / 旧明文兼容 / key 缺失明确报错 / bad key format
+
+**生产 vmc.5ok.co 实测**：部署后启动日志 `vms.password encryption enabled (AES-256-GCM)` + `vms.password migrated to encrypted count=22`。`SELECT password FROM vms WHERE ...` 全部返 `v1:...` 前缀，pg_dump 看不见明文。
+
+**安全 note**：env 文件 `/etc/incus-admin/incus-admin.env` 已 chmod 600；新生成 key 已写入并备份原 env 到 `.bak-ops022-*`。
+
+**范围外（OPS-023 立项）**：key rotation（v1 设计就支持版本前缀；rotation 时升 v2 + key 字典 fallback）、per-row salt、客户端侧加密。
+
+---
+
 ## 2026-04-30 [feat]
 
 PLAN-027 / INFRA-003 — standalone Incus host 管理 + DB-driven cluster config 落地。先前所有 cluster 配置都来自 env CLUSTER_*，admin 通过 UI 添加的 cluster 只活在 in-memory（重启即丢）。这次：
