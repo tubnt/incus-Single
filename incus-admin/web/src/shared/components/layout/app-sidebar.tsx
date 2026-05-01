@@ -44,6 +44,7 @@ export function AppSidebar({
   onToggle,
   onNavigate,
 }: AppSidebarProps) {
+  const { t } = useTranslation();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const perspective: "admin" | "user" = currentPath.startsWith("/admin") ? "admin" : "user";
@@ -70,7 +71,7 @@ export function AppSidebar({
         <button
           type="button"
           onClick={onToggle}
-          aria-label="折叠侧边栏"
+          aria-label={t("topbar.collapseSidebar", { defaultValue: "Collapse sidebar" })}
           className="inline-flex size-7 items-center justify-center rounded-md hover:bg-surface-2 text-text-tertiary"
         >
           {mobileOpen ? <X size={16} className="md:hidden" aria-hidden="true" /> : null}

@@ -579,7 +579,8 @@
   },
   "dataTable": {
     "selectAll": "全选",
-    "selectRow": "选择行"
+    "selectRow": "选择行",
+    "resizeColumn": "拖动调整列宽"
   },
   "deleteConfirm": {
     "evacuateMessage": "确认疏散 {{node}}？运行中的云主机会迁出。",
@@ -918,7 +919,8 @@
       "light": "浅色模式",
       "system": "跟随系统"
     },
-    "user": "用户菜单"
+    "user": "用户菜单",
+    "collapseSidebar": "折叠侧边栏"
   },
   "user": {
     "topup": {
