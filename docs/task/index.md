@@ -79,3 +79,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-027 admin/vms 跨 project 列表 0 VM 修复**](OPS-027.md) `P1`
 - [x] [**SEC-002 portal API cloud-init 字段过滤（含 password）**](SEC-002.md) `P2`
 - [x] [**OPS-028 全功能 UI 测试遗留打磨（CR + P3 + SEC-002）**](OPS-028.md) `P2`
+- [x] [**OPS-029 EN 语言包系统化补全 + 多处 i18n 漏项**](OPS-029.md) `P3`

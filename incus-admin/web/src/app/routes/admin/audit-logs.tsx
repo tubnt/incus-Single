@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuditLogsQuery } from "@/features/audit-logs/api";
 import { stripCidrSuffix, targetLabel } from "@/features/audit-logs/helpers";
+import { useAdminUsersQuery } from "@/features/users/api";
 import {
   PageContent,
   PageHeader,
@@ -40,6 +41,13 @@ function AuditLogsPage() {
   const [exportAction, setExportAction] = useState("");
 
   const { data, isLoading } = useAuditLogsQuery(offset, limit);
+  // OPS-029: 把 user_id 解析成 email 显示，跟 admin/orders / tickets 一致
+  const usersQuery = useAdminUsersQuery({ limit: 200, offset: 0 });
+  const userEmail = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const u of usersQuery.data?.users ?? []) m.set(u.id, u.email);
+    return m;
+  }, [usersQuery.data]);
 
   const logs = data?.logs ?? [];
   const total = data?.total ?? 0;
@@ -137,7 +145,11 @@ function AuditLogsPage() {
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         {new Date(log.created_at).toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-xs">{log.user_id ?? "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        {log.user_id == null
+                          ? "—"
+                          : userEmail.get(log.user_id) ?? `#${log.user_id}`}
+                      </TableCell>
                       <TableCell>
                         <StatusPill status="pending">{log.action}</StatusPill>
                       </TableCell>

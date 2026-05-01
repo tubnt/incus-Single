@@ -2,6 +2,21 @@
 
 ## 2026-04-30 [fix]
 
+PLAN-031 / OPS-029 — EN 语言包系统化补全：
+
+OPS-028 后做全功能 UI 测试发现 EN locale 下大量字符串仍是中文 placeholder（不是 source 硬编码，而是 `en/common.json` 的 value 直接复制了 zh）。系统补齐：
+
+- `web/public/locales/en/common.json` 翻译 ~190 处中文 value 到英文，覆盖 admin 子对象（firewall / floatingIPs / osTemplates / users / shadow / billing 等）+ common 按钮 + topbar + vm + ticket + sshKey + dataTable。保留纯符号 ✓ ⏸ ▶ ← 不动
+- `dataTable.resizeColumn` + `topbar.collapseSidebar` 在 zh + en 都补齐（之前 source 用了但 zh 缺）
+- `app-sidebar.tsx` 折叠按钮 aria-label 改 `t("topbar.collapseSidebar")` 替代硬编码中文
+- `admin/audit-logs.tsx` User 列引入 `useAdminUsersQuery` 建 ID→email 映射，与 admin/orders / tickets 一致
+
+生产 vmc.5ok.co 部署后 EN locale 下 admin/billing / orders / tickets / audit-logs / firewall / floating-ips / os-templates / users / api-tokens / settings / vm-detail 全部无可见中文残留。
+
+---
+
+## 2026-04-30 [fix]
+
 PLAN-030 / OPS-028 — 全功能 UI 测试遗留打磨：1 P2 + 4 P3 + 3 CR 改进打包：
 
 **SEC-002 (P2)**: admin VM list/detail/节点详情响应**新增 redactInstanceMap/JSON/List** 裁掉 `config.user.cloud-init` / `expanded_config.user.cloud-init`（含明文初始 root 密码）。fail-open 设计：decode 失败时 raw 透传 + warn log（admin 已 gate，Incus 形状极少变）。3 个 site 全覆盖（vm.go ListClusterVMs / ListAllVMs / GetClusterVMDetail + clustermgmt.go 节点详情），单测覆盖。
