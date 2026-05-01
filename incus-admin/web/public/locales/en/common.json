@@ -433,7 +433,20 @@
     "submit": "Create",
     "submitting": "Creating...",
     "title": "API Tokens",
-    "ttlLabel": "TTL"
+    "ttlLabel": "TTL",
+    "neverExpires": "Never expires",
+    "expired": "Expired",
+    "expiresInDays": "Expires in {{n}} days",
+    "expiresInHours": "Expires in {{n}} hours",
+    "expiresInMinutes": "Expires in {{n}} min",
+    "ttl": {
+      "1h": "1 hour",
+      "6h": "6 hours",
+      "24hDefault": "24 hours (default)",
+      "7d": "7 days",
+      "30d": "30 days",
+      "90dMax": "90 days (max)"
+    }
   },
   "batchToolbar": {
     "clear": "Clear selection",
@@ -560,9 +573,12 @@
   },
   "console": {
     "backToVms": "← Back to VMs",
+    "back": "Back",
     "connected": "Connected.",
     "connecting": "Connecting to {{vm}}...",
     "disconnected": "Disconnected.",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen",
     "missingParams": "Missing parameter: vm",
     "usageHint": "/console?vm=NAME&cluster=CLUSTER&project=PROJECT"
   },

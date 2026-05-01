@@ -188,7 +188,7 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
             </button>
           }
         />
-        <DropdownMenuContent align="end" className="min-w-[12rem]">
+        <DropdownMenuContent align="end" className="min-w-row-actions-menu">
           {vm.status === "Running" ? (
             <>
               <DropdownMenuItem onClick={() => runState("stop")}>

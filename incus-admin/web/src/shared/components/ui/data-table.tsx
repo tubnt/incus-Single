@@ -265,7 +265,7 @@ export function DataTable<TData>({
                 <TableRow key={`skel-${i}`} className="hover:bg-transparent">
                   {Array.from({ length: colCount }).map((_, j) => (
                     <TableCell key={j} className={density === "compact" ? "py-1.5" : "py-2.5"}>
-                      <Skeleton className="h-4 w-full max-w-[200px]" />
+                      <Skeleton className="h-4 w-full max-w-table-skeleton" />
                     </TableCell>
                   ))}
                 </TableRow>

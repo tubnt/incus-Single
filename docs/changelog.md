@@ -1,5 +1,20 @@
 # IncusAdmin Changelog
 
+## 2026-05-01 [fix]
+
+PLAN-032 / OPS-030 — DESIGN.md 严格合规清零：
+
+OPS-029 后做 UI 视觉合规审查，清掉 14 处 `[NNpx]` / `[Nrem]` arbitrary value（违反 CLAUDE.md "禁止 arbitrary value" 纪律）+ api-tokens.tsx 源码 hardcoded 中文 + console.tsx 漏 i18n 的 aria-label：
+
+- `index.css @theme inline` 新增 10 个 `--size-*` 布局尺寸 token（chart / iframe-tall / iframe-console / palette / table-skeleton / select-sm / form-textarea-min / row-actions-menu / topbar-user / input-narrow），命名按用途而非字面值
+- 14 处 arbitrary value 全部替换：能用 Tailwind 内置（如 `w-0.5` / `min-w-56` / `min-w-50`）的优先用内置，否则用新 token（`h-chart` / `h-iframe-tall` / `h-iframe-console` / `max-h-palette` 等）
+- `api-tokens.tsx` 源码 `TTL_OPTIONS` / `formatTimeLeft` i18n 化：改 `ttlOptions(t)` helper + `formatTimeLeft(ttl, t)` 接 t fn；新加 11 个 i18n key（`apiToken.ttl.*` + `neverExpires` / `expired` / `expiresInDays/Hours/Minutes`）
+- `console.tsx` 顶栏 "返回" / "全屏" / "退出全屏" aria-label 走 `t("console.back/fullscreen/exitFullscreen")`，zh+en 同步补 3 个 key
+
+最终 `grep -E 'className=.*\\[(#|rgba?\\(|[0-9]+(px|em|rem))\\]' web/src` 返回 0 行，DESIGN.md 严格合规。
+
+---
+
 ## 2026-04-30 [fix]
 
 PLAN-031 / OPS-029 — EN 语言包系统化补全：

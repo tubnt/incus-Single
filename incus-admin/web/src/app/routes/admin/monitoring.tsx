@@ -259,7 +259,7 @@ function NetworkChart({ vms }: { vms: VMMetric[] }) {
   if (chartData.length === 0) {
     return (
       <ChartCard title={t("monitoring.network")}>
-        <div className="h-[280px] flex items-center justify-center text-muted-foreground text-sm">
+        <div className="h-chart flex items-center justify-center text-muted-foreground text-sm">
           {t("monitoring.noNetworkData")}
         </div>
       </ChartCard>

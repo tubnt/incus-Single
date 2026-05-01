@@ -367,7 +367,7 @@ function VMDetailPage() {
             <div className="rounded-lg border border-border overflow-hidden">
               <iframe
                 src={`/console?vm=${name}&cluster=${cluster}&project=${project}`}
-                className="w-full h-[500px] bg-black"
+                className="w-full h-iframe-console bg-black"
                 title="VM Console"
               />
             </div>

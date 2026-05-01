@@ -299,7 +299,7 @@ function VMCard({
                 </button>
               }
             />
-            <DropdownMenuContent align="end" className="min-w-[12rem]">
+            <DropdownMenuContent align="end" className="min-w-row-actions-menu">
               {isRunning ? (
                 <>
                   <DropdownMenuItem onClick={() => runAction("stop")}>
