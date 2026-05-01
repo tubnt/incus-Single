@@ -47,7 +47,7 @@ export function CommandList({
 }: ComponentProps<typeof CmdkRoot.List>) {
   return (
     <CmdkRoot.List
-      className={cn("max-h-[420px] overflow-y-auto overflow-x-hidden p-1", className)}
+      className={cn("max-h-palette overflow-y-auto overflow-x-hidden p-1", className)}
       {...props}
     />
   );

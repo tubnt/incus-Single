@@ -362,6 +362,27 @@
   --font-weight-emphasis: 510;
   --font-weight-strong: 590;
   --font-weight-light: 300;
+
+  /* ----------------------------------------------------------------
+   * 布局尺寸 token（OPS-030）
+   *
+   * Tailwind 内置 spacing scale 不覆盖的 layout 容器尺寸（图表 / iframe /
+   * 命令面板等），统一用 --size-* 暴露成 h-/w-/max-h-/max-w- 名字，避免
+   * 业务代码出现 `h-[700px]` 之类 arbitrary value。
+   *
+   * 命名约定：用途+变体（不是字面尺寸），改尺寸时只需调一处。
+   * ---------------------------------------------------------------- */
+
+  --size-chart: 17.5rem;            /* 280px - 监控小图表 */
+  --size-iframe-tall: 43.75rem;     /* 700px - observability 反代 */
+  --size-iframe-console: 31.25rem;  /* 500px - VM 控制台 */
+  --size-palette: 26.25rem;         /* 420px - 命令面板下拉 */
+  --size-table-skeleton: 12.5rem;   /* 200px - DataTable loading skeleton */
+  --size-select-sm: 7.5rem;         /* 120px - 紧凑 Select 触发器 */
+  --size-form-textarea-min: 4rem;   /* 64px - 表单 textarea 最小高度（同 Tailwind 16） */
+  --size-row-actions-menu: 12rem;   /* 192px - 行操作 dropdown */
+  --size-topbar-user: 11.25rem;     /* 180px - 顶栏用户菜单触发器 */
+  --size-input-narrow: 10rem;       /* 160px - 紧凑输入（如 TTL select） */
 }
 
 /* ============================================================

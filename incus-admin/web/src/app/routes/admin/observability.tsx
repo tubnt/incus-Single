@@ -90,7 +90,7 @@ function ObservabilityPage() {
               </Button>
             </CardHeader>
             <CardContent className="p-0">
-              <iframe src={current.url} className="w-full h-[700px]" title={active!} />
+              <iframe src={current.url} className="w-full h-iframe-tall" title={active!} />
             </CardContent>
           </Card>
         ) : null}

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ConsoleTerminal } from "@/features/console/terminal";
 import { useTheme } from "@/shared/components/theme-provider";
 import { Button, buttonVariants } from "@/shared/components/ui/button";
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/console")({
 });
 
 function ConsolePage() {
+  const { t } = useTranslation();
   const { vm, project, cluster, from } = Route.useSearch();
   const { data: user } = useQuery({ queryKey: ["currentUser"], queryFn: fetchCurrentUser });
   const { resolvedTheme } = useTheme();
@@ -82,11 +84,11 @@ function ConsolePage() {
       >
         <Link
           to={backUrl as any}
-          aria-label="返回"
+          aria-label={t("console.back", { defaultValue: "Back" })}
           className="inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-sm font-emphasis text-text-secondary hover:bg-surface-2 hover:text-foreground transition-colors"
         >
           <ArrowLeft size={14} aria-hidden="true" />
-          <span className="hidden sm:inline">返回</span>
+          <span className="hidden sm:inline">{t("console.back", { defaultValue: "Back" })}</span>
         </Link>
         <div className="flex-1 min-w-0 truncate text-center sm:text-left">
           <span className="font-mono font-emphasis text-foreground">{vm}</span>
@@ -97,7 +99,7 @@ function ConsolePage() {
         <Button
           variant="subtle"
           size="icon-sm"
-          aria-label={fullscreen ? "退出全屏" : "全屏"}
+          aria-label={fullscreen ? t("console.exitFullscreen", { defaultValue: "Exit fullscreen" }) : t("console.fullscreen", { defaultValue: "Fullscreen" })}
           onClick={() => setFullscreen((v) => !v)}
         >
           {fullscreen ? (

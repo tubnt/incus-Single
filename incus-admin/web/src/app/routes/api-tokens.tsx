@@ -39,25 +39,31 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { cn } from "@/shared/lib/utils";
 
-const TTL_OPTIONS: Array<{ hours: number; label: string }> = [
-  { hours: 1, label: "1 小时" },
-  { hours: 6, label: "6 小时" },
-  { hours: 24, label: "24 小时（默认）" },
-  { hours: 168, label: "7 天" },
-  { hours: 720, label: "30 天" },
-  { hours: 2160, label: "90 天（最长）" },
-];
+// OPS-030: TTL 选项 + 倒计时文案改成 i18n 化（接 t fn）。
+function ttlOptions(t: (k: string, opts?: Record<string, unknown>) => string): Array<{ hours: number; label: string }> {
+  return [
+    { hours: 1, label: t("apiToken.ttl.1h", { defaultValue: "1 hour" }) },
+    { hours: 6, label: t("apiToken.ttl.6h", { defaultValue: "6 hours" }) },
+    { hours: 24, label: t("apiToken.ttl.24hDefault", { defaultValue: "24 hours (default)" }) },
+    { hours: 168, label: t("apiToken.ttl.7d", { defaultValue: "7 days" }) },
+    { hours: 720, label: t("apiToken.ttl.30d", { defaultValue: "30 days" }) },
+    { hours: 2160, label: t("apiToken.ttl.90dMax", { defaultValue: "90 days (max)" }) },
+  ];
+}
 
-function formatTimeLeft(expiresAt: string | null): { text: string; tone: "normal" | "warn" | "expired" } {
-  if (!expiresAt) return { text: "永不过期", tone: "normal" };
+function formatTimeLeft(
+  expiresAt: string | null,
+  t: (k: string, opts?: Record<string, unknown>) => string,
+): { text: string; tone: "normal" | "warn" | "expired" } {
+  if (!expiresAt) return { text: t("apiToken.neverExpires", { defaultValue: "Never expires" }), tone: "normal" };
   const ms = new Date(expiresAt).getTime() - Date.now();
-  if (ms <= 0) return { text: "已过期", tone: "expired" };
+  if (ms <= 0) return { text: t("apiToken.expired", { defaultValue: "Expired" }), tone: "expired" };
   const hours = Math.floor(ms / 3_600_000);
   const days = Math.floor(hours / 24);
   let text: string;
-  if (days >= 1) text = `${days} 天后过期`;
-  else if (hours >= 1) text = `${hours} 小时后过期`;
-  else text = `${Math.max(1, Math.floor(ms / 60_000))} 分钟后过期`;
+  if (days >= 1) text = t("apiToken.expiresInDays", { defaultValue: "Expires in {{n}} days", n: days });
+  else if (hours >= 1) text = t("apiToken.expiresInHours", { defaultValue: "Expires in {{n}} hours", n: hours });
+  else text = t("apiToken.expiresInMinutes", { defaultValue: "Expires in {{n}} min", n: Math.max(1, Math.floor(ms / 60_000)) });
   const tone = hours < 1 ? "warn" : "normal";
   return { text, tone };
 }
@@ -202,7 +208,7 @@ function CreateTokenSheet({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {TTL_OPTIONS.map((o) => (
+                {ttlOptions(t).map((o) => (
                   <SelectItem key={o.hours} value={String(o.hours)}>
                     {o.label}
                   </SelectItem>
@@ -244,7 +250,7 @@ function TokenCard({
   const renewMutation = useRenewAPITokenMutation();
   const [renewTtl, setRenewTtl] = useState("24");
 
-  const expiry = formatTimeLeft(token.expires_at);
+  const expiry = formatTimeLeft(token.expires_at, t);
   const expiryColor =
     expiry.tone === "expired"
       ? "text-status-error"
@@ -278,13 +284,13 @@ function TokenCard({
         <div className="flex items-center gap-2 shrink-0">
           <Select value={renewTtl} onValueChange={(v) => setRenewTtl(String(v))}>
             <SelectTrigger
-              className="h-7 text-xs w-[10rem]"
+              className="h-7 text-xs w-input-narrow"
               aria-label={t("apiToken.renewTtl", { defaultValue: "续签有效期" })}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TTL_OPTIONS.map((o) => (
+              {ttlOptions(t).map((o) => (
                 <SelectItem key={o.hours} value={String(o.hours)}>
                   {o.label}
                 </SelectItem>

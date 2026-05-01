@@ -435,7 +435,20 @@
     "submit": "创建",
     "submitting": "创建中...",
     "title": "API Token",
-    "ttlLabel": "有效期"
+    "ttlLabel": "有效期",
+    "neverExpires": "永不过期",
+    "expired": "已过期",
+    "expiresInDays": "{{n}} 天后过期",
+    "expiresInHours": "{{n}} 小时后过期",
+    "expiresInMinutes": "{{n}} 分钟后过期",
+    "ttl": {
+      "1h": "1 小时",
+      "6h": "6 小时",
+      "24hDefault": "24 小时（默认）",
+      "7d": "7 天",
+      "30d": "30 天",
+      "90dMax": "90 天（最长）"
+    }
   },
   "batchToolbar": {
     "clear": "取消选择",
@@ -562,9 +575,12 @@
   },
   "console": {
     "backToVms": "← 返回云主机",
+    "back": "返回",
     "connected": "已连接。",
     "connecting": "正在连接到 {{vm}}...",
     "disconnected": "已断开。",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏",
     "missingParams": "缺少参数: vm",
     "usageHint": "/console?vm=NAME&cluster=CLUSTER&project=PROJECT"
   },

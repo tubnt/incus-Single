@@ -198,7 +198,7 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
           onChange={(e) => setReply(e.target.value)}
           placeholder={t("ticket.replyPlaceholder", { defaultValue: "回复..." })}
           rows={2}
-          className="flex-1 min-h-[64px]"
+          className="flex-1 min-h-form-textarea-min"
         />
         <div className="flex flex-col gap-1">
           <Button

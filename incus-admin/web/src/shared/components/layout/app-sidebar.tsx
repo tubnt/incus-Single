@@ -166,7 +166,7 @@ function NavLinkRow({ item, active, showLabels, onNavigate, inset }: NavLinkRowP
       {active ? (
         <span
           aria-hidden="true"
-          className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r bg-accent"
+          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-accent"
         />
       ) : null}
       <Icon size={inset ? 14 : 16} aria-hidden="true" />

@@ -323,7 +323,7 @@ function UserRow({
             onValueChange={(v) => changeRole(String(v))}
             disabled={roleMutation.isPending}
           >
-            <SelectTrigger className="h-7 w-[120px] text-xs">
+            <SelectTrigger className="h-7 w-select-sm text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

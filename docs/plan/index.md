@@ -60,3 +60,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-029 admin/vms 跨 project 列表 0 VM 修复（OPS-027）**](PLAN-029.md) `2026-04-30`
 - [x] [**PLAN-030 全功能 UI 测试遗留打磨（OPS-028）**](PLAN-030.md) `2026-04-30`
 - [x] [**PLAN-031 EN 语言包系统化补全（OPS-029）**](PLAN-031.md) `2026-04-30`
+- [x] [**PLAN-032 DESIGN.md 严格合规清零（OPS-030）**](PLAN-032.md) `2026-05-01`

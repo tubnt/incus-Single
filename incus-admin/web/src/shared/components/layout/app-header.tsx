@@ -185,13 +185,13 @@ export function AppHeader({
                 <button
                   type="button"
                   aria-label={t("topbar.user", { defaultValue: "用户菜单" })}
-                  className="inline-flex h-8 max-w-[180px] items-center gap-2 rounded-md px-2 hover:bg-surface-2 text-foreground transition-colors"
+                  className="inline-flex h-8 max-w-topbar-user items-center gap-2 rounded-md px-2 hover:bg-surface-2 text-foreground transition-colors"
                 >
                   <span className="hidden sm:inline text-sm truncate">{email}</span>
                 </button>
               }
             />
-            <DropdownMenuContent align="end" className="min-w-[14rem]">
+            <DropdownMenuContent align="end" className="min-w-56">
               <DropdownMenuLabel>{email}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem

@@ -409,7 +409,7 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder={t("ticket.replyPlaceholder", { defaultValue: "回复..." })}
-            className="flex-1 min-w-[200px]"
+            className="flex-1 min-w-50"
             onKeyDown={(e) => {
               if (e.key === "Enter") submitReply();
             }}
