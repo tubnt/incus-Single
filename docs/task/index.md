@@ -1,6 +1,6 @@
 # IncusAdmin - Task List
 
-> Updated: 2026-04-30
+> Updated: 2026-05-03
 
 ## Usage
 
@@ -94,3 +94,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-036 IA 简化（方案丙的安全子集）**](OPS-036.md) `P2`
 - [x] [**OPS-037 修复 BUG-06 size token min()/calc() 静默失效**](OPS-037.md) `P1`
 - [-] [**OPS-038 收尾包：5 项剩余优化全做**](OPS-038.md) `P2`
+- [x] [**OPS-039 添加节点自动化（凭据多形态 + 自动探测）**](OPS-039.md) `P1`

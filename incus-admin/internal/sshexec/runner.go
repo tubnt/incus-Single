@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,15 +19,35 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// Runner is the per-target SSH executor. PLAN-033 Phase A1 made the
+// authentication material a Credential value so password / inline private
+// key / key-file forms can all flow through the same dial path. The legacy
+// New(host, user, keyFile) constructor builds an internal Credential of
+// CredKindKeyFile, so call sites that have not migrated keep working.
 type Runner struct {
 	host           string
 	user           string
-	keyFile        string
+	cred           Credential
 	knownHostsFile string
+	dialTimeout    time.Duration
 }
 
+// New keeps the historical signature: host + user + key-file path. Internally
+// it materialises a Credential of CredKindKeyFile so the rest of the runner
+// only deals with one shape.
 func New(host, user, keyFile string) *Runner {
-	return &Runner{host: host, user: user, keyFile: keyFile}
+	return &Runner{
+		host: host,
+		user: user,
+		cred: CredentialFromKeyFile(keyFile),
+	}
+}
+
+// NewWithCredential is the new constructor used by node probe / add-node
+// flows. The credential is copied by value; callers retain ownership of any
+// underlying byte slice for Wipe purposes.
+func NewWithCredential(host, user string, cred Credential) *Runner {
+	return &Runner{host: host, user: user, cred: cred}
 }
 
 // WithKnownHosts 指定 OpenSSH known_hosts 文件路径；若文件存在则启用严格主机密钥校验，
@@ -35,37 +57,61 @@ func (r *Runner) WithKnownHosts(file string) *Runner {
 	return r
 }
 
-func (r *Runner) Run(ctx context.Context, cmd string) (string, error) {
-	key, err := os.ReadFile(r.keyFile)
-	if err != nil {
-		return "", fmt.Errorf("read key: %w", err)
-	}
+// WithDialTimeout overrides the default SSH dial timeout. Probe paths use a
+// shorter timeout (5s) so the UI gets fast failure feedback; long-running
+// jobs keep the legacy 10s.
+func (r *Runner) WithDialTimeout(d time.Duration) *Runner {
+	r.dialTimeout = d
+	return r
+}
 
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil {
-		return "", fmt.Errorf("parse key: %w", err)
-	}
+// Close zeroes any in-memory secret material owned by this runner. It is
+// safe to call multiple times. The runner is unusable afterwards.
+func (r *Runner) Close() {
+	r.cred.Wipe()
+}
 
+func (r *Runner) effectiveTimeout(fallback time.Duration) time.Duration {
+	if r.dialTimeout > 0 {
+		return r.dialTimeout
+	}
+	return fallback
+}
+
+func (r *Runner) clientConfig(timeout time.Duration) (*ssh.ClientConfig, error) {
+	auth, err := r.cred.authMethods()
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
 	hostKeyCB, err := r.hostKeyCallback()
 	if err != nil {
-		return "", fmt.Errorf("host key callback: %w", err)
+		return nil, fmt.Errorf("host key callback: %w", err)
 	}
-
-	config := &ssh.ClientConfig{
+	return &ssh.ClientConfig{
 		User:            r.user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		Auth:            auth,
 		HostKeyCallback: hostKeyCB,
-		Timeout:         10 * time.Second,
-	}
+		Timeout:         timeout,
+	}, nil
+}
 
+func (r *Runner) addr() string {
 	addr := r.host
 	if _, _, err := net.SplitHostPort(addr); err != nil {
-		addr = addr + ":22"
+		addr += ":22"
+	}
+	return addr
+}
+
+func (r *Runner) Run(ctx context.Context, cmd string) (string, error) {
+	config, err := r.clientConfig(r.effectiveTimeout(10 * time.Second))
+	if err != nil {
+		return "", err
 	}
 
-	client, err := ssh.Dial("tcp", addr, config)
+	client, err := ssh.Dial("tcp", r.addr(), config)
 	if err != nil {
-		return "", fmt.Errorf("ssh dial %s: %w", addr, err)
+		return "", fmt.Errorf("ssh dial %s: %w", r.addr(), err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -91,33 +137,14 @@ func (r *Runner) Run(ctx context.Context, cmd string) (string, error) {
 // 安全：remotePath 必须是 admin 服务自己拼出来的 absolute path（不接受
 // 用户输入），调用方控制注入面；这里 POSIX-quote 一下做最低层防御。
 func (r *Runner) WriteFile(ctx context.Context, remotePath string, data []byte, mode os.FileMode) error {
-	key, err := os.ReadFile(r.keyFile)
+	config, err := r.clientConfig(r.effectiveTimeout(15 * time.Second))
 	if err != nil {
-		return fmt.Errorf("read key: %w", err)
-	}
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil {
-		return fmt.Errorf("parse key: %w", err)
-	}
-	hostKeyCB, err := r.hostKeyCallback()
-	if err != nil {
-		return fmt.Errorf("host key callback: %w", err)
+		return err
 	}
 
-	config := &ssh.ClientConfig{
-		User:            r.user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: hostKeyCB,
-		Timeout:         15 * time.Second,
-	}
-	addr := r.host
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		addr += ":22"
-	}
-
-	client, err := ssh.Dial("tcp", addr, config)
+	client, err := ssh.Dial("tcp", r.addr(), config)
 	if err != nil {
-		return fmt.Errorf("ssh dial %s: %w", addr, err)
+		return fmt.Errorf("ssh dial %s: %w", r.addr(), err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -150,6 +177,53 @@ func (r *Runner) WriteFile(ctx context.Context, remotePath string, data []byte, 
 	return nil
 }
 
+// RunWithStdin executes cmd on the remote and feeds `stdin` into the
+// session's stdin. Used by node probe to stream `bash -s` without leaving
+// a temp file behind. ctx cancellation closes the session.
+func (r *Runner) RunWithStdin(ctx context.Context, cmd string, stdin []byte) (string, error) {
+	config, err := r.clientConfig(r.effectiveTimeout(15 * time.Second))
+	if err != nil {
+		return "", err
+	}
+
+	client, err := ssh.Dial("tcp", r.addr(), config)
+	if err != nil {
+		return "", fmt.Errorf("ssh dial %s: %w", r.addr(), err)
+	}
+	defer func() { _ = client.Close() }()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("ssh session: %w", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	session.Stdin = bytes.NewReader(stdin)
+
+	ctxDone := make(chan struct{})
+	defer close(ctxDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = session.Close()
+		case <-ctxDone:
+		}
+	}()
+
+	out, err := session.CombinedOutput(cmd)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return string(out), ctxErr
+		}
+		return string(out), fmt.Errorf("ssh exec: %w", err)
+	}
+	return string(out), nil
+}
+
+// ScriptBytes is re-exported here so callers do not need a separate
+// embedded import path. Needed because nodeprobe imports sshexec but reads
+// the embedded script.
+
 // MkdirAll 在远端 mkdir -p path。简化的 helper，path 经 POSIX-quote 后传入 mkdir。
 func (r *Runner) MkdirAll(ctx context.Context, remotePath string) error {
 	out, err := r.RunArgs(ctx, "mkdir", "-p", remotePath)
@@ -177,34 +251,14 @@ func (r *Runner) RunStream(ctx context.Context, cmd string, onLine func(line str
 		return fmt.Errorf("onLine callback must be non-nil")
 	}
 
-	key, err := os.ReadFile(r.keyFile)
+	config, err := r.clientConfig(r.effectiveTimeout(15 * time.Second))
 	if err != nil {
-		return fmt.Errorf("read key: %w", err)
-	}
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil {
-		return fmt.Errorf("parse key: %w", err)
-	}
-	hostKeyCB, err := r.hostKeyCallback()
-	if err != nil {
-		return fmt.Errorf("host key callback: %w", err)
+		return err
 	}
 
-	config := &ssh.ClientConfig{
-		User:            r.user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: hostKeyCB,
-		Timeout:         15 * time.Second,
-	}
-
-	addr := r.host
-	if _, _, err := net.SplitHostPort(addr); err != nil {
-		addr += ":22"
-	}
-
-	client, err := ssh.Dial("tcp", addr, config)
+	client, err := ssh.Dial("tcp", r.addr(), config)
 	if err != nil {
-		return fmt.Errorf("ssh dial %s: %w", addr, err)
+		return fmt.Errorf("ssh dial %s: %w", r.addr(), err)
 	}
 	defer func() { _ = client.Close() }()
 
@@ -307,4 +361,87 @@ func (r *Runner) hostKeyCallback() (ssh.HostKeyCallback, error) {
 		return nil, fmt.Errorf("load known_hosts: %w", err)
 	}
 	return cb, nil
+}
+
+// HostKeyInfo describes the server host key captured during a TOFU probe.
+type HostKeyInfo struct {
+	Type        string // e.g. "ssh-ed25519", "ssh-rsa"
+	SHA256      string // OpenSSH-style "SHA256:<base64-no-padding>"
+	Marshaled   []byte // raw key bytes for later append to known_hosts
+	HostAndPort string // canonical host:port used for the connect
+}
+
+// FetchHostKey opens a dial-only TCP/SSH transport against the target,
+// captures the server host key (without verifying it), then immediately
+// closes the connection. PLAN-033 Phase A1 / B3: this powers the wizard's
+// "fingerprint confirmation" step before we ever write to known_hosts or
+// run anything on the remote box.
+//
+// Authentication is intentionally a no-op (zero auth methods); SSH protocol
+// guarantees the host key is exchanged before authentication, so the remote
+// side will reject us cleanly after sending its key. Both outcomes — the
+// "no auth" rejection and a successful (impossible) handshake — are
+// acceptable; we only care about the host key bytes.
+func (r *Runner) FetchHostKey(ctx context.Context) (*HostKeyInfo, error) {
+	captured := &HostKeyInfo{HostAndPort: r.addr()}
+	cfg := &ssh.ClientConfig{
+		User: r.user,
+		Auth: nil, // intentionally empty — we expect "no supported methods"
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			captured.Type = key.Type()
+			captured.Marshaled = key.Marshal()
+			sum := sha256.Sum256(captured.Marshaled)
+			captured.SHA256 = "SHA256:" + strings.TrimRight(base64.StdEncoding.EncodeToString(sum[:]), "=")
+			return nil
+		},
+		Timeout: r.effectiveTimeout(5 * time.Second),
+	}
+
+	dialer := net.Dialer{Timeout: cfg.Timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", r.addr())
+	if err != nil {
+		return nil, fmt.Errorf("tcp dial %s: %w", r.addr(), err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	sshConn, _, _, err := ssh.NewClientConn(conn, r.addr(), cfg)
+	if sshConn != nil {
+		_ = sshConn.Close()
+	}
+	if captured.SHA256 == "" {
+		// HostKeyCallback was never invoked — that's a hard failure regardless
+		// of auth result.
+		return nil, fmt.Errorf("host key not received: %w", err)
+	}
+	// Auth failure is expected; ignore err if we did capture the key.
+	return captured, nil
+}
+
+// AppendHostKey appends a captured host key to a known_hosts file in OpenSSH
+// format, taking a flock to prevent concurrent admin processes from
+// interleaving lines. Callers should pass the same file path that was given
+// to WithKnownHosts; the file is created if missing (mode 0600).
+func AppendHostKey(path string, info *HostKeyInfo) error {
+	if info == nil || len(info.Marshaled) == 0 {
+		return fmt.Errorf("empty host key")
+	}
+	host, _, err := net.SplitHostPort(info.HostAndPort)
+	if err != nil {
+		host = info.HostAndPort
+	}
+	pubKey, err := ssh.ParsePublicKey(info.Marshaled)
+	if err != nil {
+		return fmt.Errorf("parse pub key: %w", err)
+	}
+	line := knownhosts.Line([]string{host}, pubKey) + "\n"
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open known_hosts: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.WriteString(line); err != nil {
+		return fmt.Errorf("write known_hosts: %w", err)
+	}
+	return nil
 }

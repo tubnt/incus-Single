@@ -32,6 +32,7 @@ import { Route as AdminObservabilityRouteImport } from './routes/admin/observabi
 import { Route as AdminNodesRouteImport } from './routes/admin/nodes'
 import { Route as AdminNodeOpsRouteImport } from './routes/admin/node-ops'
 import { Route as AdminNodeJoinRouteImport } from './routes/admin/node-join'
+import { Route as AdminNodeCredentialsRouteImport } from './routes/admin/node-credentials'
 import { Route as AdminMonitoringRouteImport } from './routes/admin/monitoring'
 import { Route as AdminIpRegistryRouteImport } from './routes/admin/ip-registry'
 import { Route as AdminIpPoolsRouteImport } from './routes/admin/ip-pools'
@@ -158,6 +159,11 @@ const AdminNodeJoinRoute = AdminNodeJoinRouteImport.update({
   path: '/node-join',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminNodeCredentialsRoute = AdminNodeCredentialsRouteImport.update({
+  id: '/node-credentials',
+  path: '/node-credentials',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMonitoringRoute = AdminMonitoringRouteImport.update({
   id: '/monitoring',
   path: '/monitoring',
@@ -231,6 +237,7 @@ export interface FileRoutesByFullPath {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-credentials': typeof AdminNodeCredentialsRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/nodes': typeof AdminNodesRoute
@@ -266,6 +273,7 @@ export interface FileRoutesByTo {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-credentials': typeof AdminNodeCredentialsRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/nodes': typeof AdminNodesRoute
@@ -302,6 +310,7 @@ export interface FileRoutesById {
   '/admin/ip-pools': typeof AdminIpPoolsRoute
   '/admin/ip-registry': typeof AdminIpRegistryRoute
   '/admin/monitoring': typeof AdminMonitoringRoute
+  '/admin/node-credentials': typeof AdminNodeCredentialsRoute
   '/admin/node-join': typeof AdminNodeJoinRoute
   '/admin/node-ops': typeof AdminNodeOpsRoute
   '/admin/nodes': typeof AdminNodesRoute
@@ -339,6 +348,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-credentials'
     | '/admin/node-join'
     | '/admin/node-ops'
     | '/admin/nodes'
@@ -374,6 +384,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-credentials'
     | '/admin/node-join'
     | '/admin/node-ops'
     | '/admin/nodes'
@@ -409,6 +420,7 @@ export interface FileRouteTypes {
     | '/admin/ip-pools'
     | '/admin/ip-registry'
     | '/admin/monitoring'
+    | '/admin/node-credentials'
     | '/admin/node-join'
     | '/admin/node-ops'
     | '/admin/nodes'
@@ -600,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminNodeJoinRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/node-credentials': {
+      id: '/admin/node-credentials'
+      path: '/node-credentials'
+      fullPath: '/admin/node-credentials'
+      preLoaderRoute: typeof AdminNodeCredentialsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/monitoring': {
       id: '/admin/monitoring'
       path: '/monitoring'
@@ -684,6 +703,7 @@ interface AdminRouteChildren {
   AdminIpPoolsRoute: typeof AdminIpPoolsRoute
   AdminIpRegistryRoute: typeof AdminIpRegistryRoute
   AdminMonitoringRoute: typeof AdminMonitoringRoute
+  AdminNodeCredentialsRoute: typeof AdminNodeCredentialsRoute
   AdminNodeJoinRoute: typeof AdminNodeJoinRoute
   AdminNodeOpsRoute: typeof AdminNodeOpsRoute
   AdminNodesRoute: typeof AdminNodesRoute
@@ -709,6 +729,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIpPoolsRoute: AdminIpPoolsRoute,
   AdminIpRegistryRoute: AdminIpRegistryRoute,
   AdminMonitoringRoute: AdminMonitoringRoute,
+  AdminNodeCredentialsRoute: AdminNodeCredentialsRoute,
   AdminNodeJoinRoute: AdminNodeJoinRoute,
   AdminNodeOpsRoute: AdminNodeOpsRoute,
   AdminNodesRoute: AdminNodesRoute,

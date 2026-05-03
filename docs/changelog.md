@@ -1,5 +1,24 @@
 # IncusAdmin Changelog
 
+## 2026-05-03 [progress]
+
+PLAN-033 / OPS-039 — 添加节点自动化（凭据多形态 + 自动探测 + TOFU 主机指纹）落地：
+
+- **后端 `internal/sshexec`**：新增 `Credential` 类型（password / private_key / key_file 三选一）+ `NewWithCredential` + `RunWithStdin` + `FetchHostKey` + `AppendHostKey` + `Close()` zero-out。原 `New(host, user, keyFile)` 签名保留兼容 6 处既有调用点（含 ceph.go 长期持有的 Runner）。
+- **DB / 凭据存储**：migration `018_node_credentials.sql`（`name/kind/ciphertext/fingerprint/created_by/last_used_at`，复用 OPS-022 AES-256-GCM `v1:` 前缀），`internal/repository/node_credential.go` CRUD，`internal/handler/portal/node_credentials.go` 三段 endpoint（List / Create / Delete）+ audit `node.credential.*`。
+- **节点探测**：`cluster/scripts/probe-node.sh` + 嵌入版本，section-marker 形式输出原始 `ip -j addr/link` JSON + `ip route` 文本（**无 jq 依赖、无 apt 写**）；`internal/service/nodeprobe/probe.go` admin 端 `encoding/json` 解析（含 bond slaves / lsblk / lscpu）。
+- **Wizard 端点**：`POST /admin/clusters/{name}/nodes/probe-host-key`（TOFU 抓 SHA256 指纹）+ `POST /admin/clusters/{name}/nodes/probe`（10 min `probe_id` 缓存 + 6 req/min/user 限流 + accepted_host_key TOCTOU 二次校验）。
+- **AddNode 集成**：`jobs.Params` 新增 `Credential` 字段，executor 用 `NewWithCredential` 走新凭据，takeParams/Rollback Wipe；`AddNode` handler 接受 `probe_id / credential_id / inline_*`，启动 job 前再次校验 host key 并 `AppendHostKey` 到 known_hosts；老 `ssh_key_file` 路径保留兼容。
+- **step-up 注册**：`/api/admin/node-credentials` POST/DELETE 与两个 probe endpoint 全部加入 `sensitiveRoutes`。
+- **前端**：`node-join.tsx` 重写为 `useReducer` 四阶段 wizard（cred → fingerprint → confirm → job），sessionStorage 持久化（不含明文），1s debounce，启发式预选 mgmt/ceph 网卡 + skip-network；新页 `node-credentials.tsx` 凭据 CRUD + step-up；`api.ts` 新增 5 个 mutation/query；侧边栏加 `nav.nodeCredentials` 入口。
+- **i18n**：zh + en 各补齐 ~50 个 key（`admin.nodes.add.wizard.*` + `admin.nodeCredentials.*` + `nav.nodeCredentials`）。
+- **DESIGN.md 合规**：所有视觉值走 `@theme` token（`text-text-*` / `bg-status-*/8` / `border-border` / `rounded-*` / `shadow-*` / `size-*`），无 hex / arbitrary value。
+- **测试**：`credential_test.go`（Validate / Wipe / Clone）、`probe_test.go`（节段切分 + 真实样本解析含 bond + lsblk size）；现有 37 vitest + 全 go test 全绿。
+
+风险点（见 PLAN-033 § 风险）：inline 凭据 in-memory 30min job 期间进程崩溃 → sweeper 翻 partial → Rollback 残留节点；UI 已警示推荐入库优先。集群创建向导（PLAN-027 留下的纯 SQL upsert）不在本期范围。
+
+---
+
 ## 2026-05-01 [fix]
 
 PLAN-032 / OPS-030 — DESIGN.md 严格合规清零：

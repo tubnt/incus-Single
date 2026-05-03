@@ -85,7 +85,7 @@ func (e *clusterNodeRemoveExecutor) Run(ctx context.Context, rt *Runtime, job *m
 	}
 
 	// 上传 scripts/scale-node.sh + configs/cluster-env.sh + update-monitoring-targets.sh 到 leader
-	if err := uploadEmbeddedScripts(ctx, params.LeaderHost, sshUser, params.SSHKeyFile, params.KnownHostsFile, scriptDir); err != nil {
+	if err := uploadEmbeddedScripts(ctx, params.LeaderHost, sshUser, nil, params.SSHKeyFile, params.KnownHostsFile, scriptDir); err != nil {
 		return fmt.Errorf("upload scripts to leader: %w", err)
 	}
 

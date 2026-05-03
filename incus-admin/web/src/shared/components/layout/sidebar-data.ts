@@ -49,6 +49,7 @@ export const adminSidebar: NavGroup[] = [
     items: [
       { key: "nav.clusters", to: "/admin/clusters", icon: "Network" },
       { key: "nav.nodes", to: "/admin/nodes", icon: "Server" },
+      { key: "nav.nodeCredentials", to: "/admin/node-credentials", icon: "KeyRound" },
       { key: "nav.nodeOps", to: "/admin/node-ops", icon: "Terminal" },
       { key: "nav.ipPools", to: "/admin/ip-pools", icon: "Globe" },
       { key: "nav.ipRegistry", to: "/admin/ip-registry", icon: "MapPin" },

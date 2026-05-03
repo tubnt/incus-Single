@@ -50,6 +50,11 @@ var sensitiveRoutes = []sensitiveRoute{
 	// OPS-024 D2 maintenance + C2 env-script 暴露集群拓扑，step-up 必须
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+/maintenance$`)},
 	{method: http.MethodGet, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/env-script$`)},
+	// PLAN-033 / OPS-039：SSH 凭据 CRUD + 节点探测（含密码 / inline private key），全部高敏
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/node-credentials$`)},
+	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/node-credentials/\d+$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/probe$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/probe-host-key$`)},
 }
 
 func isSensitive(method, path string) bool {

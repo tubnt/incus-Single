@@ -140,6 +140,7 @@ func main() {
 	orderRepo := repository.NewOrderRepo(db)
 	auditRepo := repository.NewAuditRepo(db)
 	apiTokenRepo := repository.NewAPITokenRepo(db)
+	nodeCredRepo := repository.NewNodeCredentialRepo(db)
 	invoiceRepo := repository.NewInvoiceRepo(db)
 	quotaRepo := repository.NewQuotaRepo(db)
 
@@ -347,7 +348,7 @@ func main() {
 	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
 	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr).
 		WithQuotas(quotaRepo) // OPS-021：购买前 quota 强制
-	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr).WithPersistence(clusterRepo)
+	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr).WithPersistence(clusterRepo).WithNodeCredentials(nodeCredRepo)
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
 		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
@@ -380,6 +381,7 @@ func main() {
 		ClusterMgmt: clusterMgmtHandler,
 		Ceph:        portal.NewCephHandler(cfg.Monitor.CephSSHHost, cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey, cfg.Monitor.SSHKnownHostsFile),
 		NodeOps:     portal.NewNodeOpsHandler(cfg.Monitor.CephSSHUser, cfg.Monitor.CephSSHKey, cfg.Monitor.SSHKnownHostsFile),
+		NodeCredentials: portal.NewNodeCredentialHandler(nodeCredRepo),
 		Quotas:      portal.NewQuotaHandler(quotaRepo, vmRepo),
 		Events:      portal.NewEventsHandler(clusterMgr),
 		Healing:     portal.NewHealingHandler(healingRepo, clusterMgr),
