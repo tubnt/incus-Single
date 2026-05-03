@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-04-30
+> Updated: 2026-05-03
 
 ## Usage
 
@@ -61,3 +61,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-030 全功能 UI 测试遗留打磨（OPS-028）**](PLAN-030.md) `2026-04-30`
 - [x] [**PLAN-031 EN 语言包系统化补全（OPS-029）**](PLAN-031.md) `2026-04-30`
 - [x] [**PLAN-032 DESIGN.md 严格合规清零（OPS-030）**](PLAN-032.md) `2026-05-01`
+- [x] [**PLAN-033 添加节点自动化 —— 凭据多形态 + 自动探测向导（OPS-039）**](PLAN-033.md) `2026-05-03`

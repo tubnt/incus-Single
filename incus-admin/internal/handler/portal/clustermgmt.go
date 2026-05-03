@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service/jobs"
+	"github.com/incuscloud/incus-admin/internal/sshexec"
 )
 
 type ClusterMgmtHandler struct {
@@ -29,10 +31,26 @@ type ClusterMgmtHandler struct {
 	knownHostsFile string
 	// PLAN-027 / INFRA-003：cluster 持久化
 	clusterRepo *repository.ClusterRepo
+	// PLAN-033 / OPS-039：node credential store + probe cache + per-user
+	// rate limiter for the wizard's discover step.
+	nodeCredRepo *repository.NodeCredentialRepo
+	probeCache   *probeCache
+	probeRate    *rateLimiter
 }
 
 func NewClusterMgmtHandler(mgr *cluster.Manager) *ClusterMgmtHandler {
-	return &ClusterMgmtHandler{mgr: mgr}
+	return &ClusterMgmtHandler{
+		mgr:        mgr,
+		probeCache: newProbeCache(),
+		probeRate:  newRateLimiter(),
+	}
+}
+
+// WithNodeCredentials injects the credential repo so the probe + add-node
+// flows can resolve a saved credential by id (PLAN-033 / OPS-039).
+func (h *ClusterMgmtHandler) WithNodeCredentials(repo *repository.NodeCredentialRepo) *ClusterMgmtHandler {
+	h.nodeCredRepo = repo
+	return h
 }
 
 // WithPersistence 注入 ClusterRepo 启用 add/remove 双写 DB（PLAN-027）。
@@ -63,6 +81,9 @@ func (h *ClusterMgmtHandler) AdminRoutes(r chi.Router) {
 	// PLAN-026 节点 add/remove
 	r.Post("/clusters/{name}/nodes", h.AddNode)
 	r.Delete("/clusters/{name}/nodes/{node}", h.RemoveNode)
+	// PLAN-033 / OPS-039：wizard 探测路径
+	r.Post("/clusters/{name}/nodes/probe-host-key", h.ProbeHostKey)
+	r.Post("/clusters/{name}/nodes/probe", h.ProbeNode)
 	// OPS-024 D2 maintenance mode
 	r.Post("/clusters/{name}/nodes/{node}/maintenance", h.SetMaintenance)
 	// OPS-024 C2 cluster-env.sh 生成（step-up gated；middleware 配置）
@@ -418,6 +439,14 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		CephPubIP     string `json:"ceph_pub_ip"      validate:"omitempty,ip"`
 		CephClusterIP string `json:"ceph_cluster_ip"  validate:"omitempty,ip"`
 		SkipNetwork   bool   `json:"skip_network"`
+
+		// PLAN-033 / OPS-039：wizard 可选字段
+		ProbeID                string `json:"probe_id"                    validate:"omitempty,startswith=p_,max=64"`
+		AcceptedHostKeySHA256  string `json:"accepted_host_key_sha256"    validate:"omitempty,startswith=SHA256:,max=80"`
+		CredentialID           int64  `json:"credential_id"               validate:"omitempty,min=1"`
+		InlineKind             string `json:"inline_kind"                 validate:"omitempty,oneof=password private_key"`
+		InlinePassword         string `json:"inline_password"             validate:"omitempty,max=2048"`
+		InlineKeyData          string `json:"inline_key_data"             validate:"omitempty,max=32768"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
@@ -439,16 +468,97 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 	if sshUser == "" {
 		sshUser = "root"
 	}
-	keyFile := req.SSHKeyFile
-	if keyFile == "" {
-		keyFile = h.sshKeyFile
-	}
-	if keyFile == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ssh_key_file required (or configure server-wide CEPH_SSH_KEY)"})
-		return
-	}
 
 	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+
+	// PLAN-033 / OPS-039：凭据解析优先级
+	//   probe_id  -> 查 cache，复用 wizard 已确认的 cred + host key
+	//   credential_id / inline_* -> wizard 提交时直接传
+	//   都不传   -> 退化到 sshKeyFile 全局 default（兼容老调用方）
+	var cred *sshexec.Credential
+	var keyFile string
+	var acceptedHK string
+
+	if req.ProbeID != "" && h.probeCache != nil {
+		rec, ok := h.probeCache.get(req.ProbeID)
+		if !ok {
+			writeJSON(w, http.StatusGone, map[string]any{"error": "probe_id expired or unknown"})
+			return
+		}
+		if rec.host != req.PublicIP {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "probe host does not match public_ip"})
+			return
+		}
+		acceptedHK = rec.hostKeySHA256
+		// 重新解出 credential（cache 不持有明文）
+		c, _, cerr := h.resolveCredential(r, userID, rec.credentialID, req.InlineKind, req.InlinePassword, req.InlineKeyData)
+		if cerr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": cerr.Error()})
+			return
+		}
+		cred = c
+	} else if req.CredentialID > 0 || req.InlineKind != "" {
+		c, _, cerr := h.resolveCredential(r, userID, req.CredentialID, req.InlineKind, req.InlinePassword, req.InlineKeyData)
+		if cerr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": cerr.Error()})
+			return
+		}
+		cred = c
+	} else {
+		keyFile = req.SSHKeyFile
+		if keyFile == "" {
+			keyFile = h.sshKeyFile
+		}
+		if keyFile == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ssh_key_file or credential_id / inline credential required"})
+			return
+		}
+	}
+
+	if req.AcceptedHostKeySHA256 != "" {
+		acceptedHK = req.AcceptedHostKeySHA256
+	}
+
+	// Wipe-on-error guard: cred 在成功 Enqueue 之前的任意失败路径都要清零，
+	// 避免 inline 密码 / 私钥在 handler scope 直到 GC。Enqueue 成功后凭据
+	// 转给 worker，由 executor 终态时 Wipe（cluster_node_add.go takeParams 路径）。
+	enqueued := false
+	defer func() {
+		if !enqueued && cred != nil {
+			cred.Wipe()
+		}
+	}()
+
+	// 在异步 job 跑起来之前把 host key 写入 known_hosts，避免严格校验把
+	// 第一次 add 直接挡掉。re-fetch host key 是因为 probe 后 add 之间有
+	// TTL 间隙，且对应 endpoint 已要求 admin step-up。
+	if acceptedHK != "" && h.knownHostsFile != "" {
+		probeRunner := sshexec.NewWithCredential(req.PublicIP, sshUser, sshexec.Credential{Kind: sshexec.CredKindKeyFile, KeyFile: ""}).WithDialTimeout(5 * time.Second)
+		hkCtx, hkCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		hk, hkErr := probeRunner.FetchHostKey(hkCtx)
+		hkCancel()
+		probeRunner.Close()
+		if hkErr != nil {
+			if cred != nil {
+				cred.Wipe()
+			}
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "host key recheck failed: " + hkErr.Error()})
+			return
+		}
+		if hk.SHA256 != acceptedHK {
+			if cred != nil {
+				cred.Wipe()
+			}
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":   "host key changed since confirmation",
+				"current": hk.SHA256,
+			})
+			return
+		}
+		if err := sshexec.AppendHostKey(h.knownHostsFile, hk); err != nil {
+			slog.Warn("known_hosts append failed", "host", req.PublicIP, "error", err)
+		}
+	}
 
 	job, err := h.jobRepo.Create(r.Context(), model.JobKindClusterNodeAdd, userID, clusterID, nil, nil, req.NodeName)
 	if err != nil {
@@ -475,11 +585,15 @@ func (h *ClusterMgmtHandler) AddNode(w http.ResponseWriter, r *http.Request) {
 		CephPubIP:     req.CephPubIP,
 		CephClusterIP: req.CephClusterIP,
 		SkipNetwork:   req.SkipNetwork,
+		// PLAN-033 凭据
+		Credential:            cred,
+		AcceptedHostKeySHA256: acceptedHK,
 	}); err != nil {
 		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue: " + err.Error()})
 		return
 	}
+	enqueued = true
 
 	audit(r.Context(), r, "cluster.node.add", "node", 0, map[string]any{
 		"cluster":   clusterName,

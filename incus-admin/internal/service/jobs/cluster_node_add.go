@@ -107,14 +107,14 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 
 	// step 1：upload_scripts
 	rt.step(ctx, job.ID, 1, stepUploadScripts, model.StepStatusRunning, fmt.Sprintf("上传脚本到 %s:%s", params.NodePublicIP, scriptDir))
-	if err := uploadEmbeddedScripts(ctx, params.NodePublicIP, sshUser, params.SSHKeyFile, params.KnownHostsFile, scriptDir); err != nil {
+	if err := uploadEmbeddedScripts(ctx, params.NodePublicIP, sshUser, params.Credential, params.SSHKeyFile, params.KnownHostsFile, scriptDir); err != nil {
 		rt.finishStep(ctx, job.ID, 1, stepUploadScripts, model.StepStatusFailed, err.Error())
 		return fmt.Errorf("upload scripts: %w", err)
 	}
 	rt.finishStep(ctx, job.ID, 1, stepUploadScripts, model.StepStatusSucceeded, "")
 
 	// step 2..8：远程跑 join-node.sh，流式解析 marker 推进 step
-	runner := sshexec.New(params.NodePublicIP, sshUser, params.SSHKeyFile).WithKnownHosts(params.KnownHostsFile)
+	runner := newRunnerForParams(params.NodePublicIP, sshUser, params).WithKnownHosts(params.KnownHostsFile)
 	cmdParts := []string{
 		"bash", shellQuote(scriptDir + "/scripts/join-node.sh"),
 		"--name", shellQuote(params.NodeName),
@@ -205,7 +205,10 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 	}
 	finishCurrent(model.StepStatusSucceeded, "")
 
-	rt.takeParams(job.ID)
+	taken := rt.takeParams(job.ID)
+	if taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 	return nil
 }
 
@@ -225,14 +228,18 @@ func (e *clusterNodeAddExecutor) Rollback(ctx context.Context, rt *Runtime, job 
 	// 仅当节点确实存在于 Incus 时尝试移除（避免 token 阶段就失败时也尝试 remove）
 	resp, err := client.APIGet(ctx, fmt.Sprintf("/1.0/cluster/members/%s", params.NodeName))
 	if err != nil || resp == nil {
-		rt.takeParams(job.ID)
+		if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+			taken.Credential.Wipe()
+		}
 		return
 	}
 
 	if _, derr := client.APIDelete(ctx, fmt.Sprintf("/1.0/cluster/members/%s?force=1", params.NodeName)); derr != nil {
 		slog.Warn("rollback remove cluster member failed", "job_id", job.ID, "node", params.NodeName, "error", derr)
 	}
-	rt.takeParams(job.ID)
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 }
 
 // requestJoinToken 调 Incus API 拿 cluster join token，等价于 `incus cluster add <name>`。
@@ -289,8 +296,10 @@ func requestJoinToken(ctx context.Context, client *cluster.Client, nodeName stri
 // uploadEmbeddedScripts 把 sshexec.embedded/ 全部 .sh + cluster-env.sh 上传到
 // 远端 scriptDir 下 scripts/ 与 configs/ 子目录，保持 join-node.sh 内
 // `${SCRIPT_DIR}/../configs/cluster-env.sh` 的相对路径假设。
-func uploadEmbeddedScripts(ctx context.Context, host, user, keyFile, knownHosts, scriptDir string) error {
-	runner := sshexec.New(host, user, keyFile).WithKnownHosts(knownHosts)
+//
+// PLAN-033：cred 优先于 keyFile（兼容旧调用方传 nil cred + keyFile 路径）。
+func uploadEmbeddedScripts(ctx context.Context, host, user string, cred *sshexec.Credential, keyFile, knownHosts, scriptDir string) error {
+	runner := newRunnerForParts(host, user, cred, keyFile).WithKnownHosts(knownHosts)
 	if err := runner.MkdirAll(ctx, scriptDir+"/scripts"); err != nil {
 		return err
 	}
@@ -320,6 +329,19 @@ func uploadEmbeddedScripts(ctx context.Context, host, user, keyFile, knownHosts,
 		}
 		return runner.WriteFile(ctx, remotePath, data, mode2fmode(mode))
 	})
+}
+
+// newRunnerForParams returns a Runner using Credential when supplied,
+// falling back to the legacy SSHKeyFile path otherwise.
+func newRunnerForParams(host, user string, p *Params) *sshexec.Runner {
+	return newRunnerForParts(host, user, p.Credential, p.SSHKeyFile)
+}
+
+func newRunnerForParts(host, user string, cred *sshexec.Credential, keyFile string) *sshexec.Runner {
+	if cred != nil {
+		return sshexec.NewWithCredential(host, user, *cred)
+	}
+	return sshexec.New(host, user, keyFile)
 }
 
 // 以下是工具函数。

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/incuscloud/incus-admin/internal/model"
+	"github.com/incuscloud/incus-admin/internal/sshexec"
 )
 
 // Executor 是 vm.create / vm.reinstall 共用的接口。
@@ -59,4 +60,11 @@ type Params struct {
 	CephPubIP      string // Ceph public 网 IP 覆盖
 	CephClusterIP  string // Ceph cluster 网 IP 覆盖
 	SkipNetwork    bool   // 跳过 do_network 阶段（运维已预配 IP / 路由 / 桥）
+
+	// PLAN-033 / OPS-039：cluster.node.add 凭据多形态
+	// Credential 取代 SSHKeyFile（如果非 nil）；SSHKeyFile 仍保留作向后兼容
+	// 与 cluster.node.remove 的全局 default key 路径。worker 消费 params 后
+	// 必须 Wipe Credential 把内存中的密码 / 私钥清零。
+	Credential             *sshexec.Credential
+	AcceptedHostKeySHA256  string // 启动 add-node job 前已写入 known_hosts，仅用于 audit
 }

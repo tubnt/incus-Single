@@ -76,6 +76,9 @@ type Handlers struct {
 	ClusterMgmt AdminRouteRegistrar
 	Ceph        AdminRouteRegistrar
 	NodeOps     AdminRouteRegistrar
+	// NodeCredentials (PLAN-033 / OPS-039) exposes admin CRUD for SSH
+	// credentials used to bootstrap new nodes. Step-up gated.
+	NodeCredentials AdminRouteRegistrar
 	Invoices  interface {
 		AdminRouteRegistrar
 		PortalRouteRegistrar
@@ -300,6 +303,9 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			}
 			if h.NodeOps != nil {
 				h.NodeOps.AdminRoutes(r)
+			}
+			if h.NodeCredentials != nil {
+				h.NodeCredentials.AdminRoutes(r)
 			}
 			if h.Events != nil {
 				h.Events.AdminRoutes(r)

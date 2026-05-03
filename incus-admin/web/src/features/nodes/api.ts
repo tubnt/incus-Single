@@ -139,6 +139,9 @@ export function useExecSSHMutation() {
 /**
  * PLAN-026 / INFRA-002 节点 add/remove 走 jobs runtime 异步流。
  * 返回 202 + job_id，前端用 useJobStream 监听 SSE。
+ *
+ * PLAN-033 / OPS-039 wizard 字段：probe_id / accepted_host_key_sha256 /
+ * credential_id / inline_*。新字段全部可选；不传 = 兼容旧 ssh_key_file 路径。
  */
 export interface AddNodeParams {
   node_name: string;
@@ -154,6 +157,156 @@ export interface AddNodeParams {
   ceph_pub_ip?: string;
   ceph_cluster_ip?: string;
   skip_network?: boolean;
+  // PLAN-033 wizard
+  probe_id?: string;
+  accepted_host_key_sha256?: string;
+  credential_id?: number;
+  inline_kind?: "password" | "private_key";
+  inline_password?: string;
+  inline_key_data?: string;
+}
+
+/* ============================================================
+ *  PLAN-033 / OPS-039 — node credentials + probe APIs
+ * ============================================================ */
+
+export interface NodeCredential {
+  id: number;
+  name: string;
+  kind: "password" | "private_key";
+  fingerprint?: string;
+  created_by: number;
+  created_at: string;
+  last_used_at?: string;
+}
+
+export const credentialKeys = {
+  all: ["node-credentials"] as const,
+  list: () => [...credentialKeys.all, "list"] as const,
+};
+
+export function useNodeCredentialsQuery() {
+  return useQuery({
+    queryKey: credentialKeys.list(),
+    queryFn: () => http.get<{ credentials: NodeCredential[] }>("/admin/node-credentials"),
+  });
+}
+
+export interface CreateCredentialBody {
+  name: string;
+  kind: "password" | "private_key";
+  password?: string;
+  key_data?: string;
+}
+
+export function useCreateCredentialMutation() {
+  return useMutation({
+    mutationFn: (body: CreateCredentialBody) =>
+      http.post<{ credential: NodeCredential }>("/admin/node-credentials", body, {
+        intent: {
+          action: "node.credential.create",
+          args: { name: body.name, kind: body.kind },
+          description: `保存节点凭据 ${body.name}（${body.kind === "password" ? "密码" : "私钥"}）`,
+        },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: credentialKeys.all }),
+  });
+}
+
+export function useDeleteCredentialMutation() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      http.delete<{ status: string; id: number }>(`/admin/node-credentials/${id}`, undefined, {
+        intent: {
+          action: "node.credential.delete",
+          args: { id },
+          description: `删除节点凭据 #${id}`,
+        },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: credentialKeys.all }),
+  });
+}
+
+export interface ProbeHostKeyParams {
+  host: string;
+  port?: number;
+  user?: string;
+}
+
+export interface ProbeHostKeyResult {
+  host: string;
+  port: number;
+  key_type: string;
+  fingerprint: string;
+}
+
+export function useProbeHostKeyMutation(clusterName: string) {
+  return useMutation({
+    mutationFn: (body: ProbeHostKeyParams) =>
+      http.post<ProbeHostKeyResult>(
+        `/admin/clusters/${clusterName}/nodes/probe-host-key`,
+        body,
+        {
+          intent: {
+            action: "node.probe.host_key",
+            args: { cluster: clusterName, host: body.host },
+            description: `探测 ${body.host} SSH 主机密钥`,
+          },
+        },
+      ),
+  });
+}
+
+export interface ProbeNodeParams {
+  host: string;
+  port?: number;
+  user?: string;
+  credential_id?: number;
+  inline_kind?: "password" | "private_key";
+  inline_password?: string;
+  inline_key_data?: string;
+  accepted_host_key_sha256: string;
+}
+
+export interface NodeInfo {
+  hostname: string;
+  os: { id?: string; version?: string; kernel?: string };
+  cpu: { model?: string; cores?: number; threads?: number };
+  memory_kb: number;
+  interfaces: Array<{
+    name: string;
+    kind: string;
+    mac?: string;
+    speed_mbps?: number;
+    slaves?: string[];
+    master?: string;
+    addresses?: string[];
+    is_default_route?: boolean;
+  }>;
+  default_route?: { interface: string; gateway?: string; source?: string };
+  public_ip_observed?: string;
+  disks: Array<{ name: string; size_bytes?: number; rotational?: boolean; model?: string }>;
+  incus_installed: boolean;
+  ceph_installed: boolean;
+}
+
+export interface ProbeNodeResult {
+  probe_id: string;
+  node: NodeInfo;
+  fingerprint: string;
+}
+
+export function useProbeNodeMutation(clusterName: string) {
+  return useMutation({
+    mutationFn: (body: ProbeNodeParams) =>
+      http.post<ProbeNodeResult>(`/admin/clusters/${clusterName}/nodes/probe`, body, {
+        intent: {
+          action: "node.probe",
+          args: { cluster: clusterName, host: body.host },
+          description: `探测节点 ${body.host} 的 OS/CPU/内存/网卡`,
+        },
+      }),
+  });
 }
 
 export interface NodeJobResponse {
