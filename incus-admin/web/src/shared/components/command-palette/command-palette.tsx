@@ -7,7 +7,7 @@ import {
   Package, Plus, Server, ServerCog, Settings, Share2, Shield, ShieldCheck,
   ShoppingCart, Terminal, Ticket, Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
 import {
@@ -77,23 +77,32 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
 
   // 打开时清空搜索，给焦点一个干净起点
   useEffect(() => {
-    if (open) setSearch("");
+    if (open) {
+      // open 是 prop 驱动；首次打开重置内部 search state
+      // eslint-disable-next-line react/set-state-in-effect
+      setSearch("");
+    }
   }, [open]);
 
-  // Pages 数据：admin 看全部 sidebar 项；user 仅看用户视角
-  const pages = useMemo(() => {
-    const items: Array<{ key: string; to: string; icon: string; group: string }> = [];
-    for (const it of userSidebar) {
-      items.push({ key: it.key, to: it.to, icon: it.icon, group: t("commandPalette.userSection", { defaultValue: "用户" }) });
-    }
+  // Pages 数据按 section 分组（每个 section 单独 CommandGroup heading），
+  // 搜索为空时即可浏览完整 navigation tree。
+  const pageGroups = useMemo(() => {
+    const groups: Array<{ key: string; heading: string; items: Array<{ key: string; to: string; icon: string }> }> = [];
+    groups.push({
+      key: "user",
+      heading: t("commandPalette.userSection", { defaultValue: "用户" }),
+      items: userSidebar.map((it) => ({ key: it.key, to: it.to, icon: it.icon })),
+    });
     if (isAdmin(user)) {
       for (const grp of adminSidebar) {
-        for (const it of grp.items) {
-          items.push({ key: it.key, to: it.to, icon: it.icon, group: t(grp.titleKey) });
-        }
+        groups.push({
+          key: grp.key,
+          heading: t(grp.titleKey),
+          items: grp.items.map((it) => ({ key: it.key, to: it.to, icon: it.icon })),
+        });
       }
     }
-    return items;
+    return groups;
   }, [user, t]);
 
   const recent = useMemo(() => readRecent(), [open]);
@@ -105,6 +114,8 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
     pushRecent({ path, title });
     onOpenChange(false);
     // 用 navigate 而非 window.location.href（B1 SPA 跳转）
+    // OPS-038: path 是 sidebar-data 中的 runtime string，无法静态化为 union literal
+     
     navigate({ to: path as any });
   };
 
@@ -119,9 +130,12 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
           )}
         />
         <BaseDialog.Popup
+          // OPS-037: Tailwind v4 不把 min()/calc() 形式的 --size-* token 渲染为
+          // width utility，需要 inline style 引用 var 才能生效。
+          style={{ width: "var(--size-sheet-lg)" }}
           className={cn(
             "fixed left-1/2 top-[20%] z-50 -translate-x-1/2",
-            "w-[min(92vw,40rem)] rounded-xl border border-border bg-surface-elevated",
+            "rounded-xl border border-border bg-surface-elevated",
             "shadow-dialog outline-none overflow-hidden",
             "data-[starting-style]:opacity-0 data-[ending-style]:opacity-0",
             "data-[starting-style]:scale-95 data-[ending-style]:scale-95",
@@ -188,21 +202,24 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
                 </>
               ) : null}
 
-              {/* Pages */}
-              <CommandSeparator />
-              <CommandGroup heading={t("commandPalette.pages", { defaultValue: "页面" })}>
-                {pages.map((p) => (
-                  <CommandItem
-                    key={`page:${p.to}`}
-                    value={`page ${p.to} ${t(p.key)} ${p.group}`}
-                    onSelect={() => go(p.to, t(p.key))}
-                  >
-                    <ResolveIcon name={p.icon} />
-                    <span className="flex-1">{t(p.key)}</span>
-                    <span className="text-text-tertiary text-label">{p.group}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              {/* Pages —— 按 section 分组展示，浏览完整 navigation tree */}
+              {pageGroups.map((g, idx) => (
+                <Fragment key={`pg:${g.key}`}>
+                  {idx === 0 ? <CommandSeparator /> : null}
+                  <CommandGroup heading={g.heading}>
+                    {g.items.map((p) => (
+                      <CommandItem
+                        key={`page:${p.to}`}
+                        value={`page ${p.to} ${t(p.key)} ${g.heading}`}
+                        onSelect={() => go(p.to, t(p.key))}
+                      >
+                        <ResolveIcon name={p.icon} />
+                        <span className="flex-1">{t(p.key)}</span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Fragment>
+              ))}
             </CommandList>
           </Command>
         </BaseDialog.Popup>

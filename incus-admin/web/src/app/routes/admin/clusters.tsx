@@ -31,6 +31,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatNodeMessage, formatNodeStatus } from "@/shared/lib/status-i18n";
 import { fmtBytes } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/clusters")({
@@ -78,6 +79,7 @@ function ClustersPage() {
 }
 
 function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
+  const { t } = useTranslation();
   const { data } = useClusterNodesQuery(cluster.name, 30_000);
   const nodes = data?.nodes ?? [];
 
@@ -98,12 +100,12 @@ function ClusterCard({ cluster }: { cluster: ClusterInfo }) {
           <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
             <thead className="bg-surface-1 border-b border-border">
               <tr>
-                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Node</th>
-                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Status</th>
-                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">CPU</th>
-                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Memory</th>
-                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Free %</th>
-                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Actions</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colName", { defaultValue: "节点" })}</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colStatus", { defaultValue: "状态" })}</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colCpu", { defaultValue: "CPU" })}</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colMemory", { defaultValue: "内存" })}</th>
+                <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colFreePct", { defaultValue: "空闲" })}</th>
+                <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">{t("vm.actions", { defaultValue: "操作" })}</th>
               </tr>
             </thead>
             <tbody>
@@ -134,9 +136,9 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
     <tr className="group/row border-t border-border">
       <td className="px-4 py-2 font-mono">{n.server_name}</td>
       <td className="px-4 py-2">
-        <StatusPill status={statusKind}>{n.status}</StatusPill>
+        <StatusPill status={statusKind}>{formatNodeStatus(t, n.status)}</StatusPill>
         {n.message && n.message !== "Fully operational" && (
-          <span className="text-xs text-muted-foreground ml-2">{n.message}</span>
+          <span className="text-xs text-muted-foreground ml-2">{formatNodeMessage(t, n.message)}</span>
         )}
       </td>
       <td className="px-4 py-2">{n.cpu_total} cores</td>
@@ -187,7 +189,10 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
 }
 
 const NAME_RE = /^[a-z][a-z0-9-]{1,31}$/;
-const API_URL_RE = /^https?:\/\/[^\s/]+(:\d{1,5})?(\/.*)?$/;
+// QA-007 BUG-05: `[^\s/]+` already consumes the optional ":port" segment,
+// so the previous `(:\d{1,5})?` group was both unused and redundant. Path
+// suffix is non-capturing — we only test, never extract the match.
+const API_URL_RE = /^https?:\/\/[^\s/]+(?:\/.*)?$/;
 
 function AddClusterForm({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();

@@ -125,6 +125,8 @@ function ReinstallForm({
     if (stream.terminal !== "succeeded") return;
     const result = jobQuery.data?.result;
     if (!result?.password) return;
+    // SSE job 完成后从外部 query 数据写入凭据
+    // eslint-disable-next-line react/set-state-in-effect
     setCredentials({
       username: result.username ?? "ubuntu",
       password: result.password,

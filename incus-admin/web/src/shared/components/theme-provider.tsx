@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, use, useEffect, useMemo, useState } from "react";
 
 export type Theme = "light" | "dark" | "system";
 
@@ -42,6 +42,8 @@ export function ThemeProvider({
     const next = theme === "system" ? resolveSystem() : (theme as "light" | "dark");
     root.classList.remove("light", "dark");
     root.classList.add(next);
+    // 同步外部 DOM class 与 prefers-color-scheme，需要在 effect 内
+    // eslint-disable-next-line react/set-state-in-effect
     setResolvedTheme(next);
     try {
       localStorage.setItem(LS_KEY, theme);
@@ -67,9 +69,9 @@ export function ThemeProvider({
     [theme, resolvedTheme],
   );
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return <ThemeContext value={value}>{children}</ThemeContext>;
 }
 
 export function useTheme() {
-  return useContext(ThemeContext);
+  return use(ThemeContext);
 }

@@ -5,22 +5,23 @@ import { queryClient } from "@/shared/lib/query-client";
 
 export const Route = createFileRoute("/admin")({
   beforeLoad: async ({ location }) => {
+    let user: User | null = null;
     try {
       const cached = queryClient.getQueryData<User>(["currentUser"]);
-      const user = cached ?? await queryClient.fetchQuery({
+      user = cached ?? await queryClient.fetchQuery({
         queryKey: ["currentUser"],
         queryFn: fetchCurrentUser,
       });
-      if (!user || !isAdmin(user)) {
-        throw redirect({ to: "/" });
-      }
-      // /admin 本身没有 index 页面 —— 默认进监控总览，保留所有子路由的 deep-link。
-      if (location.pathname === "/admin" || location.pathname === "/admin/") {
-        throw redirect({ to: "/admin/monitoring" });
-      }
-    } catch (e) {
-      if (e && typeof e === "object" && "to" in e) throw e;
+    } catch {
+      // fetch 失败（401 / network）—— 不当 admin 拦截
       throw redirect({ to: "/" });
+    }
+    if (!user || !isAdmin(user)) {
+      throw redirect({ to: "/" });
+    }
+    // /admin 本身没有 index 页面 —— 默认进监控总览，保留所有子路由的 deep-link。
+    if (location.pathname === "/admin" || location.pathname === "/admin/") {
+      throw redirect({ to: "/admin/monitoring" });
     }
   },
   component: () => <Outlet />,

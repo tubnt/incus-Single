@@ -30,9 +30,13 @@ export function Breadcrumb({ items, className }: BreadcrumbProps) {
       {items.map((item, idx) => {
         const last = idx === items.length - 1;
         return (
+          // eslint-disable-next-line react/no-array-index-key -- 面包屑短而稳定，不会动态重排
           <Fragment key={idx}>
             {item.to && !last ? (
               <Link
+                // OPS-038: item.to 是 caller 传入的 runtime string —— TanStack Router
+                // `to` 类型要求 union literal，无法在 generic Breadcrumb 内静态化。
+                 
                 to={item.to as any}
                 className="hover:text-foreground transition-colors"
               >

@@ -2,12 +2,14 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Camera, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { Button } from "@/shared/components/ui/button";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { Input } from "@/shared/components/ui/input";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
+import { formatDateTime } from "@/shared/lib/utils";
 import { snapshotPath } from "./snapshot-utils";
 
 interface SnapshotInfo {
@@ -44,18 +46,24 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
       queryClient.invalidateQueries({ queryKey: ["snapshots", apiBase, vmName] });
       setNewName("");
     },
+    onError: (err: Error) =>
+      toast.error(`${t("snapshot.create")}: ${err.message}`),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (snap: string) =>
       http.delete(snapshotPath(apiBase, vmName, snap), { cluster, project }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["snapshots", apiBase, vmName] }),
+    onError: (err: Error) =>
+      toast.error(`${t("common.delete")}: ${err.message}`),
   });
 
   const restoreMutation = useMutation({
     mutationFn: (snap: string) =>
       http.post(`${snapshotPath(apiBase, vmName, snap)}/restore`, { cluster, project }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["snapshots", apiBase, vmName] }),
+    onError: (err: Error) =>
+      toast.error(`${t("snapshot.restore")}: ${err.message}`),
   });
 
   const snapshots = data?.snapshots ?? [];
@@ -105,7 +113,7 @@ export function SnapshotPanel({ vmName, cluster, project, apiBase = "/admin" }: 
               <div>
                 <span className="font-mono">{snap.name}</span>
                 <span className="text-caption text-text-tertiary ml-2">
-                  {new Date(snap.created_at).toLocaleString()}
+                  {formatDateTime(snap.created_at)}
                 </span>
               </div>
               <div className="flex gap-1.5">

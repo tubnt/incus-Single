@@ -28,6 +28,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
 import { StatusPill } from "@/shared/components/ui/status";
 import { queryClient } from "@/shared/lib/query-client";
+import { formatNodeMessage, formatNodeStatus, formatVmStatus } from "@/shared/lib/status-i18n";
 
 export const Route = createFileRoute("/admin/nodes")({
   component: NodesPage,
@@ -138,6 +139,7 @@ function NodeCard({
   isSelected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const statusKind =
     node.status === "Online"
       ? "success"
@@ -173,7 +175,7 @@ function NodeCard({
               ))}
             </div>
           )}
-          <StatusPill status={statusKind}>{node.status}</StatusPill>
+          <StatusPill status={statusKind}>{formatNodeStatus(t, node.status)}</StatusPill>
           <span className="text-xs text-muted-foreground">
             {isSelected ? "▲" : "▼"}
           </span>
@@ -216,6 +218,8 @@ function NodeDetail({
   useEffect(() => {
     if (removeStream.terminal === "succeeded" && removeJobQuery.data?.job?.status === "succeeded") {
       toast.success(t("admin.nodes.remove.done", { defaultValue: "节点 {{name}} 已移除", name: nodeName }));
+      // SSE 流终态后清理 jobId state，触发 useJobStream(null) 关流
+      // eslint-disable-next-line react/set-state-in-effect
       setRemoveJobId(null);
     }
     if (removeStream.terminal === "failed" || removeStream.terminal === "partial") {
@@ -226,6 +230,14 @@ function NodeDetail({
 
   const instances = data?.instances ?? [];
   const nodeInfo = data?.node as Record<string, unknown> | undefined;
+
+  // OPS-024 D2 软维护切换：scheduler.instance = manual / all
+  // QA-007 BUG: 提到组件顶层避免 JSX 内 IIFE（react/unsupported-syntax）
+  const schedConfig = (
+    (nodeInfo?.config as Record<string, string> | undefined)?.["scheduler.instance"]
+    ?? "all"
+  ).toLowerCase();
+  const isMaint = schedConfig === "manual";
 
   return (
     <div className="border-t border-border bg-surface-2/40 p-4">
@@ -244,11 +256,11 @@ function NodeDetail({
               />
               <InfoItem
                 label={t("admin.nodes.status", "状态")}
-                value={String(nodeInfo.status ?? "-")}
+                value={nodeInfo.status ? formatNodeStatus(t, String(nodeInfo.status)) : "-"}
               />
               <InfoItem
                 label={t("admin.nodes.message", "消息")}
-                value={String(nodeInfo.message ?? "-")}
+                value={nodeInfo.message ? formatNodeMessage(t, String(nodeInfo.message)) : "-"}
               />
               <InfoItem
                 label={t("admin.nodes.roles", "角色")}
@@ -302,48 +314,37 @@ function NodeDetail({
               </span>
             )}
 
-            {/* OPS-024 D2 软维护切换：scheduler.instance = manual / all */}
-            {(() => {
-              const sched = (() => {
-                if (!nodeInfo) return "all";
-                const cfg = nodeInfo.config as Record<string, string> | undefined;
-                return (cfg?.["scheduler.instance"] ?? "all").toLowerCase();
-              })();
-              const isMaint = sched === "manual";
-              return (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={maintenanceMutation.isPending}
-                  onClick={async () => {
-                    const ok = await confirm({
-                      title: isMaint
-                        ? t("admin.nodes.maintenance.exitTitle", "退出维护模式")
-                        : t("admin.nodes.maintenance.enterTitle", "进入维护模式"),
-                      message: isMaint
-                        ? t("admin.nodes.maintenance.exitMessage", {
-                            defaultValue: "恢复 {{name}} 的常规调度（新建 VM 可放置到本节点）。",
-                            name: nodeName,
-                          })
-                        : t("admin.nodes.maintenance.enterMessage", {
-                            defaultValue: "把 {{name}} 设为维护模式：新建 VM 不再放置到此节点，但已有 VM 保留。要 evacuate 现有 VM 请用上方按钮。",
-                            name: nodeName,
-                          }),
-                    });
-                    if (!ok) return;
-                    maintenanceMutation.mutate(!isMaint, {
-                      onError: (err) => toast.error((err as Error).message),
-                    });
-                  }}
-                >
-                  {maintenanceMutation.isPending
-                    ? t("common.processing", "处理中...")
-                    : isMaint
-                      ? t("admin.nodes.maintenance.exit", "退出维护")
-                      : t("admin.nodes.maintenance.enter", "维护模式")}
-                </Button>
-              );
-            })()}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={maintenanceMutation.isPending}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: isMaint
+                    ? t("admin.nodes.maintenance.exitTitle", "退出维护模式")
+                    : t("admin.nodes.maintenance.enterTitle", "进入维护模式"),
+                  message: isMaint
+                    ? t("admin.nodes.maintenance.exitMessage", {
+                        defaultValue: "恢复 {{name}} 的常规调度（新建 VM 可放置到本节点）。",
+                        name: nodeName,
+                      })
+                    : t("admin.nodes.maintenance.enterMessage", {
+                        defaultValue: "把 {{name}} 设为维护模式：新建 VM 不再放置到此节点，但已有 VM 保留。要 evacuate 现有 VM 请用上方按钮。",
+                        name: nodeName,
+                      }),
+                });
+                if (!ok) return;
+                maintenanceMutation.mutate(!isMaint, {
+                  onError: (err) => toast.error((err as Error).message),
+                });
+              }}
+            >
+              {maintenanceMutation.isPending
+                ? t("common.processing", "处理中...")
+                : isMaint
+                  ? t("admin.nodes.maintenance.exit", "退出维护")
+                  : t("admin.nodes.maintenance.enter", "维护模式")}
+            </Button>
 
             {/* PLAN-026 移除节点：destructive，先 evacuate VM 再 leave Incus / Ceph */}
             {removeJobId == null && (
@@ -443,7 +444,7 @@ function NodeDetail({
                           <StatusPill
                             status={inst.status === "Running" ? "success" : "disabled"}
                           >
-                            {inst.status}
+                            {formatVmStatus(t, inst.status)}
                           </StatusPill>
                         </td>
                       </tr>

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { extractIP, useVMStateMutation } from "@/features/vms/api";
 import { Button } from "@/shared/components/ui/button";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
+import { formatVmStatus } from "@/shared/lib/status-i18n";
 import { cn } from "@/shared/lib/utils";
 
 interface VMPeekPanelProps {
@@ -66,8 +67,10 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
     <aside
       role="complementary"
       aria-label={t("vm.peekPanelAria", { defaultValue: "VM 详情速览：{{name}}", name: vm.name })}
+      // OPS-037: min() token 走 inline style 绑 var
+      style={{ width: "var(--size-sheet-sm)" }}
       className={cn(
-        "fixed right-0 top-0 z-30 h-screen w-[min(92vw,24rem)]",
+        "fixed right-0 top-0 z-30 h-screen",
         "flex flex-col bg-surface-elevated border-l border-border",
         "shadow-floating",
         "animate-in slide-in-from-right-2 fade-in duration-150",
@@ -77,7 +80,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
       <header className="flex items-center justify-between px-5 py-4 border-b border-border">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
-            <StatusPill status={status}>{vm.status}</StatusPill>
+            <StatusPill status={status}>{formatVmStatus(t, vm.status)}</StatusPill>
             <span className="font-mono font-strong text-foreground text-body truncate">
               {vm.name}
             </span>
@@ -129,7 +132,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
             <>
               <Link
                 to="/console"
-                search={{ vm: vm.name, cluster, project, from: "admin" } as any}
+                search={{ vm: vm.name, cluster, project, from: "admin" }}
                 className="inline-flex items-center gap-1.5 rounded-md h-8 px-3 text-sm font-emphasis bg-primary text-primary-foreground hover:bg-accent-hover transition-colors"
               >
                 <TerminalIcon size={12} aria-hidden="true" />
@@ -179,7 +182,7 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
       <footer className="px-5 py-4 border-t border-border bg-surface-1">
         <Link
           to="/admin/vm-detail"
-          search={{ name: vm.name, cluster, project } as any}
+          search={{ name: vm.name, cluster, project }}
           className="inline-flex w-full items-center justify-between gap-2 rounded-md px-3 h-9 text-sm font-emphasis border border-border bg-surface-1 text-foreground hover:bg-surface-2 transition-colors"
         >
           <span className="inline-flex items-center gap-2">

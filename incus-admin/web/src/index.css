@@ -6,6 +6,9 @@
 @import "@fontsource-variable/inter/wght.css";
 /* JetBrains Mono Variable —— Berkeley Mono 替代品（Apache 2.0），用于代码 / xterm。 */
 @import "@fontsource-variable/jetbrains-mono/wght.css";
+/* Noto Sans SC Variable —— CJK 自托管，避免 Linux/无字体环境 □ tofu（OFL 1.1）。
+   Fontsource 已按 unicode-range 切片，仅匹配的中文字符段会真正加载。 */
+@import "@fontsource-variable/noto-sans-sc/wght.css";
 
 /* ============================================================
  * Linear 风设计系统（DESIGN.md 同步）
@@ -87,6 +90,8 @@
     0 0 1px rgba(0, 0, 0, 0.08);
   --shadow-ring: 0 0 0 1px rgba(0, 0, 0, 0.2);
   --shadow-inset: inset 0 0 12px rgba(0, 0, 0, 0.2);
+  /* QA-007 BUG-04: 移动端底部固定操作栏 — 上方阴影（与 elevated 相反方向） */
+  --shadow-bottom-bar: 0 -4px 12px rgba(0, 0, 0, 0.2);
 
   /* 半径 */
   --radius-micro: 2px;
@@ -249,11 +254,13 @@
   --shadow-floating: var(--shadow-floating);
   --shadow-ring: var(--shadow-ring);
   --shadow-inset: var(--shadow-inset);
+  --shadow-bottom-bar: var(--shadow-bottom-bar);
 
   /* 字体族 */
-  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
-    Roboto, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
-    "Noto Sans CJK SC", "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-sans: "Inter Variable", "Inter", "Noto Sans SC Variable",
+    system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace,
     "SF Mono", Menlo, Consolas, monospace;
 
@@ -380,9 +387,19 @@
   --size-table-skeleton: 12.5rem;   /* 200px - DataTable loading skeleton */
   --size-select-sm: 7.5rem;         /* 120px - 紧凑 Select 触发器 */
   --size-form-textarea-min: 4rem;   /* 64px - 表单 textarea 最小高度（同 Tailwind 16） */
+  --size-textarea-default: 5rem;    /* 80px - shadcn Textarea 默认最小高度 */
   --size-row-actions-menu: 12rem;   /* 192px - 行操作 dropdown */
   --size-topbar-user: 11.25rem;     /* 180px - 顶栏用户菜单触发器 */
   --size-input-narrow: 10rem;       /* 160px - 紧凑输入（如 TTL select） */
+
+  /* 自适应宽度 token：在 mobile 占近满屏，在 desktop 限定上限。统一替代
+     `w-[min(92vw,Xrem)]` arbitrary value。 */
+  --size-sheet-md: min(92vw, 32rem);     /* 详情 dialog / 中等抽屉 */
+  --size-sheet-sm: min(92vw, 24rem);     /* 紧凑 popover / 小抽屉 */
+  --size-sheet-lg: min(92vw, 40rem);     /* 命令面板 / 大型 dialog */
+  /* 浮动工具栏 / 侧栏：在父容器内留 1rem 边距 */
+  --size-toolbar-fluid: calc(100vw - 2rem);
+  --size-sidebar-fluid: calc(100% - 1rem);
 }
 
 /* ============================================================
@@ -455,4 +472,17 @@ samp {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-tertiary);
+}
+
+/* 数字 input 隐藏原生 spin 按钮（NumberStepper 自带 −/+，避免重复 UI）。
+   utility class 形式暴露，避免业务侧使用 [appearance:textfield] 等
+   arbitrary value（违反 DESIGN.md 纪律）。 */
+.no-spinner {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

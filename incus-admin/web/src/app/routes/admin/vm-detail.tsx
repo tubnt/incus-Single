@@ -267,6 +267,14 @@ function VMDetailPage() {
     );
   }
 
+  // QA-007 BUG: status 派生上提至组件顶部，避免 JSX actions 内 IIFE
+  // (react/unsupported-syntax)。
+  const vmStatus = detailData?.vm?.status;
+  const isRunning = vmStatus === "Running";
+  const isStopped = vmStatus === "Stopped";
+  const isFrozen = vmStatus === "Frozen";
+  const isRescue = vmStatus === "Rescue";
+
   return (
     <PageShell>
       <PageHeader
@@ -276,18 +284,12 @@ function VMDetailPage() {
           { label: name },
         ]}
         description={`${cluster} / ${resolvedProject}${currentNode ? ` · ${currentNode}` : ""}`}
-        actions={(() => {
-          const status = detailData?.vm?.status;
-          const isRunning = status === "Running";
-          const isStopped = status === "Stopped";
-          const isFrozen = status === "Frozen";
-          const isRescue = status === "Rescue";
-          return (
-            <div className="flex flex-wrap items-center gap-1.5">
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5">
               {isRunning ? (
                 <Link
                   to="/console"
-                  search={{ vm: name, cluster, project, from: "admin" } as any}
+                  search={{ vm: name, cluster, project, from: "admin" }}
                   className={cn(buttonVariants({ variant: "primary", size: "sm" }))}
                 >
                   <TerminalIcon size={12} aria-hidden="true" />
@@ -350,8 +352,7 @@ function VMDetailPage() {
                 {t("vm.delete")}
               </Button>
             </div>
-          );
-        })()}
+        }
       />
       <PageContent>
         <Tabs defaultValue="overview">

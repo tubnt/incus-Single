@@ -68,7 +68,7 @@ export function AlertDialogTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseAlertDialog.Title
-      className={cn("text-h3 font-strong text-foreground", className)}
+      className={cn("text-body-emphasis font-emphasis text-foreground", className)}
       {...props}
     />
   );

@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { StatusDot } from "@/shared/components/ui/status";
-import { cn } from "@/shared/lib/utils";
+import { cn, formatTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/observability")({
   component: ObservabilityPage,
@@ -228,11 +228,12 @@ function EventStream() {
         ) : (
           events.map((ev, i) => (
             <div
-              key={`${ev.timestamp}-${i}`}
+              // 同毫秒多事件需要 idx 去重确保唯一
+              key={`${ev.timestamp}-${i}` /* eslint-disable-line react/no-array-index-key */}
               className="flex gap-2 text-caption font-mono py-0.5 hover:bg-white/[0.04]"
             >
               <span className="text-text-tertiary shrink-0">
-                {new Date(ev.timestamp).toLocaleTimeString()}
+                {formatTime(ev.timestamp)}
               </span>
               <span className={cn("shrink-0", typeColors[ev.type] ?? "text-foreground")}>
                 [{ev.type}]

@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/audit-logs")({
   component: AuditLogsPage,
@@ -143,7 +144,7 @@ function AuditLogsPage() {
                   {logs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
+                        {formatDateTime(log.created_at)}
                       </TableCell>
                       <TableCell className="text-xs">
                         {log.user_id == null

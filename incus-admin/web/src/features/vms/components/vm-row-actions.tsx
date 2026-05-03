@@ -151,7 +151,7 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
             cluster,
             project,
             from: "admin",
-          } as any}
+          }}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-md h-7 px-2.5 text-xs font-emphasis",
             "bg-primary text-primary-foreground hover:bg-accent-hover",

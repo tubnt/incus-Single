@@ -53,6 +53,9 @@ export function Tooltip({
   return (
     <TooltipProvider delay={delay}>
       <TooltipRoot>
+        {/* OPS-038: base-ui Tooltip render 接受 ReactElement，children 类型是
+            ReactNode 父接口。runtime 接受字符串/元素都可，类型逃逸不可避免。 */}
+        { }
         <TooltipTrigger render={<span>{children as any}</span>} />
         <TooltipContent side={side}>{content}</TooltipContent>
       </TooltipRoot>

@@ -1,13 +1,13 @@
-import type {LabelHTMLAttributes} from "react";
-import { forwardRef } from "react";
+import type { LabelHTMLAttributes, Ref } from "react";
 import { cn } from "@/shared/lib/utils";
 
 interface LabelProps extends LabelHTMLAttributes<HTMLLabelElement> {
   required?: boolean;
+  ref?: Ref<HTMLLabelElement>;
 }
 
-export const Label = forwardRef<HTMLLabelElement, LabelProps>(
-  ({ className, children, required, ...props }, ref) => (
+export function Label({ className, children, required, ref, ...props }: LabelProps) {
+  return (
     <label
       ref={ref}
       className={cn(
@@ -20,6 +20,5 @@ export const Label = forwardRef<HTMLLabelElement, LabelProps>(
       {children}
       {required ? <span className="ml-0.5 text-status-error">*</span> : null}
     </label>
-  ),
-);
-Label.displayName = "Label";
+  );
+}

@@ -24,11 +24,14 @@ function isWorkspacePath(pathname: string): boolean {
 }
 
 function NotFound() {
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
       <div className="text-display font-emphasis text-text-tertiary">404</div>
-      <p className="text-muted-foreground">页面不存在</p>
-      <a href="/" className={cn(buttonVariants({ variant: "primary" }))}>回到首页</a>
+      <p className="text-muted-foreground">{t("error.notFound", { defaultValue: "页面不存在" })}</p>
+      <a href="/" className={cn(buttonVariants({ variant: "primary" }))}>
+        {t("error.goHome", { defaultValue: "回到首页" })}
+      </a>
     </div>
   );
 }
@@ -57,12 +60,20 @@ function RootLayout() {
   }
 
   if (isError || !user) {
+    // 携带当前路径（含 search）作为 oauth2-proxy 登录后回跳目标，保留 deep link。
+    const currentPath =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "/";
+    const rd = encodeURIComponent(currentPath || "/");
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background">
         <h1 className="text-h1 font-emphasis">IncusAdmin</h1>
-        <p className="text-muted-foreground">请登录以继续</p>
+        <p className="text-muted-foreground">
+          {t("error.signInRequired", { defaultValue: "请登录以继续" })}
+        </p>
         <a
-          href="/oauth2/start?rd=/"
+          href={`/oauth2/start?rd=${rd}`}
           className={cn(buttonVariants({ variant: "primary", size: "lg" }))}
         >
           {t("common.signIn")}

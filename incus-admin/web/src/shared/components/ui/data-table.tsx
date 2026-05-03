@@ -262,8 +262,10 @@ export function DataTable<TData>({
           <TableBody>
             {isLoading ? (
               Array.from({ length: Math.min(pageSize, 5) }).map((_, i) => (
+                // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
                 <TableRow key={`skel-${i}`} className="hover:bg-transparent">
                   {Array.from({ length: colCount }).map((_, j) => (
+                    // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
                     <TableCell key={j} className={density === "compact" ? "py-1.5" : "py-2.5"}>
                       <Skeleton className="h-4 w-full max-w-table-skeleton" />
                     </TableCell>

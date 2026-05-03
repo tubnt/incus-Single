@@ -2,7 +2,8 @@ import type { Invoice, Order } from "./api";
 import type { Product } from "@/features/products/api";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslation } from "react-i18next";
-import { formatCurrency } from "@/shared/lib/utils";
+import { formatInvoiceStatus, formatOrderStatus } from "@/shared/lib/status-i18n";
+import { formatCurrency, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 interface Props {
   invoice: Invoice | null;
@@ -23,7 +24,12 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
     <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
-        <Dialog.Popup className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,32rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-lg p-5 outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:scale-95 transition-all">
+        <Dialog.Popup
+          // OPS-037: min() 形式的 --size-* token 不会被 Tailwind v4 渲染为
+          // width utility，改 inline style 直接绑 CSS var。
+          style={{ width: "var(--size-sheet-md)" }}
+          className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card shadow-lg p-5 outline-none data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:scale-95 transition-all"
+        >
           <Dialog.Title className="text-base font-strong text-foreground">
             {t("invoice.detailTitle", { defaultValue: "发票详情" })} #{invoice?.id ?? ""}
           </Dialog.Title>
@@ -33,10 +39,10 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
               <section>
                 <h3 className="font-emphasis mb-2">{t("invoice.sectionInvoice", { defaultValue: "发票信息" })}</h3>
                 <Row label={t("billing.amount")} value={formatCurrency(invoice.amount, invoice.currency)} mono />
-                <Row label={t("billing.status")} value={invoice.status} />
+                <Row label={t("billing.status")} value={formatInvoiceStatus(t, invoice.status)} />
                 <Row
                   label={t("billing.paidAt", { defaultValue: "Paid At" })}
-                  value={invoice.paid_at ? new Date(invoice.paid_at).toLocaleString() : "—"}
+                  value={invoice.paid_at ? formatDateTime(invoice.paid_at) : "—"}
                 />
               </section>
 
@@ -45,12 +51,12 @@ export function InvoiceDetailDialog({ invoice, orders, products, onClose }: Prop
                 {order ? (
                   <>
                     <Row label="#" value={String(order.id)} mono />
-                    <Row label={t("billing.status")} value={order.status} />
+                    <Row label={t("billing.status")} value={formatOrderStatus(t, order.status)} />
                     <Row
                       label={t("billing.expires")}
-                      value={order.expires_at ? new Date(order.expires_at).toLocaleDateString() : "—"}
+                      value={order.expires_at ? formatDate(order.expires_at) : "—"}
                     />
-                    <Row label={t("vm.created", { defaultValue: "Created" })} value={new Date(order.created_at).toLocaleString()} />
+                    <Row label={t("vm.created", { defaultValue: "Created" })} value={formatDateTime(order.created_at)} />
                   </>
                 ) : (
                   <div className="text-muted-foreground text-xs">{t("invoice.orderMissing", { defaultValue: "关联订单记录已清除" })}</div>

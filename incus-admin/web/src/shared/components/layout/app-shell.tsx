@@ -66,7 +66,11 @@ export function AppShell({ user, children, onOpenCommand }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (!isMobile) setMobileOpen(false);
+    // 屏幕从 mobile 切到 desktop 时关闭移动菜单（媒体查询同步）
+    if (!isMobile) {
+      // eslint-disable-next-line react/set-state-in-effect
+      setMobileOpen(false);
+    }
   }, [isMobile]);
 
   usePendingIntentNotice();

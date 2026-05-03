@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/shared/components/theme-provider";
 import {
   PageContent,
   PageHeader,
   PageShell,
 } from "@/shared/components/page/page-shell";
+import { useTheme } from "@/shared/components/theme-provider";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { cn } from "@/shared/lib/utils";
 

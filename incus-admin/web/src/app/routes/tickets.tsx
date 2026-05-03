@@ -1,4 +1,5 @@
 import type {Ticket} from "@/features/tickets/api";
+import type {StatusKind} from "@/shared/components/ui/status";
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, MessageSquare, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -37,7 +38,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { StatusPill, type StatusKind } from "@/shared/components/ui/status";
+import {  StatusPill } from "@/shared/components/ui/status";
 import {
   Table,
   TableBody,
@@ -46,7 +47,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { cn } from "@/shared/lib/utils";
+import { formatTicketStatus } from "@/shared/lib/status-i18n";
+import { cn, formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/tickets")({
   component: TicketsPage,
@@ -77,7 +79,11 @@ function TicketsPage() {
   const [selected, setSelected] = useState<number | null>(null);
 
   useEffect(() => {
-    if (prefill) setCreateOpen(true);
+    // 从 URL search 切换 prefill 时打开 dialog；prefill 来源是路由参数（非 state）
+    if (prefill) {
+      // eslint-disable-next-line react/set-state-in-effect
+      setCreateOpen(true);
+    }
   }, [prefill]);
 
   const { data, isLoading } = useMyTicketsQuery();
@@ -189,7 +195,10 @@ function CreateTicketSheet({
 
   useEffect(() => {
     if (open && prefill) {
+      // 抽屉打开时根据外部 prefill 重置受控表单（用户编辑后再打开会被覆盖）
+      // eslint-disable-next-line react/set-state-in-effect
       setSubject(prefill.subject);
+      // eslint-disable-next-line react/set-state-in-effect
       setBody(prefill.body);
     }
   }, [open, prefill]);
@@ -303,6 +312,7 @@ function TicketRow({
   isOpen: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <TableRow
@@ -316,13 +326,13 @@ function TicketRow({
         <TableCell>{tk.id}</TableCell>
         <TableCell className="font-emphasis text-foreground">{tk.subject}</TableCell>
         <TableCell>
-          <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>
+          <StatusPill status={ticketStatusToKind(tk.status)}>{formatTicketStatus(t, tk.status)}</StatusPill>
         </TableCell>
         <TableCell>
           <PriorityBadge priority={tk.priority} />
         </TableCell>
         <TableCell className="text-caption text-text-tertiary">
-          {new Date(tk.updated_at).toLocaleString()}
+          {formatDateTime(tk.updated_at)}
         </TableCell>
       </TableRow>
       {isOpen ? (
@@ -395,7 +405,7 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
                   : t("ticket.me", { defaultValue: "我" })}
               </span>
               <span className="text-caption text-text-tertiary">
-                {new Date(m.created_at).toLocaleString()}
+                {formatDateTime(m.created_at)}
               </span>
             </div>
             <div className="whitespace-pre-wrap">{m.body}</div>

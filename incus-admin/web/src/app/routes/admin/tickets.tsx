@@ -1,8 +1,10 @@
 import type {Ticket} from "@/features/tickets/api";
+import type {StatusKind} from "@/shared/components/ui/status";
 import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import {
 
   useAdminTicketsQuery,
@@ -22,7 +24,7 @@ import { EmptyState } from "@/shared/components/ui/empty-state";
 import { Textarea } from "@/shared/components/ui/input";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { StatusPill, type StatusKind } from "@/shared/components/ui/status";
+import {  StatusPill } from "@/shared/components/ui/status";
 import {
   Table,
   TableBody,
@@ -31,7 +33,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { cn } from "@/shared/lib/utils";
+import { formatTicketStatus } from "@/shared/lib/status-i18n";
+import { cn, formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/tickets")({
   component: AdminTicketsPage,
@@ -128,11 +131,11 @@ function TicketRow({ ticket: tk, userEmail, isOpen, onToggle }: { ticket: Ticket
         <TableCell className="text-xs">{userEmail ?? `#${tk.user_id}`}</TableCell>
         <TableCell className="font-emphasis">{tk.subject}</TableCell>
         <TableCell>
-          <StatusPill status={ticketStatusToKind(tk.status)}>{tk.status}</StatusPill>
+          <StatusPill status={ticketStatusToKind(tk.status)}>{formatTicketStatus(t, tk.status)}</StatusPill>
         </TableCell>
         <TableCell className="text-xs">{tk.priority}</TableCell>
         <TableCell className="text-muted-foreground text-xs">
-          {new Date(tk.updated_at).toLocaleString()}
+          {formatDateTime(tk.updated_at)}
         </TableCell>
         <TableCell className="text-right">
           <Button variant="primary" size="sm" onClick={onToggle}>
@@ -184,7 +187,7 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
                   : `${t("admin.user", { defaultValue: "用户" })} #${m.user_id}`}
               </span>
               <span className="text-xs text-muted-foreground">
-                {new Date(m.created_at).toLocaleString()}
+                {formatDateTime(m.created_at)}
               </span>
             </div>
             <div className="whitespace-pre-wrap">{m.body}</div>
@@ -205,7 +208,10 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
             variant="primary"
             size="sm"
             onClick={() =>
-              replyMutation.mutate(reply, { onSuccess: () => setReply("") })
+              replyMutation.mutate(reply, {
+                onSuccess: () => setReply(""),
+                onError: (err) => toast.error((err as Error).message),
+              })
             }
             disabled={replyMutation.isPending || !reply.trim()}
           >
@@ -215,7 +221,11 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
             <Button
               variant="subtle"
               size="sm"
-              onClick={() => statusMutation.mutate("closed")}
+              onClick={() =>
+                statusMutation.mutate("closed", {
+                  onError: (err) => toast.error((err as Error).message),
+                })
+              }
             >
               {t("ticket.close", { defaultValue: "关闭" })}
             </Button>
@@ -224,7 +234,11 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => statusMutation.mutate("open")}
+              onClick={() =>
+                statusMutation.mutate("open", {
+                  onError: (err) => toast.error((err as Error).message),
+                })
+              }
               className="text-status-success"
             >
               {t("ticket.reopen", { defaultValue: "重开" })}

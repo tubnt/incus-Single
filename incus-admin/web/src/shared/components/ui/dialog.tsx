@@ -79,7 +79,7 @@ export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElem
 export function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseDialog.Title
-      className={cn("text-h3 font-strong text-foreground", className)}
+      className={cn("text-body-emphasis font-emphasis text-foreground", className)}
       {...props}
     />
   );

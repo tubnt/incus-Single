@@ -1,13 +1,14 @@
-import type {HTMLAttributes} from "react";
-import { forwardRef } from "react";
+import type { HTMLAttributes, Ref } from "react";
 import { cn } from "@/shared/lib/utils";
 
 /**
  * Card —— DESIGN.md §4 "Cards & Containers"。
  * 透明白叠加 + 半透明边框 + 8px 半径（标准）/ 12px（featured）。
  */
-export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+type DivProps = HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> };
+
+export function Card({ className, ref, ...props }: DivProps) {
+  return (
     <div
       ref={ref}
       className={cn(
@@ -22,56 +23,45 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
       )}
       {...props}
     />
-  ),
-);
-Card.displayName = "Card";
+  );
+}
 
-export const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("flex flex-col gap-1.5 p-5", className)} {...props} />
-  ),
-);
-CardHeader.displayName = "CardHeader";
+export function CardHeader({ className, ref, ...props }: DivProps) {
+  return <div ref={ref} className={cn("flex flex-col gap-1.5 p-4", className)} {...props} />;
+}
 
-export const CardTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export function CardTitle({ className, ref, ...props }: DivProps) {
+  return (
     <div
       ref={ref}
-      className={cn(
-        "text-h3 font-strong text-foreground",
-        className,
-      )}
+      // OPS-035: 内页卡片标题对齐 Stripe/GitHub/Vercel 14-16px 段；
+      // 大字号需要时调用方传 text-h2/text-h3 className 覆盖。
+      className={cn("text-base font-emphasis text-foreground", className)}
       {...props}
     />
-  ),
-);
-CardTitle.displayName = "CardTitle";
+  );
+}
 
-export const CardDescription = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export function CardDescription({ className, ref, ...props }: DivProps) {
+  return (
     <div
       ref={ref}
-      className={cn("text-small text-muted-foreground", className)}
+      className={cn("text-caption text-text-tertiary", className)}
       {...props}
     />
-  ),
-);
-CardDescription.displayName = "CardDescription";
+  );
+}
 
-export const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("p-5 pt-0", className)} {...props} />
-  ),
-);
-CardContent.displayName = "CardContent";
+export function CardContent({ className, ref, ...props }: DivProps) {
+  return <div ref={ref} className={cn("p-4 pt-0", className)} {...props} />;
+}
 
-export const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export function CardFooter({ className, ref, ...props }: DivProps) {
+  return (
     <div
       ref={ref}
-      className={cn("flex items-center gap-2 p-5 pt-0", className)}
+      className={cn("flex items-center gap-2 p-4 pt-0", className)}
       {...props}
     />
-  ),
-);
-CardFooter.displayName = "CardFooter";
+  );
+}

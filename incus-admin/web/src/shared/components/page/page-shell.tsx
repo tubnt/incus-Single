@@ -14,7 +14,7 @@ export function PageShell({
   ...props
 }: { className?: string; children: ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
+    <div className={cn("flex flex-col gap-4", className)} {...props}>
       {children}
     </div>
   );
@@ -42,7 +42,7 @@ export function PageHeader({
       {breadcrumbs && breadcrumbs.length > 0 ? <Breadcrumb items={breadcrumbs} /> : null}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-h1 font-emphasis text-foreground">
+          <h1 className="text-h2 font-emphasis text-foreground">
             {title}
           </h1>
           {description ? (
@@ -80,5 +80,5 @@ export function PageContent({
   className,
   children,
 }: { className?: string; children: ReactNode }) {
-  return <section className={cn("flex flex-col gap-4", className)}>{children}</section>;
+  return <section className={cn("flex flex-col gap-3", className)}>{children}</section>;
 }

@@ -81,3 +81,16 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-028 全功能 UI 测试遗留打磨（CR + P3 + SEC-002）**](OPS-028.md) `P2`
 - [x] [**OPS-029 EN 语言包系统化补全 + 多处 i18n 漏项**](OPS-029.md) `P3`
 - [x] [**OPS-030 DESIGN.md 严格合规：清零 arbitrary value + console aria + api-tokens i18n**](OPS-030.md) `P3`
+- [x] [**UX-004 新建云主机页面 UX 重做（admin/create-vm + PurchaseSheet）**](UX-004.md) `P2`
+- [x] [**UX-005 用户创建云主机入口重做：独立整页 /launch**](UX-005.md) `P2`
+- [x] [**QA-007 前端全面审查与 QA bug 报告**](QA-007.md) `P1`
+- [x] [**OPS-031 QA-007 P1 修复包：BUG-01..05**](OPS-031.md) `P1`
+- [x] [**OPS-032 QA-007 P2+P3 清扫包**](OPS-032.md) `P2`
+- [x] [**OPS-033 QA-007 残留全清扫（BUG-08/14/15/17/18）**](OPS-033.md) `P3`
+- [x] [**QA-008 前端旅途审查（用户 + 管理员）**](QA-008.md) `P1`
+- [x] [**OPS-034 QA-008 旅途审查 bug 集中修**](OPS-034.md) `P1`
+- [x] [**UX-006 字号审计 + UI 简化方案调研**](UX-006.md) `P2`
+- [x] [**OPS-035 字号 / 间距 / 密度全局回调一档（方案乙）**](OPS-035.md) `P2`
+- [x] [**OPS-036 IA 简化（方案丙的安全子集）**](OPS-036.md) `P2`
+- [x] [**OPS-037 修复 BUG-06 size token min()/calc() 静默失效**](OPS-037.md) `P1`
+- [-] [**OPS-038 收尾包：5 项剩余优化全做**](OPS-038.md) `P2`

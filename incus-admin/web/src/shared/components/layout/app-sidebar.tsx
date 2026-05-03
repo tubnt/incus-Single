@@ -149,6 +149,9 @@ function NavLinkRow({ item, active, showLabels, onNavigate, inset }: NavLinkRowP
 
   return (
     <Link
+      // OPS-038: item.to 来自 sidebar-data 的 string 字面量配置，TanStack Router
+      // 的 `to` 期望 union literal — runtime string 的 escape hatch 不可避免。
+       
       to={item.to as any}
       onClick={onNavigate}
       title={!showLabels ? t(item.key) : undefined}
@@ -232,7 +235,9 @@ function AdminNav({
   });
 
   useEffect(() => {
+    // 路由切换时自动展开当前所在分组（外部驱动）
     if (activeGroupKey && !openGroups.includes(activeGroupKey)) {
+      // eslint-disable-next-line react/set-state-in-effect
       setOpenGroups((prev) => [...prev, activeGroupKey]);
     }
   }, [activeGroupKey]);
@@ -281,8 +286,10 @@ function AdminNav({
           <Accordion.Item key={group.key} value={group.key}>
             <Accordion.Header className="m-0">
               <Accordion.Trigger
+                // OPS-037: calc() token 走 inline style 绑 var
+                style={{ width: "var(--size-sidebar-fluid)" }}
                 className={cn(
-                  "group flex w-[calc(100%-1rem)] items-center gap-3 mx-2 px-3 py-1.5",
+                  "group flex items-center gap-3 mx-2 px-3 py-1.5",
                   "rounded-md text-sm transition-colors",
                   hasActive
                     ? "text-foreground"

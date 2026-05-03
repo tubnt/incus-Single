@@ -21,7 +21,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { formatCurrency } from "@/shared/lib/utils";
+import { formatInvoiceStatus } from "@/shared/lib/status-i18n";
+import { formatCurrency, formatDate } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/invoices")({
   component: AdminInvoicesPage,
@@ -102,16 +103,16 @@ function AdminInvoicesPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {inv.due_at
-                          ? new Date(inv.due_at).toLocaleDateString()
+                          ? formatDate(inv.due_at)
                           : "-"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {inv.paid_at
-                          ? new Date(inv.paid_at).toLocaleDateString()
+                          ? formatDate(inv.paid_at)
                           : "-"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {new Date(inv.created_at).toLocaleDateString()}
+                        {formatDate(inv.created_at)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -133,6 +134,7 @@ function AdminInvoicesPage() {
 }
 
 function InvoiceStatusPill({ status }: { status: string }) {
+  const { t } = useTranslation();
   const kind = (() => {
     switch (status) {
       case "paid":
@@ -147,5 +149,5 @@ function InvoiceStatusPill({ status }: { status: string }) {
         return "disabled" as const;
     }
   })();
-  return <StatusPill status={kind}>{status}</StatusPill>;
+  return <StatusPill status={kind}>{formatInvoiceStatus(t, status)}</StatusPill>;
 }

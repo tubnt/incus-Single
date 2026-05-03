@@ -226,7 +226,10 @@ function TemplateRow({
             variant={template.enabled ? "destructive" : "ghost"}
             size="sm"
             onClick={() =>
-              toggleMutation.mutate({ enabled: !template.enabled })
+              toggleMutation.mutate(
+                { enabled: !template.enabled },
+                { onError: (err) => toast.error((err as Error).message) },
+              )
             }
             disabled={toggleMutation.isPending}
             aria-label={

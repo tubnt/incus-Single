@@ -21,6 +21,8 @@ export function Checkbox({ className, ...props }: CheckboxProps) {
       {...props}
     >
       <BaseCheckbox.Indicator className="text-primary-foreground">
+        {/* OPS-038: base-ui 不在 prop 类型暴露 indeterminate，但 runtime 接收并通过 data-attr 体现。 */}
+        { }
         {(props as any)?.indeterminate ? <Minus size={12} /> : <Check size={12} />}
       </BaseCheckbox.Indicator>
     </BaseCheckbox.Root>

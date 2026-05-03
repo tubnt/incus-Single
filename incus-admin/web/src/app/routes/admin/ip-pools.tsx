@@ -54,8 +54,8 @@ function IPPoolsPage() {
           />
         ) : (
           <div className="space-y-4">
-            {pools.map((pool, i) => (
-              <Card key={i}>
+            {pools.map((pool) => (
+              <Card key={`${pool.cluster_name}-${pool.cidr}`}>
                 <CardContent className="p-4 pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <div>

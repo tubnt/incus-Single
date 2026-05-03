@@ -8,6 +8,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/shared/components/ui/table";
+import { formatDateTime } from "@/shared/lib/utils";
 
 /** Drift（PLAN-020 reconciler 标 status=gone）的 VM 列表 + 强制清理。 */
 export function DriftVMsPanel() {
@@ -77,7 +78,7 @@ export function DriftVMsPanel() {
                 <TableCell className="font-mono text-caption">{vm.ip ?? "—"}</TableCell>
                 <TableCell className="text-text-tertiary">{vm.node || "—"}</TableCell>
                 <TableCell className="text-caption text-text-tertiary">
-                  {new Date(vm.updated_at).toLocaleString()}
+                  {formatDateTime(vm.updated_at)}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button

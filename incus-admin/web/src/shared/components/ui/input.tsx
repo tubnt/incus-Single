@@ -1,10 +1,14 @@
-import type {InputHTMLAttributes, TextareaHTMLAttributes} from "react";
-import { forwardRef } from "react";
+import type { InputHTMLAttributes, Ref, TextareaHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/utils";
 
 /** Input —— DESIGN.md §4 "Text Area"，应用于 text/email/password/number/url 等。 */
-export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
-  ({ className, type, ...props }, ref) => (
+export function Input({
+  className,
+  type,
+  ref,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return (
     <input
       ref={ref}
       type={type}
@@ -20,16 +24,19 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
       )}
       {...props}
     />
-  ),
-);
-Input.displayName = "Input";
+  );
+}
 
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  ({ className, ...props }, ref) => (
+export function Textarea({
+  className,
+  ref,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { ref?: Ref<HTMLTextAreaElement> }) {
+  return (
     <textarea
       ref={ref}
       className={cn(
-        "flex min-h-[80px] w-full rounded-md border border-border bg-surface-1",
+        "flex min-h-textarea-default w-full rounded-md border border-border bg-surface-1",
         "px-3 py-2 text-sm text-foreground",
         "placeholder:text-text-tertiary",
         "transition-colors",
@@ -39,6 +46,5 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       )}
       {...props}
     />
-  ),
-);
-Textarea.displayName = "Textarea";
+  );
+}

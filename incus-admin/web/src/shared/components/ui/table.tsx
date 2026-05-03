@@ -1,5 +1,9 @@
-import type {HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes} from "react";
-import { forwardRef } from "react";
+import type {
+  HTMLAttributes,
+  Ref,
+  TdHTMLAttributes,
+  ThHTMLAttributes,
+} from "react";
 import { cn } from "@/shared/lib/utils";
 
 /**
@@ -7,8 +11,15 @@ import { cn } from "@/shared/lib/utils";
  * 业务页面应优先用 `<DataTable>`，少数静态展示场景才直接用这些 primitive。
  */
 
-export const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
+type TableProps = HTMLAttributes<HTMLTableElement> & { ref?: Ref<HTMLTableElement> };
+type SectionProps = HTMLAttributes<HTMLTableSectionElement> & { ref?: Ref<HTMLTableSectionElement> };
+type RowProps = HTMLAttributes<HTMLTableRowElement> & { ref?: Ref<HTMLTableRowElement> };
+type HeadCellProps = ThHTMLAttributes<HTMLTableCellElement> & { ref?: Ref<HTMLTableCellElement> };
+type CellProps = TdHTMLAttributes<HTMLTableCellElement> & { ref?: Ref<HTMLTableCellElement> };
+type CaptionProps = HTMLAttributes<HTMLTableCaptionElement> & { ref?: Ref<HTMLTableCaptionElement> };
+
+export function Table({ className, ref, ...props }: TableProps) {
+  return (
     <div className="relative w-full overflow-x-auto">
       <table
         ref={ref}
@@ -16,12 +27,11 @@ export const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElemen
         {...props}
       />
     </div>
-  ),
-);
-Table.displayName = "Table";
+  );
+}
 
-export const TableHeader = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => (
+export function TableHeader({ className, ref, ...props }: SectionProps) {
+  return (
     <thead
       ref={ref}
       className={cn(
@@ -31,34 +41,25 @@ export const TableHeader = forwardRef<HTMLTableSectionElement, HTMLAttributes<HT
       )}
       {...props}
     />
-  ),
-);
-TableHeader.displayName = "TableHeader";
+  );
+}
 
-export const TableBody = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => (
-    <tbody
-      ref={ref}
-      className={cn("[&_tr:last-child]:border-0", className)}
-      {...props}
-    />
-  ),
-);
-TableBody.displayName = "TableBody";
+export function TableBody({ className, ref, ...props }: SectionProps) {
+  return <tbody ref={ref} className={cn("[&_tr:last-child]:border-0", className)} {...props} />;
+}
 
-export const TableFooter = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => (
+export function TableFooter({ className, ref, ...props }: SectionProps) {
+  return (
     <tfoot
       ref={ref}
       className={cn("border-t border-border bg-surface-1 font-emphasis", className)}
       {...props}
     />
-  ),
-);
-TableFooter.displayName = "TableFooter";
+  );
+}
 
-export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTableRowElement>>(
-  ({ className, ...props }, ref) => (
+export function TableRow({ className, ref, ...props }: RowProps) {
+  return (
     <tr
       ref={ref}
       className={cn(
@@ -68,47 +69,45 @@ export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTable
       )}
       {...props}
     />
-  ),
-);
-TableRow.displayName = "TableRow";
+  );
+}
 
-export const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCellElement>>(
-  ({ className, ...props }, ref) => (
+export function TableHead({ className, ref, ...props }: HeadCellProps) {
+  return (
     <th
       ref={ref}
       className={cn(
-        "h-9 px-3 text-left align-middle text-label font-emphasis text-text-tertiary",
+        // OPS-035: dense table — 列头 14px / 行高 32 与 GitHub Primer 对齐
+        "h-8 px-3 text-left align-middle text-sm font-emphasis text-text-tertiary",
         "[&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
     />
-  ),
-);
-TableHead.displayName = "TableHead";
+  );
+}
 
-export const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCellElement>>(
-  ({ className, ...props }, ref) => (
+export function TableCell({ className, ref, ...props }: CellProps) {
+  return (
     <td
       ref={ref}
       className={cn(
-        "px-3 py-2 align-middle text-foreground",
+        // OPS-035: dense row 行高 ≈ 36px（py-1.5 * 2 + 24 line-height）
+        "px-3 py-1.5 align-middle text-foreground",
         "[&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
     />
-  ),
-);
-TableCell.displayName = "TableCell";
+  );
+}
 
-export const TableCaption = forwardRef<HTMLTableCaptionElement, HTMLAttributes<HTMLTableCaptionElement>>(
-  ({ className, ...props }, ref) => (
+export function TableCaption({ className, ref, ...props }: CaptionProps) {
+  return (
     <caption
       ref={ref}
       className={cn("mt-4 text-sm text-muted-foreground", className)}
       {...props}
     />
-  ),
-);
-TableCaption.displayName = "TableCaption";
+  );
+}
