@@ -1,8 +1,8 @@
 import type {ReactNode} from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Button } from "./button";
 import { cn } from "@/shared/lib/utils";
+import { Button } from "./button";
 
 interface BatchToolbarProps {
   /** 选中数量；为 0 时整体隐藏 */
@@ -44,6 +44,8 @@ export function BatchToolbar({
         defaultValue: "已选 {{count}} 项",
         count,
       })}
+      // OPS-037: calc() token 走 inline style 绑 var
+      style={{ maxWidth: "var(--size-toolbar-fluid)" }}
       className={cn(
         // 浮层位置：fixed 居中底部
         "fixed left-1/2 -translate-x-1/2 bottom-6 z-30",
@@ -53,8 +55,6 @@ export function BatchToolbar({
         "shadow-floating px-3 py-2",
         // 进入动画
         "animate-in fade-in slide-in-from-bottom-2 duration-150",
-        // 在小屏上略缩窄两侧 padding，并让按钮组允许换行
-        "max-w-[calc(100vw-2rem)]",
         className,
       )}
     >

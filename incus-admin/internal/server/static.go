@@ -64,6 +64,16 @@ func staticHandler() http.Handler {
 			return
 		}
 
+		// QA-007 BUG-01: file-asset prefixes must NOT fall back to index.html.
+		// Otherwise old clients that still reference a since-deleted chunk hash
+		// (after a deploy) receive HTML, browsers fail to parse it as a module
+		// and the page goes blank. i18n with an unsupported language hits the
+		// same trap and breaks JSON.parse.
+		if strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/locales/") {
+			http.NotFound(w, r)
+			return
+		}
+
 		// SPA fallback: serve index.html for all non-file routes
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)

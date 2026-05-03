@@ -45,14 +45,14 @@ function UserDashboard() {
         title: t("dashboard.quickCreateVm", { defaultValue: "新建云主机" }),
         icon: "Plus",
         keywords: ["vm", "新建", "create"],
-        perform: () => navigate({ to: "/billing" }),
+        perform: () => navigate({ to: "/launch" }),
       },
       {
         id: "user.tickets-topup",
         title: t("dashboard.quickTopup", { defaultValue: "充值" }),
         icon: "CreditCard",
         keywords: ["topup", "余额", "充值"],
-        perform: () => navigate({ to: "/tickets", search: { subject: "topup" } as any }),
+        perform: () => navigate({ to: "/tickets", search: { subject: "topup" } }),
       },
       {
         id: "user.create-ticket",
@@ -102,7 +102,7 @@ function QuickActions({ highlightCreate }: { highlightCreate: boolean }) {
   return (
     <div className="flex flex-wrap gap-2">
       <ActionLink
-        to="/billing"
+        to="/launch"
         icon={<Plus size={14} aria-hidden="true" />}
         label={t("dashboard.quickCreateVm", { defaultValue: "新建云主机" })}
         highlighted={highlightCreate}
@@ -137,7 +137,11 @@ function ActionLink({
 }) {
   return (
     <Link
+      // OPS-038: ActionLink 是 generic 包装，to/search 来自 caller runtime string；
+      // TanStack Router 的 union literal 类型在此无法收敛。
+       
       to={to as any}
+       
       search={search as any}
       className={cn(
         "inline-flex items-center gap-2 rounded-md px-3.5 h-9 text-sm font-emphasis transition-colors",
@@ -170,7 +174,7 @@ function StatCard({
           </span>
           <span className="text-text-tertiary">{icon}</span>
         </div>
-        <div className="mt-1 text-h2 font-emphasis tabular-nums text-foreground">
+        <div className="mt-1 text-body-emphasis font-emphasis tabular-nums text-foreground">
           {value}
         </div>
       </CardContent>

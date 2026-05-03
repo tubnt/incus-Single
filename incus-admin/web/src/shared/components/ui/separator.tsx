@@ -1,13 +1,18 @@
-import type {HTMLAttributes} from "react";
-import { forwardRef } from "react";
+import type { HTMLAttributes, Ref } from "react";
 import { cn } from "@/shared/lib/utils";
 
 interface SeparatorProps extends HTMLAttributes<HTMLDivElement> {
   orientation?: "horizontal" | "vertical";
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const Separator = forwardRef<HTMLDivElement, SeparatorProps>(
-  ({ className, orientation = "horizontal", ...props }, ref) => (
+export function Separator({
+  className,
+  orientation = "horizontal",
+  ref,
+  ...props
+}: SeparatorProps) {
+  return (
     <div
       ref={ref}
       role="separator"
@@ -19,6 +24,5 @@ export const Separator = forwardRef<HTMLDivElement, SeparatorProps>(
       )}
       {...props}
     />
-  ),
-);
-Separator.displayName = "Separator";
+  );
+}

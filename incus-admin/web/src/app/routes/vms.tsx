@@ -80,10 +80,10 @@ function MyVMs() {
         setHlVmId(services[next]?.id ?? null);
       } else if (e.key === "Enter" && hlVmId != null) {
         e.preventDefault();
-        navigate({ to: "/vm-detail", search: { id: hlVmId } as any });
+        navigate({ to: "/vm-detail", search: { id: hlVmId } });
       } else if (e.key === "n" && !e.shiftKey) {
         e.preventDefault();
-        navigate({ to: "/billing" });
+        navigate({ to: "/launch" });
       } else if (e.key === "Escape") {
         setHlVmId(null);
       }
@@ -105,7 +105,7 @@ function MyVMs() {
         id: "user.create-vm",
         title: t("vm.createVm", { defaultValue: "新建 VM" }),
         icon: "Plus",
-        perform: () => navigate({ to: "/billing" }),
+        perform: () => navigate({ to: "/launch" }),
       },
     ],
     [navigate, t],
@@ -119,7 +119,7 @@ function MyVMs() {
           defaultValue: "管理你的虚拟机：启动 / 停止 / 控制台 / 快照。更多操作请进入详情页。",
         })}
         actions={
-          <Link to="/billing" className={cn(buttonVariants({ variant: "primary" }))}>
+          <Link to="/launch" className={cn(buttonVariants({ variant: "primary" }))}>
             <Plus size={14} aria-hidden="true" />
             {t("vm.createVm", { defaultValue: "新建 VM" })}
           </Link>
@@ -128,7 +128,10 @@ function MyVMs() {
       <PageContent>
         {isLoading ? (
           <div className="space-y-3">
-            {Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)}
+            {Array.from({ length: 3 }).map((_, i) => (
+              // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
+              <CardSkeleton key={i} />
+            ))}
           </div>
         ) : services.length === 0 ? (
           <EmptyState
@@ -137,7 +140,7 @@ function MyVMs() {
               defaultValue: "前往订单页选择套餐创建你的第一台 VM。",
             })}
             action={
-              <Link to="/billing" className={cn(buttonVariants({ variant: "primary" }))}>
+              <Link to="/launch" className={cn(buttonVariants({ variant: "primary" }))}>
                 <Plus size={14} aria-hidden="true" />
                 {t("vm.createVm", { defaultValue: "新建 VM" })}
               </Link>
@@ -252,7 +255,7 @@ function VMCard({
           <StatusDot status={status} pulse={status === "pending"} />
           <Link
             to="/vm-detail"
-            search={{ id: vm.id } as any}
+            search={{ id: vm.id }}
             className="text-body font-mono font-strong text-foreground hover:text-accent transition-colors truncate"
           >
             {vm.name}
@@ -269,7 +272,7 @@ function VMCard({
                   cluster: vm.cluster,
                   project: vm.project,
                   from: "portal",
-                } as any}
+                }}
                 className={cn(buttonVariants({ variant: "subtle", size: "sm" }))}
               >
                 <TerminalIcon size={12} aria-hidden="true" />
@@ -330,7 +333,7 @@ function VMCard({
                 render={
                   <Link
                     to="/vm-detail"
-                    search={{ id: vm.id } as any}
+                    search={{ id: vm.id }}
                   >
                     <ExternalLink size={14} aria-hidden="true" />
                     {t("vm.detailLink", { defaultValue: "详情页（更多操作）" })}

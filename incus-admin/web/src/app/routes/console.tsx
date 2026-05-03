@@ -40,7 +40,9 @@ function ConsolePage() {
     return () => window.removeEventListener("keydown", handler);
   }, [fullscreen]);
 
-  const backUrl =
+  // OPS-038: backUrl 仅 2 个 literal 值，用 union literal 类型而非 runtime string，
+  // TanStack Router 的 `to` prop 即可类型化（消除 `as any`）。
+  const backUrl: "/admin/vms" | "/vms" =
     from === "admin"
       ? "/admin/vms"
       : from === "portal"
@@ -55,19 +57,24 @@ function ConsolePage() {
     if (!cluster) missing.push("cluster");
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
-        <div className="text-h3 font-strong text-foreground">参数缺失</div>
+        <div className="text-base font-emphasis text-foreground">
+          {t("console.paramMissing", { defaultValue: "参数缺失" })}
+        </div>
         <div className="text-text-tertiary text-sm">
-          缺少: <span className="font-mono">{missing.join(", ")}</span>
+          {t("console.paramMissingDetail", {
+            defaultValue: "缺少: {{names}}",
+            names: missing.join(", "),
+          })}
         </div>
         <div className="text-caption text-text-tertiary font-mono">
           /console?vm=NAME&amp;cluster=CLUSTER&amp;project=PROJECT
         </div>
         <Link
-          to={backUrl as any}
+          to={backUrl}
           className={cn(buttonVariants({ variant: "primary" }))}
         >
           <ArrowLeft size={14} aria-hidden="true" />
-          返回 VM 列表
+          {t("console.backToVms", { defaultValue: "返回 VM 列表" })}
         </Link>
       </div>
     );
@@ -83,7 +90,7 @@ function ConsolePage() {
         )}
       >
         <Link
-          to={backUrl as any}
+          to={backUrl}
           aria-label={t("console.back", { defaultValue: "Back" })}
           className="inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-sm font-emphasis text-text-secondary hover:bg-surface-2 hover:text-foreground transition-colors"
         >

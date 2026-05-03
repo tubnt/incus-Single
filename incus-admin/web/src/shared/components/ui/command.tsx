@@ -69,6 +69,8 @@ export function CommandGroup({
 }: ComponentProps<typeof CmdkRoot.Group> & { heading?: ReactNode }) {
   return (
     <CmdkRoot.Group
+      // OPS-038: cmdk 的 heading 类型是 string，但我们包装层接受 ReactNode。
+       
       heading={heading as any}
       className={cn(
         "overflow-hidden p-1 text-foreground",

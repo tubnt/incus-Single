@@ -1,8 +1,7 @@
 import type {Invoice, Order, VMCredentials} from "@/features/billing/api";
-import type {Product} from "@/features/products/api";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { CreditCard, FileText, Plus, ShoppingCart } from "lucide-react";
+import { CreditCard, FileText, Rocket, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -13,7 +12,6 @@ import {
   usePayOrderMutation,
 } from "@/features/billing/api";
 import { InvoiceDetailDialog } from "@/features/billing/invoice-detail-dialog";
-import { PurchaseSheet } from "@/features/billing/purchase-sheet";
 import { useProductsQuery } from "@/features/products/api";
 import { useCommandActions } from "@/shared/components/command-palette/use-command-actions";
 import {
@@ -35,7 +33,8 @@ import {
   TableRow,
 } from "@/shared/components/ui/table";
 import { fetchCurrentUser } from "@/shared/lib/auth";
-import { cn, formatCurrency } from "@/shared/lib/utils";
+import { formatInvoiceStatus, formatOrderStatus } from "@/shared/lib/status-i18n";
+import { cn, formatCurrency, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/billing")({
   component: BillingPage,
@@ -44,7 +43,6 @@ export const Route = createFileRoute("/billing")({
 function BillingPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [purchaseProduct, setPurchaseProduct] = useState<Product | null>(null);
   const [detailInvoice, setDetailInvoice] = useState<Invoice | null>(null);
   const [credentials, setCredentials] = useState<VMCredentials | null>(null);
 
@@ -64,7 +62,7 @@ function BillingPage() {
         title: t("billing.topupViaTicket", { defaultValue: "提工单充值" }),
         icon: "CreditCard",
         perform: () =>
-          navigate({ to: "/tickets", search: { subject: "topup" } as any }),
+          navigate({ to: "/tickets", search: { subject: "topup" } }),
       },
     ],
     [navigate, t],
@@ -74,9 +72,15 @@ function BillingPage() {
     <PageShell>
       <PageHeader
         title={t("billing.title")}
-        description={t("billing.description", {
-          defaultValue: "余额、套餐、订单、发票。",
+        description={t("billing.descriptionAccount", {
+          defaultValue: "余额、订单、发票。创建云主机请前往「创建云主机」页。",
         })}
+        actions={
+          <Link to="/launch" className={cn(buttonVariants({ variant: "primary" }))}>
+            <Rocket size={14} aria-hidden="true" />
+            {t("launch.title", { defaultValue: "创建云主机" })}
+          </Link>
+        }
       />
       <PageContent>
         <BalanceCard balance={user?.balance ?? 0} />
@@ -92,7 +96,7 @@ function BillingPage() {
           <Card className="border-status-success/30 bg-status-success/8">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center gap-2 text-status-success font-strong">
-                <Plus size={16} aria-hidden="true" />
+                <Rocket size={16} aria-hidden="true" />
                 {t("billing.vmCreatedTitle", { defaultValue: "VM 创建成功" })}
               </div>
               <div className="space-y-2">
@@ -116,29 +120,7 @@ function BillingPage() {
         ) : null}
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-strong text-foreground">
-            {t("billing.products")}
-          </h2>
-          {products.length === 0 ? (
-            <EmptyState
-              icon={ShoppingCart}
-              title={t("common.noData")}
-            />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {products.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  product={p}
-                  onPurchase={() => setPurchaseProduct(p)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="space-y-3">
-          <h2 className="text-h3 font-strong text-foreground">
+          <h2 className="text-base font-emphasis text-foreground">
             {t("billing.orders")}
           </h2>
           {orders.length === 0 ? (
@@ -166,7 +148,7 @@ function BillingPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-h3 font-strong text-foreground">
+          <h2 className="text-base font-emphasis text-foreground">
             {t("billing.invoices")}
           </h2>
           {invoices.length === 0 ? (
@@ -193,10 +175,10 @@ function BillingPage() {
                         {formatCurrency(inv.amount, inv.currency)}
                       </TableCell>
                       <TableCell>
-                        <StatusPill status="success">{inv.status}</StatusPill>
+                        <StatusPill status="success">{formatInvoiceStatus(t, inv.status)}</StatusPill>
                       </TableCell>
                       <TableCell className="text-caption text-text-tertiary">
-                        {inv.paid_at ? new Date(inv.paid_at).toLocaleString() : "—"}
+                        {inv.paid_at ? formatDateTime(inv.paid_at) : "—"}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
@@ -215,11 +197,6 @@ function BillingPage() {
           )}
         </section>
       </PageContent>
-
-      <PurchaseSheet
-        product={purchaseProduct}
-        onClose={() => setPurchaseProduct(null)}
-      />
     </PageShell>
   );
 }
@@ -233,7 +210,7 @@ function BalanceCard({ balance }: { balance: number }) {
           <div className="text-caption text-text-tertiary uppercase tracking-wide font-emphasis">
             {t("billing.balance", { defaultValue: "账户余额" })}
           </div>
-          <div className="text-h2 font-emphasis font-mono mt-1 tabular-nums">
+          <div className="text-body-emphasis font-emphasis font-mono mt-1 tabular-nums">
             ${balance.toFixed(2)}
           </div>
           <div className="text-caption text-text-tertiary mt-1">
@@ -244,44 +221,12 @@ function BalanceCard({ balance }: { balance: number }) {
         </div>
         <Link
           to="/tickets"
-          search={{ subject: "topup" } as any}
+          search={{ subject: "topup" }}
           className={cn(buttonVariants({ variant: "primary" }))}
         >
           <CreditCard size={14} aria-hidden="true" />
           {t("billing.topupViaTicket", { defaultValue: "提工单充值" })}
         </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ProductCard({
-  product: p,
-  onPurchase,
-}: {
-  product: Product;
-  onPurchase: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Card className="flex flex-col">
-      <CardContent className="p-4 flex flex-col gap-3 flex-1">
-        <div>
-          <div className="font-strong tracking-tight">{p.name}</div>
-          <div className="text-caption text-text-tertiary mt-0.5">
-            {p.cpu}C · {(p.memory_mb / 1024).toFixed(0)}G RAM · {p.disk_gb}G SSD
-          </div>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-h2 font-emphasis">
-            {formatCurrency(p.price_monthly, p.currency)}
-          </span>
-          <span className="text-caption text-text-tertiary">/mo</span>
-        </div>
-        <Button variant="primary" className="w-full" onClick={onPurchase}>
-          <Plus size={14} aria-hidden="true" />
-          {t("billing.buy", { defaultValue: "购买" })}
-        </Button>
       </CardContent>
     </Card>
   );
@@ -323,10 +268,10 @@ function OrderRow({
         {formatCurrency(o.amount, o.currency)}
       </TableCell>
       <TableCell>
-        <StatusPill status={status}>{o.status}</StatusPill>
+        <StatusPill status={status}>{formatOrderStatus(t, o.status)}</StatusPill>
       </TableCell>
       <TableCell className="text-caption text-text-tertiary">
-        {o.expires_at ? new Date(o.expires_at).toLocaleDateString() : "—"}
+        {o.expires_at ? formatDate(o.expires_at) : "—"}
       </TableCell>
       <TableCell className="text-right">
         {o.status === "pending" ? (
@@ -341,7 +286,7 @@ function OrderRow({
                   {
                     onSuccess: (data) => {
                       // PLAN-025：异步路径（job_id 存在）此处暂不展示密码 ——
-                      // 用户回到 PurchaseSheet 才看到实时进度。同步路径
+                      // 用户进入 /launch 才能看到完整 SSE 进度。同步路径
                       // 兜底直接拿到 password 时仍在订单行右上 toast 出来。
                       if (data.password && data.vm_name) {
                         onProvisioned({

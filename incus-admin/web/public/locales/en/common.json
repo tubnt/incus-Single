@@ -13,10 +13,32 @@
     "auditTarget": "Target",
     "auditTime": "Time",
     "auditToDate": "To date",
+    "asyncHint": "Provisioning asynchronously, job #{{id}}. Password will arrive over the SSE stream when ready.",
     "auditUser": "User",
+    "batchCount": "Count",
+    "batchCountHint": "Will enqueue {{n}} VM jobs at once; each gets its own IP and progress.",
+    "batchProvisioningHint": "Enqueued asynchronously. Track progress under Orders / VMs:",
+    "batchTotal": "Total resources",
+    "clusterHint": "VM will be created on this cluster",
+    "clusterPlaceholder": "Select cluster",
+    "computeHint": "vCPU / RAM / SSD — cannot be resized online afterwards",
+    "computeTitle": "Compute",
+    "createAnother": "Create another",
     "createVmDescription": "Pick size, image and project; provisioned immediately after order.",
     "createVmTitle": "Create VM",
+    "createVmsCta": "Create {{n}} VMs",
     "creatingVm": "Creating VM...",
+    "identifyHint": "Count and name prefix. In batch mode each VM gets its own IP; name = prefix + index.",
+    "identifyTitle": "Identify",
+    "namePrefix": "Name prefix (optional)",
+    "namePrefixPlaceholder": "Leave empty: backend auto-generates vm-xxxxxx",
+    "namePreview": "Example: {{a}}, {{b}} … {{c}}",
+    "osImageHint": "Search by distribution or version",
+    "projectHint": "Target Incus project — affects quota and isolation",
+    "specHintLarge": "DB / medium load",
+    "specHintMedium": "Web / backend services",
+    "specHintSmall": "Dev / test",
+    "specHintXLarge": "Compute heavy / high concurrency",
     "currentUsage": "Current usage",
     "email": "Email",
     "enterMaintenance": "Enter maintenance",
@@ -185,6 +207,11 @@
     "nodeOpsTitle": "Node Operations",
     "nodes": {
       "arch": "Architecture",
+      "colCpu": "CPU",
+      "colFreePct": "Free",
+      "colMemory": "Memory",
+      "colName": "Node",
+      "colStatus": "Status",
       "empty": "No cluster nodes found. Add a cluster connection first.",
       "instanceName": "Instance",
       "instanceStatus": "Status",
@@ -192,6 +219,14 @@
       "instances": "Instances",
       "joinWizard": "Join node",
       "message": "Message",
+      "messageFullyOperational": "Fully operational",
+      "messageClusterHealthy": "Cluster healthy",
+      "statusValue": {
+        "online": "Online",
+        "offline": "Offline",
+        "evacuated": "Evacuated",
+        "maintenance": "Maintenance"
+      },
       "noInstances": "No instances on this node",
       "restore": "Restore node",
       "restoring": "Restoring...",
@@ -387,7 +422,6 @@
         "admin": "admin",
         "customer": "customer"
       },
-      "title": "Users",
       "topUp": "Top Up",
       "topUpAmount": "Amount",
       "topUpSubmit": "Top up",
@@ -396,6 +430,7 @@
       "totalCount": "Users ({{count}})"
     },
     "vmCreated": "VM Created Successfully",
+    "vmsCreated": "Enqueued {{n}} VMs",
     "vmDetail": {
       "disk": "Disk",
       "memory": "Memory",
@@ -459,6 +494,7 @@
     "cancel": "Cancel",
     "cancelFailed": "Cancel failed",
     "description": "Balance, plans, orders and invoices.",
+    "descriptionAccount": "Balance, orders, invoices. To create a VM, go to Launch.",
     "expires": "Expires",
     "invoices": "Invoices",
     "orderCancelled": "Order cancelled",
@@ -467,7 +503,10 @@
     "paidAt": "Paid At",
     "pay": "Pay with Balance",
     "payAndProvision": "Pay and create ({{price}})",
-    "perMonth": "/mo",
+    "payAndProvisionSimple": "Pay and create",
+    "perMonth": "/ mo",
+    "sshKeyAutoInjectHint": "{{n}} SSH key(s) will be injected into authorized_keys.",
+    "sshKeyMissingHint": "No SSH key uploaded — VM will fall back to one-time password login.",
     "products": "Available Plans",
     "purchase": "Purchase",
     "purchaseDone": "Purchase succeeded",
@@ -542,7 +581,10 @@
     "next": "Next",
     "no": "No",
     "noData": "No data",
+    "noResults": "No matches",
     "none": "(none)",
+    "add": "Add",
+    "manage": "Manage",
     "ok": "OK",
     "output": "Output",
     "prev": "Prev",
@@ -580,6 +622,8 @@
     "fullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",
     "missingParams": "Missing parameter: vm",
+    "paramMissing": "Missing parameters",
+    "paramMissingDetail": "Missing: {{names}}",
     "usageHint": "/console?vm=NAME&cluster=CLUSTER&project=PROJECT"
   },
   "dashboard": {
@@ -612,7 +656,16 @@
     "vmMessage": "Delete {{name}}? This cannot be undone.",
     "vmTitle": "Delete VM"
   },
+  "error": {
+    "goHome": "Back to home",
+    "notFound": "Page not found",
+    "signInRequired": "Please sign in to continue"
+  },
   "ha": {
+    "noCluster": "No cluster configured.",
+    "statHaStatus": "HA Status",
+    "statStorage": "Storage",
+    "statNodes": "Nodes",
     "colActor": "Actor",
     "colCluster": "Cluster",
     "colDuration": "Duration",
@@ -656,6 +709,7 @@
     "vmTo": "To"
   },
   "invoice": {
+    "amount": "Amount",
     "detail": "Details",
     "detailTitle": "Invoice Detail",
     "order": "Order",
@@ -664,7 +718,17 @@
     "productMissing": "Product record missing (may be deprecated)",
     "sectionInvoice": "Invoice",
     "sectionOrder": "Linked Order",
-    "sectionProduct": "Product"
+    "sectionProduct": "Product",
+    "status": "Status",
+    "statusValue": {
+      "paid": "Paid",
+      "open": "Open",
+      "void": "Void",
+      "draft": "Draft",
+      "pending": "Pending",
+      "overdue": "Overdue",
+      "cancelled": "Cancelled"
+    }
   },
   "ipPools": {
     "addPool": "Add Pool",
@@ -711,6 +775,29 @@
     "vmCount": "VM Count",
     "vmMetricsTitle": "VM resource details"
   },
+  "launch": {
+    "authHint": "Bound SSH keys are auto-injected into authorized_keys; first-login password is shown once.",
+    "authTitle": "Authentication",
+    "balanceInsufficient": "Insufficient balance — top up first.",
+    "balanceLabel": "Balance",
+    "createAnother": "Create another",
+    "creating": "Creating...",
+    "cta": "Launch",
+    "description": "Pick a plan and image; balance is charged and the VM is provisioned immediately.",
+    "done": "VM created",
+    "failed": "Launch failed",
+    "goVms": "Go to my VMs",
+    "hostnameHint": "Optional; backend auto-generates vm-xxxxxx if blank",
+    "hostnameTitle": "Hostname",
+    "noPlans": "No purchasable plans available — contact admin.",
+    "planHint": "vCPU / RAM / SSD trio; charged monthly from balance",
+    "planTitle": "Choose a plan",
+    "priceMonthly": "Monthly",
+    "provisioning": "Provisioning VM",
+    "provisioningHint": "Live progress; you can leave this page and check from My VMs later.",
+    "summaryYourPick": "Your selection",
+    "title": "Launch VM"
+  },
   "nav": {
     "admin": "Admin",
     "adminRoot": "Admin",
@@ -744,6 +831,18 @@
   },
   "node": {
     "select": "Select node"
+  },
+  "order": {
+    "statusValue": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "provisioning": "Provisioning",
+      "provisioned": "Provisioned",
+      "active": "Active",
+      "expired": "Expired",
+      "cancelled": "Cancelled",
+      "refunded": "Refunded"
+    }
   },
   "pagination": {
     "next": "Next",
@@ -913,6 +1012,12 @@
     "send": "Send",
     "staff": "Staff",
     "status": "Status",
+    "statusValue": {
+      "open": "Open",
+      "answered": "Answered",
+      "pending": "Awaiting customer",
+      "closed": "Closed"
+    },
     "subject": "Subject",
     "submit": "Submit Ticket",
     "submitting": "Submitting...",
@@ -1010,6 +1115,8 @@
     "notFoundHint": "The VM does not exist or has been deleted.",
     "notFoundTitle": "VM not found",
     "osImage": "OS Image",
+    "osImagePlaceholder": "Select OS image",
+    "osImageSearch": "Search distribution / version",
     "password": "Password",
     "passwordCopied": "Copied to clipboard",
     "passwordCopy": "Copy",
@@ -1050,6 +1157,18 @@
     "snapshotsHelpUser": "You can create, restore or delete snapshots (deletion is irreversible).",
     "start": "Start",
     "status": "Status",
+    "statusValue": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "frozen": "Frozen",
+      "rescue": "Rescue",
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "error": "Error",
+      "pending": "Pending",
+      "provisioning": "Provisioning",
+      "gone": "Gone"
+    },
     "stop": "Stop",
     "tabConsole": "Console",
     "tabOverview": "Overview",

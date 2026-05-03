@@ -28,6 +28,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { formatDate } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/ssh-keys")({
   component: SSHKeysPage,
@@ -58,6 +59,7 @@ function SSHKeysPage() {
         {isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
+              // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
               <Skeleton key={i} className="h-20 w-full" />
             ))}
           </div>
@@ -188,7 +190,7 @@ function KeyCard({ sshKey }: { sshKey: SSHKey }) {
           </div>
           <div className="text-caption text-text-tertiary mt-1">
             {t("sshKey.createdAt", { defaultValue: "添加时间" })}{" "}
-            {new Date(sshKey.created_at).toLocaleDateString()}
+            {formatDate(sshKey.created_at)}
           </div>
         </div>
         <Button

@@ -22,7 +22,8 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { DataTable } from "@/shared/components/ui/data-table";
 import { ErrorState } from "@/shared/components/ui/empty-state";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
-import { cn } from "@/shared/lib/utils";
+import { formatVmStatus } from "@/shared/lib/status-i18n";
+import { cn, formatTime } from "@/shared/lib/utils";
 
 interface ClusterVMsTableProps {
   clusterName: string;
@@ -160,7 +161,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
               name: row.original.name,
               cluster: clusterName,
               project: row.original.project ?? "customers",
-            } as any}
+            }}
             className="font-mono font-emphasis text-foreground hover:text-accent transition-colors"
           >
             {row.original.name}
@@ -172,7 +173,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
         header: t("vm.status"),
         cell: ({ row }) => (
           <StatusPill status={vmStatusToKind(row.original.status)}>
-            {row.original.status}
+            {formatVmStatus(t, row.original.status)}
           </StatusPill>
         ),
       },
@@ -222,7 +223,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
   return (
     <section className="flex flex-col gap-3">
       <header className="flex flex-wrap items-center gap-2">
-        <h2 className="text-h3 font-strong text-foreground">
+        <h2 className="text-base font-emphasis text-foreground">
           {displayName}
         </h2>
         <span className="text-caption text-text-tertiary">
@@ -231,7 +232,7 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
         {isStale ? (
           <Badge variant="warning" className={cn("ml-2")}>
             {t("vm.cachedAt", {
-              time: data?.cached_at ? new Date(data.cached_at).toLocaleTimeString() : "",
+              time: data?.cached_at ? formatTime(data.cached_at) : "",
             })}
           </Badge>
         ) : null}

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { formatNodeStatus } from "@/shared/lib/status-i18n";
 import { cn } from "@/shared/lib/utils";
 import { useAdminNodesQuery } from "./api";
 
@@ -41,7 +42,7 @@ export function NodePicker({
         return (
           <option key={`${n.cluster}:${n.server_name}`} value={n.server_name}>
             {n.server_name}
-            {evacuated ? " — evacuated" : online ? "" : ` — ${n.status}`}
+            {evacuated ? ` — ${formatNodeStatus(t, "Evacuated")}` : online ? "" : ` — ${formatNodeStatus(t, n.status)}`}
           </option>
         );
       })}

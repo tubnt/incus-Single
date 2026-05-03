@@ -124,7 +124,7 @@ export function SheetFooter({ className, ...props }: HTMLAttributes<HTMLDivEleme
 export function SheetTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <BaseDialog.Title
-      className={cn("text-h3 font-strong text-foreground", className)}
+      className={cn("text-body-emphasis font-emphasis text-foreground", className)}
       {...props}
     />
   );

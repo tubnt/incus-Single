@@ -1,8 +1,7 @@
-import type {VariantProps} from "class-variance-authority";
-import type {HTMLAttributes} from "react";
+import type { VariantProps } from "class-variance-authority";
+import type { HTMLAttributes, Ref } from "react";
 import { cva } from "class-variance-authority";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-react";
-import { forwardRef } from "react";
 import { cn } from "@/shared/lib/utils";
 
 const alertVariants = cva(
@@ -33,25 +32,30 @@ const iconMap = {
 
 interface AlertProps extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof alertVariants> {
   hideIcon?: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export const Alert = forwardRef<HTMLDivElement, AlertProps>(
-  ({ className, variant = "info", hideIcon, children, ...props }, ref) => {
-    const Icon = iconMap[variant ?? "info"];
-    return (
-      <div
-        ref={ref}
-        role="alert"
-        className={cn(alertVariants({ variant, className }))}
-        {...props}
-      >
-        {!hideIcon ? <Icon aria-hidden="true" /> : null}
-        <div className="flex-1 min-w-0">{children}</div>
-      </div>
-    );
-  },
-);
-Alert.displayName = "Alert";
+export function Alert({
+  className,
+  variant = "info",
+  hideIcon,
+  children,
+  ref,
+  ...props
+}: AlertProps) {
+  const Icon = iconMap[variant ?? "info"];
+  return (
+    <div
+      ref={ref}
+      role="alert"
+      className={cn(alertVariants({ variant, className }))}
+      {...props}
+    >
+      {!hideIcon ? <Icon aria-hidden="true" /> : null}
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
 
 export function AlertTitle({
   className,

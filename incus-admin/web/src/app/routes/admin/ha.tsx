@@ -1,15 +1,13 @@
 import type {HealingEvent, HealingListFilter, HealingStatus, HealingTrigger} from "@/features/healing/api";
 import type {HANodeInfo} from "@/features/nodes/api";
-import { Dialog } from "@base-ui-components/react/dialog";
+import type {StatusKind} from "@/shared/components/ui/status";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useClustersQuery } from "@/features/clusters/api";
 import { ClusterPicker } from "@/features/clusters/cluster-picker";
-import {
-  useHealingEventDetailQuery,
-  useHealingEventsQuery,
-} from "@/features/healing/api";
+import { useHealingEventsQuery } from "@/features/healing/api";
+import { EventDetailDialog } from "@/features/healing/components/event-detail-dialog";
 import {
   useHAEvacuateMutation,
   useHAStatusQuery,
@@ -24,14 +22,15 @@ import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { StatusPill, type StatusKind } from "@/shared/components/ui/status";
+import {  StatusPill } from "@/shared/components/ui/status";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/shared/components/ui/tabs";
-import { cn } from "@/shared/lib/utils";
+import { formatNodeMessage, formatNodeStatus } from "@/shared/lib/status-i18n";
+import { capitalize, formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/ha")({
   component: HAPage,
@@ -45,6 +44,8 @@ function HAPage() {
 
   useEffect(() => {
     if (!clusterName && clusters.length > 0) {
+      // clusterName 作 query key + Tabs 内组件 props，需 state 形式
+      // eslint-disable-next-line react/set-state-in-effect
       setClusterName(clusters[0]!.name);
     }
   }, [clusterName, clusters]);
@@ -84,6 +85,7 @@ function HAPage() {
 }
 
 function StatusPanel({ clusterName }: { clusterName: string }) {
+  const { t } = useTranslation();
   const { data: ha, isLoading } = useHAStatusQuery(clusterName);
   const evacuateMutation = useHAEvacuateMutation(clusterName);
 
@@ -91,21 +93,21 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
     return <Skeleton className="h-32" />;
   }
   if (!ha) {
-    return <EmptyState title="No cluster configured." />;
+    return <EmptyState title={t("ha.noCluster", { defaultValue: "尚未配置集群。" })} />;
   }
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <StatBlock label="HA Status">
+        <StatBlock label={t("ha.statHaStatus", { defaultValue: "HA 状态" })}>
           {ha.ha_enabled ? (
-            <span className="text-status-success">Enabled</span>
+            <span className="text-status-success">{t("ha.enabled", { defaultValue: "已启用" })}</span>
           ) : (
-            <span className="text-status-error">Disabled</span>
+            <span className="text-status-error">{t("ha.disabled", { defaultValue: "未启用" })}</span>
           )}
         </StatBlock>
-        <StatBlock label="Storage">{ha.storage}</StatBlock>
-        <StatBlock label="Nodes">{ha.nodes.length}</StatBlock>
+        <StatBlock label={t("ha.statStorage", { defaultValue: "存储" })}>{ha.storage}</StatBlock>
+        <StatBlock label={t("ha.statNodes", { defaultValue: "节点数" })}>{ha.nodes.length}</StatBlock>
       </div>
       <div className="text-caption text-text-tertiary">
         healing_threshold: {ha.healing_threshold}s
@@ -115,10 +117,10 @@ function StatusPanel({ clusterName }: { clusterName: string }) {
         <table className="w-full text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
           <thead className="border-b border-border">
             <tr>
-              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Node</th>
-              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Status</th>
-              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">Message</th>
-              <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">Actions</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colName", { defaultValue: "节点" })}</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.colStatus", { defaultValue: "状态" })}</th>
+              <th className="text-left px-4 py-2 text-label font-emphasis text-text-tertiary">{t("admin.nodes.message", { defaultValue: "消息" })}</th>
+              <th className="text-right px-4 py-2 text-label font-emphasis text-text-tertiary">{t("vm.actions", { defaultValue: "操作" })}</th>
             </tr>
           </thead>
           <tbody>
@@ -169,9 +171,9 @@ function NodeRow({
     <tr className="group/row border-t border-border">
       <td className="px-4 py-2 font-mono">{node.server_name}</td>
       <td className="px-4 py-2">
-        <StatusPill status={isOnline ? "success" : "error"}>{node.status}</StatusPill>
+        <StatusPill status={isOnline ? "success" : "error"}>{formatNodeStatus(t, node.status)}</StatusPill>
       </td>
-      <td className="px-4 py-2 text-text-tertiary text-caption">{node.message}</td>
+      <td className="px-4 py-2 text-text-tertiary text-caption">{formatNodeMessage(t, node.message)}</td>
       <td className="px-4 py-2 text-right opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity">
         {isOnline ? (
           <Button
@@ -409,7 +411,7 @@ function EventRow({
   return (
     <tr className="border-t border-border hover:bg-surface-2 transition-colors">
       <td className="px-3 py-2 font-mono text-caption whitespace-nowrap">
-        {new Date(event.started_at).toLocaleString()}
+        {formatDateTime(event.started_at)}
       </td>
       <td className="px-3 py-2">{event.cluster_name || `#${event.cluster_id}`}</td>
       <td className="px-3 py-2 font-mono">{event.node_name}</td>
@@ -440,117 +442,5 @@ function EventRow({
         </button>
       </td>
     </tr>
-  );
-}
-
-function capitalize(s: string): string {
-  if (!s) return s;
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function EventDetailDialog({
-  id,
-  onClose,
-}: {
-  id: number | null;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const open = id != null;
-  const { data: event, isLoading } = useHealingEventDetailQuery(id);
-
-  return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-surface-elevated border border-border rounded-xl shadow-dialog p-6 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0">
-          <Dialog.Title className="text-h3 font-strong mb-4">
-            {t("ha.detailTitle", { id })}
-          </Dialog.Title>
-          {isLoading && <Skeleton className="h-32" />}
-          {event && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <DetailField label={t("ha.colCluster")} value={event.cluster_name || `#${event.cluster_id}`} />
-                <DetailField label={t("ha.colNode")} value={event.node_name} mono />
-                <DetailField label={t("ha.colTrigger")} value={t(`ha.trigger${capitalize(event.trigger)}`)} />
-                <DetailField label={t("ha.colStatus")} value={t(`ha.status${capitalize(event.status.replace(/_/g, ""))}`)} />
-                <DetailField
-                  label={t("ha.colTime")}
-                  value={new Date(event.started_at).toLocaleString()}
-                />
-                <DetailField
-                  label={t("ha.colDuration")}
-                  value={event.duration_seconds != null ? `${event.duration_seconds}s` : "—"}
-                />
-                <DetailField
-                  label={t("ha.colActor")}
-                  value={event.actor_id ? `#${event.actor_id}` : "—"}
-                />
-              </div>
-              {event.error && (
-                <div className="rounded-md border border-status-error/30 bg-status-error/8 p-3 text-sm">
-                  <div className="font-strong text-status-error mb-1">{t("ha.errorHeading")}</div>
-                  <code className="text-caption break-all">{event.error}</code>
-                </div>
-              )}
-              <div>
-                <div className="text-sm font-emphasis mb-2">
-                  {t("ha.evacuatedVMsHeading")} ({event.evacuated_vms?.length ?? 0})
-                </div>
-                {(event.evacuated_vms?.length ?? 0) === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t("ha.noVMsMoved")}</div>
-                ) : (
-                  <div className="border border-border rounded overflow-x-auto">
-                    <table className="w-full text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-surface-1">
-                      <thead className="bg-surface-1 border-b border-border">
-                        <tr>
-                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">ID</th>
-                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmName")}</th>
-                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmFrom")}</th>
-                          <th className="text-left px-3 py-1.5 text-label font-emphasis text-text-tertiary">{t("ha.vmTo")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {event.evacuated_vms!.map((v) => (
-                          <tr key={v.vm_id} className="border-t border-border">
-                            <td className="px-3 py-1.5 font-mono">{v.vm_id}</td>
-                            <td className="px-3 py-1.5 font-mono">{v.name}</td>
-                            <td className="px-3 py-1.5 font-mono">{v.from_node}</td>
-                            <td className="px-3 py-1.5 font-mono">{v.to_node}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="flex justify-end mt-6">
-            <Dialog.Close className={cn("px-4 h-9 rounded-md text-sm font-emphasis bg-surface-1 border border-border hover:bg-surface-2 transition-colors")}>
-              {t("common.close")}
-            </Dialog.Close>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
-function DetailField({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`text-sm mt-0.5 ${mono ? "font-mono" : ""}`}>{value}</div>
-    </div>
   );
 }

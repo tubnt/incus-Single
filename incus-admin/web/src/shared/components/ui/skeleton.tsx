@@ -18,11 +18,10 @@ export function TableSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: nu
         <Skeleton className="h-4 w-32" />
       </div>
       {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className={cn("flex gap-4 px-4 py-3", i > 0 && "border-t border-border")}
-        >
+        // eslint-disable-next-line react/no-array-index-key -- skeleton 占位无业务 id
+        <div key={i} className={cn("flex gap-4 px-4 py-3", i > 0 && "border-t border-border")}>
           {Array.from({ length: cols }).map((_, j) => (
+            // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
             <Skeleton key={j} className="h-4 flex-1" />
           ))}
         </div>
@@ -45,6 +44,7 @@ export function StatGridSkeleton({ count = 4 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {Array.from({ length: count }).map((_, i) => (
+        // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
         <div key={i} className="rounded-lg border border-border bg-surface-1 p-4 space-y-2">
           <Skeleton className="h-3 w-16" />
           <Skeleton className="h-6 w-24" />

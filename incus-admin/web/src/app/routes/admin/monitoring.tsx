@@ -227,13 +227,13 @@ function DiskChart({ vms }: { vms: VMMetric[] }) {
           <YAxis type="category" dataKey="name" width={75} tick={{ fontSize: 11 }} />
           <Tooltip formatter={(v) => `${v}%`} />
           <Bar dataKey="pct" name={t("monitoring.usageLegend")}>
-            {chartData.map((_, i) => (
+            {chartData.map((c) => (
               <Cell
-                key={i}
+                key={c.name}
                 fill={
-                  chartData[i].pct > 90
+                  c.pct > 90
                     ? "var(--status-error)"
-                    : chartData[i].pct > 70
+                    : c.pct > 70
                       ? "var(--status-warning)"
                       : "var(--status-success)"
                 }

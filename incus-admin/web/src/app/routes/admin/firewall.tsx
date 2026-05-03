@@ -183,6 +183,7 @@ function RulesTable({ rules }: { rules: FirewallRule[] }) {
       </thead>
       <tbody>
         {rules.map((r, i) => (
+          // eslint-disable-next-line react/no-array-index-key -- 只读列表，无业务 id
           <tr key={i} className="border-t border-border">
             <td className="px-4 py-2">
               <ActionBadge action={r.action} />
@@ -216,18 +217,29 @@ function RulesEditor({
   initial: FirewallRule[];
 }) {
   const { t } = useTranslation();
-  const [rules, setRules] = useState<FirewallRule[]>(
-    initial.length > 0 ? initial : [emptyRule()],
+  // OPS-038: 客户端 _uiId 解决"删除中间行 input focus 跳"。FirewallRule 来自后端
+  // payload，没有稳定 id（save 是整组 PUT）。生成 client-side uuid 作为 React
+  // key + patch/remove 索引；save 前 strip。
+  const [rules, setRules] = useState<Array<FirewallRule & { _uiId: string }>>(() =>
+    (initial.length > 0 ? initial : [emptyRule()]).map((r) => ({
+      ...r,
+      _uiId: crypto.randomUUID(),
+    })),
   );
   const mutation = useReplaceFirewallRulesMutation(groupID);
 
-  const patch = (i: number, patch: Partial<FirewallRule>) => {
-    setRules(rules.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const patch = (uiId: string, patch: Partial<FirewallRule>) => {
+    setRules((prev) => prev.map((r) => (r._uiId === uiId ? { ...r, ...patch } : r)));
   };
-  const add = () => setRules([...rules, emptyRule(rules.length * 10 + 10)]);
-  const remove = (i: number) => setRules(rules.filter((_, idx) => idx !== i));
+  const add = () =>
+    setRules((prev) => [
+      ...prev,
+      { ...emptyRule(prev.length * 10 + 10), _uiId: crypto.randomUUID() },
+    ]);
+  const remove = (uiId: string) =>
+    setRules((prev) => prev.filter((r) => r._uiId !== uiId));
   const save = () =>
-    mutation.mutate(rules, {
+    mutation.mutate(rules.map(({ _uiId: _, ...r }) => r), {
       onSuccess: (res) => {
         if (res.warning) {
           toast.warning(`${res.warning}: ${res.sync_err ?? ""}`);
@@ -240,11 +252,11 @@ function RulesEditor({
 
   return (
     <div className="p-4 space-y-2">
-      {rules.map((r, i) => (
-        <div key={i} className="grid grid-cols-12 gap-2 items-center text-xs">
+      {rules.map((r) => (
+        <div key={r._uiId} className="grid grid-cols-12 gap-2 items-center text-xs">
           <select
             value={r.action}
-            onChange={(e) => patch(i, { action: e.target.value as FirewallRule["action"] })}
+            onChange={(e) => patch(r._uiId, { action: e.target.value as FirewallRule["action"] })}
             className="col-span-2 h-8 px-2 rounded-md border border-border bg-surface-1 text-foreground"
           >
             <option value="allow">allow</option>
@@ -253,7 +265,7 @@ function RulesEditor({
           </select>
           <select
             value={r.protocol}
-            onChange={(e) => patch(i, { protocol: e.target.value as FirewallRule["protocol"] })}
+            onChange={(e) => patch(r._uiId, { protocol: e.target.value as FirewallRule["protocol"] })}
             className="col-span-2 h-8 px-2 rounded-md border border-border bg-surface-1 text-foreground"
           >
             <option value="tcp">tcp</option>
@@ -265,27 +277,27 @@ function RulesEditor({
             type="text"
             placeholder={t("admin.firewall.portPlaceholder", "22,80 or 1000-2000")}
             value={r.destination_port}
-            onChange={(e) => patch(i, { destination_port: e.target.value })}
+            onChange={(e) => patch(r._uiId, { destination_port: e.target.value })}
             className="col-span-2 h-8 font-mono"
           />
           <Input
             type="text"
             placeholder="10.0.0.0/8"
             value={r.source_cidr}
-            onChange={(e) => patch(i, { source_cidr: e.target.value })}
+            onChange={(e) => patch(r._uiId, { source_cidr: e.target.value })}
             className="col-span-2 h-8 font-mono"
           />
           <Input
             type="text"
             placeholder={t("admin.firewall.descPlaceholder", "说明")}
             value={r.description}
-            onChange={(e) => patch(i, { description: e.target.value })}
+            onChange={(e) => patch(r._uiId, { description: e.target.value })}
             className="col-span-3 h-8"
           />
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => remove(i)}
+            onClick={() => remove(r._uiId)}
             disabled={rules.length === 1}
             className="col-span-1 text-status-error"
           >

@@ -17,6 +17,7 @@
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/noto-sans-sc": "^5.2.10",
     "@tanstack/react-query": "^5.99.0",
     "@tanstack/react-router": "^1.168.22",
     "@tanstack/react-table": "^8.21.3",

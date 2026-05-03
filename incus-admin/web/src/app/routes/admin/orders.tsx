@@ -23,7 +23,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { formatCurrency } from "@/shared/lib/utils";
+import { formatOrderStatus } from "@/shared/lib/status-i18n";
+import { formatCurrency, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/orders")({
   component: AdminOrdersPage,
@@ -99,11 +100,11 @@ function AdminOrdersPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {o.expires_at
-                          ? new Date(o.expires_at).toLocaleDateString()
+                          ? formatDate(o.expires_at)
                           : "—"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {new Date(o.created_at).toLocaleString()}
+                        {formatDateTime(o.created_at)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -125,6 +126,7 @@ function AdminOrdersPage() {
 }
 
 function OrderStatusPill({ status }: { status: string }) {
+  const { t } = useTranslation();
   const kind = (() => {
     switch (status) {
       case "paid":
@@ -141,5 +143,5 @@ function OrderStatusPill({ status }: { status: string }) {
         return "disabled" as const;
     }
   })();
-  return <StatusPill status={kind}>{status}</StatusPill>;
+  return <StatusPill status={kind}>{formatOrderStatus(t, status)}</StatusPill>;
 }

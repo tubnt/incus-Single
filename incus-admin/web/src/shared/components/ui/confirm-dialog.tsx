@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, use, useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
@@ -60,7 +60,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
   const typedOk = !requireType || typed.trim() === state.typeToConfirm;
 
   return (
-    <ConfirmContext.Provider value={value}>
+    <ConfirmContext value={value}>
       {children}
       <AlertDialog open={state.open} onOpenChange={(open) => { if (!open) finish(false); }}>
         <AlertDialogContent>
@@ -113,12 +113,12 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </ConfirmContext.Provider>
+    </ConfirmContext>
   );
 }
 
 export function useConfirm(): ConfirmFn {
-  const ctx = useContext(ConfirmContext);
+  const ctx = use(ConfirmContext);
   if (!ctx) {
     throw new Error("useConfirm must be used within ConfirmDialogProvider");
   }

@@ -37,7 +37,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { cn } from "@/shared/lib/utils";
+import { cn, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 // OPS-030: TTL 选项 + 倒计时文案改成 i18n 化（接 t fn）。
 function ttlOptions(t: (k: string, opts?: Record<string, unknown>) => string): Array<{ hours: number; label: string }> {
@@ -116,6 +116,7 @@ function APITokensPage() {
         {isLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
+              // eslint-disable-next-line react/no-array-index-key -- skeleton 占位
               <Skeleton key={i} className="h-20 w-full" />
             ))}
           </div>
@@ -274,9 +275,9 @@ function TokenCard({
           <div className="font-emphasis truncate">{token.name}</div>
           <div className="text-caption text-text-tertiary mt-1">
             {t("apiToken.createdAt", { defaultValue: "创建于" })}{" "}
-            {new Date(token.created_at).toLocaleDateString()}
+            {formatDate(token.created_at)}
             {token.last_used_at
-              ? ` · ${t("apiToken.lastUsedAt", { defaultValue: "最后使用" })} ${new Date(token.last_used_at).toLocaleString()}`
+              ? ` · ${t("apiToken.lastUsedAt", { defaultValue: "最后使用" })} ${formatDateTime(token.last_used_at)}`
               : null}
           </div>
           <div className={cn("text-caption mt-1", expiryColor)}>{expiry.text}</div>
