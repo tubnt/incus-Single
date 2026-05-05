@@ -1329,5 +1329,35 @@
       "waitRecreate": "等待镜像与磁盘就绪",
       "startAfterReinstall": "启动新实例"
     }
+  },
+  "firewall": {
+    "userPageTitle": "我的防火墙",
+    "userPageDescription": "集中管理你的 firewall 组、规则、默认策略和绑定关系。",
+    "userMyGroupsEmptyTitle": "还没有自定义组",
+    "userMyGroupsEmptyHint": "点上方 \"新建组\" 创建你的第一个 firewall 规则集。",
+    "applyToVMs": "应用到 VMs",
+    "applyToVMsTitle": "应用到 VMs",
+    "applyToVMsHint": "勾选要绑定 / 解绑的 VM。已绑组的 VM 自带绿色标签；勾选已绑表示要解绑。",
+    "applyToVMsEmpty": "你还没有任何 VM。",
+    "boundChip": "已绑",
+    "coldModifyWarning": "⚠ 将临时停机 {{n}} 台运行中 VM（每台约 10–15s 不可达）。后端串行处理。",
+    "bindCount": "绑定 ({{n}})",
+    "unbindCount": "解绑 ({{n}})",
+    "bindBatchOk": "已绑定 {{n}} 台 VM",
+    "bindBatchPartial": "部分成功：{{ok}} 成功 / {{fail}} 失败",
+    "unbindBatchOk": "已解绑 {{n}} 台 VM",
+    "unbindBatchPartial": "部分成功：{{ok}} 成功 / {{fail}} 失败",
+    "defaultsTitle": "默认 firewall 组（仅新建 VM 生效）",
+    "defaultsAdd": "添加默认",
+    "defaultsEmpty": "未设置默认组。新创建的 VM 不会自动绑定任何 firewall 组。",
+    "defaultsRemove": "移除",
+    "defaultsMoveUp": "上移",
+    "defaultsMoveDown": "下移",
+    "defaultsHint": "提示：默认组仅对新创建的 VM 自动应用。要应用到现有 VM 请用 \"应用到 VMs\"。",
+    "defaultsSavedOk": "默认组已更新",
+    "defaultsPickTitle": "添加默认组",
+    "defaultsPickPlaceholder": "选择一个组",
+    "defaultsPickAllUsed": "已全部加为默认",
+    "defaultsMine": "我的"
   }
 }

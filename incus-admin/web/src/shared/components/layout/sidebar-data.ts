@@ -14,6 +14,7 @@ export interface NavGroup {
 export const userSidebar: NavItem[] = [
   { key: "nav.dashboard", to: "/", icon: "LayoutDashboard" },
   { key: "nav.myVms", to: "/vms", icon: "Server" },
+  { key: "nav.firewall", to: "/firewall", icon: "ShieldCheck" },
   { key: "nav.sshKeys", to: "/ssh-keys", icon: "Key" },
   { key: "nav.billing", to: "/billing", icon: "CreditCard" },
   { key: "nav.tickets", to: "/tickets", icon: "MessageSquare" },

@@ -279,3 +279,76 @@ func (r *FirewallRepo) Unbind(ctx context.Context, vmID, groupID int64) error {
 	)
 	return err
 }
+
+// --- defaults (PLAN-036) ---
+
+// ListDefaultGroupsForUser 返回用户的默认 firewall_groups（按 sort_order 升序）。
+// 仅新建 VM 时被 jobs finalize 调用一次性应用；现有 VM 不受影响。
+func (r *FirewallRepo) ListDefaultGroupsForUser(ctx context.Context, userID int64) ([]model.FirewallGroup, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT g.id, g.slug, g.name, g.description, g.owner_id, g.created_at, g.updated_at
+		 FROM firewall_groups g
+		 JOIN user_default_firewall_groups d ON d.group_id = g.id
+		 WHERE d.user_id = $1
+		 ORDER BY d.sort_order ASC, g.id ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.FirewallGroup, 0)
+	for rows.Next() {
+		var g model.FirewallGroup
+		if err := scanFirewallGroup(rows, &g); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceDefaultGroups 原子替换某 user 的默认组列表。groupIDs 顺序即 sort_order。
+// 调用方应已在 handler 层校验：每个 group 必须 owner_id IS NULL OR = userID。
+func (r *FirewallRepo) ReplaceDefaultGroups(ctx context.Context, userID int64, groupIDs []int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_default_firewall_groups WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("clear defaults: %w", err)
+	}
+	for i, gid := range groupIDs {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO user_default_firewall_groups (user_id, group_id, sort_order) VALUES ($1, $2, $3)`,
+			userID, gid, i*10,
+		); err != nil {
+			return fmt.Errorf("insert default: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// ListBoundVMsForGroup 返回当前用户拥有的、绑定到给定 group 的 VM 列表。
+// 仅返自己的 VM —— admin 共享组的跨用户绑定不通过此 endpoint 暴露。
+func (r *FirewallRepo) ListBoundVMsForGroup(ctx context.Context, groupID, userID int64) ([]model.VM, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT v.id, v.name, v.cluster_id, v.user_id, v.order_id, host(v.ip)::text, v.status,
+		        v.cpu, v.memory_mb, v.disk_gb, v.os_image, v.node, v.password,
+		        v.rescue_state, v.rescue_started_at, v.rescue_snapshot_name,
+		        v.trashed_at, v.trashed_prev_status, v.created_at, v.updated_at
+		 FROM vms v
+		 JOIN vm_firewall_bindings b ON b.vm_id = v.id
+		 WHERE b.group_id = $1 AND v.user_id = $2 AND v.status NOT IN ('deleted','gone') AND v.trashed_at IS NULL
+		 ORDER BY v.id DESC`,
+		groupID, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanVMs(rows)
+}

@@ -175,3 +175,81 @@ export function usePortalDeleteFirewallGroupMutation(id: number) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
   });
 }
+
+// PLAN-036 用户级集中管理：默认组 + 多 VM 批量绑定 + 看绑定关系。
+
+export interface BoundVM {
+  id: number;
+  name: string;
+  status: string;
+  ip: string | null;
+  node: string;
+}
+
+export interface BatchBindResult {
+  total: number;
+  succeeded: number[];
+  failed: Array<{ vm_id: number; error: string }>;
+}
+
+const portalDefaultsKey = [...firewallKeys.all, "portal", "defaults"] as const;
+const portalGroupVMsKey = (groupID: number) => [...firewallKeys.all, "portal", "group", groupID, "vms"] as const;
+
+export function usePortalFirewallDefaultsQuery() {
+  return useQuery({
+    queryKey: portalDefaultsKey,
+    queryFn: () => http.get<{ groups: FirewallGroup[] }>("/portal/firewall/defaults"),
+  });
+}
+
+export function usePortalReplaceFirewallDefaultsMutation() {
+  return useMutation({
+    mutationFn: (groupIDs: number[]) =>
+      http.put<{ group_ids: number[] }>("/portal/firewall/defaults", { group_ids: groupIDs }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}
+
+export function usePortalGroupBoundVMsQuery(groupID: number | null) {
+  return useQuery({
+    queryKey: groupID ? portalGroupVMsKey(groupID) : portalGroupVMsKey(0),
+    queryFn: () => http.get<{ vms: BoundVM[]; count: number }>(`/portal/firewall/groups/${groupID}/vms`),
+    enabled: !!groupID,
+  });
+}
+
+export function usePortalFirewallBindBatchMutation(groupID: number) {
+  return useMutation({
+    mutationFn: (vmIDs: number[]) =>
+      http.post<BatchBindResult>(
+        `/portal/firewall/groups/${groupID}/bind:batch`,
+        { vm_ids: vmIDs },
+        {
+          intent: {
+            action: "firewall.bind_batch",
+            args: { group_id: groupID, vm_ids: vmIDs },
+            description: `批量绑定 firewall #${groupID} 到 ${vmIDs.length} 台 VM`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}
+
+export function usePortalFirewallUnbindBatchMutation(groupID: number) {
+  return useMutation({
+    mutationFn: (vmIDs: number[]) =>
+      http.post<BatchBindResult>(
+        `/portal/firewall/groups/${groupID}/unbind:batch`,
+        { vm_ids: vmIDs },
+        {
+          intent: {
+            action: "firewall.unbind_batch",
+            args: { group_id: groupID, vm_ids: vmIDs },
+            description: `批量解绑 firewall #${groupID} 从 ${vmIDs.length} 台 VM`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}

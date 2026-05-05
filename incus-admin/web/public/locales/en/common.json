@@ -1327,5 +1327,35 @@
       "waitRecreate": "Wait for image + disk",
       "startAfterReinstall": "Start new instance"
     }
+  },
+  "firewall": {
+    "userPageTitle": "My Firewall",
+    "userPageDescription": "Manage your firewall groups, rules, defaults, and bindings in one place.",
+    "userMyGroupsEmptyTitle": "No custom groups yet",
+    "userMyGroupsEmptyHint": "Click \"New group\" above to create your first ruleset.",
+    "applyToVMs": "Apply to VMs",
+    "applyToVMsTitle": "Apply to VMs",
+    "applyToVMsHint": "Tick VMs to bind / unbind. Already-bound VMs carry a green badge; ticking an already-bound VM marks it for unbind.",
+    "applyToVMsEmpty": "You don't have any VMs yet.",
+    "boundChip": "Bound",
+    "coldModifyWarning": "⚠ {{n}} running VM(s) will be briefly unavailable (~10–15s each). Backend processes serially.",
+    "bindCount": "Bind ({{n}})",
+    "unbindCount": "Unbind ({{n}})",
+    "bindBatchOk": "Bound to {{n}} VMs",
+    "bindBatchPartial": "Partial: {{ok}} ok / {{fail}} failed",
+    "unbindBatchOk": "Unbound from {{n}} VMs",
+    "unbindBatchPartial": "Partial: {{ok}} ok / {{fail}} failed",
+    "defaultsTitle": "Default firewall groups (auto-applied to new VMs only)",
+    "defaultsAdd": "Add default",
+    "defaultsEmpty": "No default groups configured. New VMs won't auto-bind any firewall.",
+    "defaultsRemove": "Remove",
+    "defaultsMoveUp": "Move up",
+    "defaultsMoveDown": "Move down",
+    "defaultsHint": "Tip: defaults only auto-apply to newly-created VMs. Use \"Apply to VMs\" for existing ones.",
+    "defaultsSavedOk": "Defaults updated",
+    "defaultsPickTitle": "Add default group",
+    "defaultsPickPlaceholder": "Pick a group",
+    "defaultsPickAllUsed": "All groups already in defaults",
+    "defaultsMine": "Mine"
   }
 }

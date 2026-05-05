@@ -344,6 +344,7 @@ func main() {
 			Audit:       auditAdapter{repo: auditRepo},
 			Clusters:    clusterMgr,
 			OSTemplates: osTemplateRepo,
+			Firewall:    defaultFirewallApplier{repo: firewallRepo, svc: service.NewFirewallService(clusterMgr, vmSvc)},
 			PoolSize:    4,
 		})
 		jobsRuntime.Start(workerCtx)
@@ -487,6 +488,25 @@ func (a *firewallReconcileAdapter) ListRules(ctx context.Context, groupID int64)
 
 func (a *firewallReconcileAdapter) EnsureACL(ctx context.Context, group *model.FirewallGroup, rules []model.FirewallRule) error {
 	return a.svc.EnsureACL(ctx, group, rules)
+}
+
+// defaultFirewallApplier 给 jobs runtime 注入用户默认 firewall_groups 应用能力（PLAN-036）。
+// 实现 jobs.DefaultFirewallApplier 接口；任一方法失败由 jobs 软处理（log + audit）。
+type defaultFirewallApplier struct {
+	repo *repository.FirewallRepo
+	svc  *service.FirewallService
+}
+
+func (a defaultFirewallApplier) ListDefaultGroups(ctx context.Context, userID int64) ([]model.FirewallGroup, error) {
+	return a.repo.ListDefaultGroupsForUser(ctx, userID)
+}
+
+func (a defaultFirewallApplier) Attach(ctx context.Context, clusterName, project, vmName string, group *model.FirewallGroup) error {
+	return a.svc.AttachACLToVM(ctx, clusterName, project, vmName, group)
+}
+
+func (a defaultFirewallApplier) Bind(ctx context.Context, vmID, groupID int64) error {
+	return a.repo.Bind(ctx, vmID, groupID)
 }
 
 // healingTrackerAdapter lets the worker talk to HealingEventRepo without

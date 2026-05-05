@@ -57,11 +57,18 @@ func (h *FirewallHandler) AdminRoutes(r chi.Router) {
 
 func (h *FirewallHandler) PortalRoutes(r chi.Router) {
 	// User-facing：列出 admin 共享 + 自己的私有组；用户私有组完整 CRUD（PLAN-035）。
+	// PLAN-036：默认组管理 + 多 VM 批量绑定。
 	r.Get("/firewall/groups", h.PortalListGroups)
 	r.Post("/firewall/groups", h.PortalCreateGroup)
 	r.Put("/firewall/groups/{id}", h.PortalUpdateGroup)
 	r.Delete("/firewall/groups/{id}", h.PortalDeleteGroup)
 	r.Put("/firewall/groups/{id}/rules", h.PortalReplaceRules)
+	// PLAN-036 静态路径必须排在 /{id} 通配前
+	r.Get("/firewall/defaults", h.PortalListDefaults)
+	r.Put("/firewall/defaults", h.PortalReplaceDefaults)
+	r.Get("/firewall/groups/{id}/vms", h.PortalListBoundVMsForGroup)
+	r.Post("/firewall/groups/{id}/bind:batch", h.PortalBindBatch)
+	r.Post("/firewall/groups/{id}/unbind:batch", h.PortalUnbindBatch)
 	r.Get("/services/{id}/firewall", h.GetVMBindings)
 	r.Post("/services/{id}/firewall", h.BindVM)
 	r.Delete("/services/{id}/firewall/{groupID}", h.UnbindVM)
@@ -778,4 +785,204 @@ func (h *FirewallHandler) PortalReplaceRules(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rules": rules})
+}
+
+// ============================================================================
+// PLAN-036: 用户级集中管理 — 默认组 + 多 VM 批量绑定
+// ============================================================================
+
+// PortalListDefaults 返回当前用户的默认 firewall_groups 列表（含 rules）。
+func (h *FirewallHandler) PortalListDefaults(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	groups, err := h.repo.ListDefaultGroupsForUser(r.Context(), userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	out := make([]firewallGroupDTO, 0, len(groups))
+	for _, g := range groups {
+		rules, err := h.repo.ListRules(r.Context(), g.ID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		out = append(out, firewallGroupDTO{FirewallGroup: g, Rules: rules})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": out})
+}
+
+type replaceDefaultsReq struct {
+	GroupIDs []int64 `json:"group_ids" validate:"omitempty,dive,gt=0"`
+}
+
+// PortalReplaceDefaults 原子替换当前用户的默认组列表。
+// 校验每个 group：必须 owner_id IS NULL（admin 共享）OR == userID（自己拥有）。
+func (h *FirewallHandler) PortalReplaceDefaults(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if userID <= 0 {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+		return
+	}
+	var req replaceDefaultsReq
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	// 去重 + 可见性校验
+	seen := map[int64]bool{}
+	cleaned := make([]int64, 0, len(req.GroupIDs))
+	for _, gid := range req.GroupIDs {
+		if seen[gid] {
+			continue
+		}
+		seen[gid] = true
+		g, err := h.repo.GetGroupByID(r.Context(), gid)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		if g == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("group #%d not found", gid)})
+			return
+		}
+		if g.OwnerID != nil && *g.OwnerID != userID {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("group #%d not found", gid)})
+			return
+		}
+		cleaned = append(cleaned, gid)
+	}
+	if err := h.repo.ReplaceDefaultGroups(r.Context(), userID, cleaned); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	audit(r.Context(), r, "firewall.defaults_replace", "user", userID, map[string]any{
+		"group_count": len(cleaned),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"group_ids": cleaned})
+}
+
+// PortalListBoundVMsForGroup 返回当前用户拥有的、绑定到给定 group 的 VM 列表。
+// 仅限：自己的私有组 OR admin 共享组（共享组也只返自己的 VM，不跨用户）。
+func (h *FirewallHandler) PortalListBoundVMsForGroup(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	g, err := h.repo.GetGroupByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if g == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	if g.OwnerID != nil && *g.OwnerID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	vms, err := h.repo.ListBoundVMsForGroup(r.Context(), id, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	// 简化 DTO：仅暴露用户视角必要字段
+	out := make([]map[string]any, 0, len(vms))
+	for _, vm := range vms {
+		out = append(out, map[string]any{
+			"id":     vm.ID,
+			"name":   vm.Name,
+			"status": vm.Status,
+			"ip":     vm.IP,
+			"node":   vm.Node,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vms": out, "count": len(out)})
+}
+
+type batchBindReq struct {
+	VMIDs []int64 `json:"vm_ids" validate:"required,min=1,max=64,dive,gt=0"`
+}
+
+type batchBindResult struct {
+	Total     int                       `json:"total"`
+	Succeeded []int64                   `json:"succeeded"`
+	Failed    []map[string]any          `json:"failed"`
+}
+
+// portalRunBatch attaches/detaches one group across multiple VMs the user owns.
+// 串行执行（每 VM stop→PATCH→start），让前端能看到进度。
+// 单台失败不影响其他 VM；终态返 succeeded/failed 双列表（PLAN-023 batchutil 风格）。
+func (h *FirewallHandler) portalRunBatch(
+	r *http.Request,
+	w http.ResponseWriter,
+	op string, // "bind" | "unbind"
+) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	groupID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid group id"})
+		return
+	}
+	g, err := h.repo.GetGroupByID(r.Context(), groupID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if g == nil || (g.OwnerID != nil && *g.OwnerID != userID) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	var req batchBindReq
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+
+	result := batchBindResult{Total: len(req.VMIDs), Succeeded: []int64{}, Failed: []map[string]any{}}
+	for _, vmID := range req.VMIDs {
+		vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+		if err != nil || vm == nil || vm.UserID != userID {
+			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "access denied or vm not found"})
+			continue
+		}
+		clusterName, project := h.resolveVMLocation(vm)
+		var aclErr error
+		if op == "bind" {
+			aclErr = h.svc.AttachACLToVM(r.Context(), clusterName, project, vm.Name, g)
+		} else {
+			aclErr = h.svc.DetachACLFromVM(r.Context(), clusterName, project, vm.Name, g)
+		}
+		if aclErr != nil {
+			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "acl: " + aclErr.Error()})
+			continue
+		}
+		var dbErr error
+		if op == "bind" {
+			dbErr = h.repo.Bind(r.Context(), vmID, groupID)
+		} else {
+			dbErr = h.repo.Unbind(r.Context(), vmID, groupID)
+		}
+		if dbErr != nil {
+			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "db: " + dbErr.Error()})
+			continue
+		}
+		result.Succeeded = append(result.Succeeded, vmID)
+	}
+
+	auditAction := "firewall." + op + "_batch"
+	audit(r.Context(), r, auditAction, "firewall_group", groupID, map[string]any{
+		"vm_count":    len(req.VMIDs),
+		"succeeded":   len(result.Succeeded),
+		"failed":      len(result.Failed),
+	})
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *FirewallHandler) PortalBindBatch(w http.ResponseWriter, r *http.Request) {
+	h.portalRunBatch(r, w, "bind")
+}
+
+func (h *FirewallHandler) PortalUnbindBatch(w http.ResponseWriter, r *http.Request) {
+	h.portalRunBatch(r, w, "unbind")
 }

@@ -15,6 +15,7 @@ import { Route as TicketsRouteImport } from './routes/tickets'
 import { Route as SshKeysRouteImport } from './routes/ssh-keys'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as LaunchRouteImport } from './routes/launch'
+import { Route as FirewallRouteImport } from './routes/firewall'
 import { Route as ConsoleRouteImport } from './routes/console'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as ApiTokensRouteImport } from './routes/api-tokens'
@@ -72,6 +73,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const LaunchRoute = LaunchRouteImport.update({
   id: '/launch',
   path: '/launch',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FirewallRoute = FirewallRouteImport.update({
+  id: '/firewall',
+  path: '/firewall',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConsoleRoute = ConsoleRouteImport.update({
@@ -221,6 +227,7 @@ export interface FileRoutesByFullPath {
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
   '/console': typeof ConsoleRoute
+  '/firewall': typeof FirewallRoute
   '/launch': typeof LaunchRoute
   '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
@@ -257,6 +264,7 @@ export interface FileRoutesByTo {
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
   '/console': typeof ConsoleRoute
+  '/firewall': typeof FirewallRoute
   '/launch': typeof LaunchRoute
   '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
@@ -294,6 +302,7 @@ export interface FileRoutesById {
   '/api-tokens': typeof ApiTokensRoute
   '/billing': typeof BillingRoute
   '/console': typeof ConsoleRoute
+  '/firewall': typeof FirewallRoute
   '/launch': typeof LaunchRoute
   '/settings': typeof SettingsRoute
   '/ssh-keys': typeof SshKeysRoute
@@ -332,6 +341,7 @@ export interface FileRouteTypes {
     | '/api-tokens'
     | '/billing'
     | '/console'
+    | '/firewall'
     | '/launch'
     | '/settings'
     | '/ssh-keys'
@@ -368,6 +378,7 @@ export interface FileRouteTypes {
     | '/api-tokens'
     | '/billing'
     | '/console'
+    | '/firewall'
     | '/launch'
     | '/settings'
     | '/ssh-keys'
@@ -404,6 +415,7 @@ export interface FileRouteTypes {
     | '/api-tokens'
     | '/billing'
     | '/console'
+    | '/firewall'
     | '/launch'
     | '/settings'
     | '/ssh-keys'
@@ -441,6 +453,7 @@ export interface RootRouteChildren {
   ApiTokensRoute: typeof ApiTokensRoute
   BillingRoute: typeof BillingRoute
   ConsoleRoute: typeof ConsoleRoute
+  FirewallRoute: typeof FirewallRoute
   LaunchRoute: typeof LaunchRoute
   SettingsRoute: typeof SettingsRoute
   SshKeysRoute: typeof SshKeysRoute
@@ -491,6 +504,13 @@ declare module '@tanstack/react-router' {
       path: '/launch'
       fullPath: '/launch'
       preLoaderRoute: typeof LaunchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/firewall': {
+      id: '/firewall'
+      path: '/firewall'
+      fullPath: '/firewall'
+      preLoaderRoute: typeof FirewallRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/console': {
@@ -752,6 +772,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTokensRoute: ApiTokensRoute,
   BillingRoute: BillingRoute,
   ConsoleRoute: ConsoleRoute,
+  FirewallRoute: FirewallRoute,
   LaunchRoute: LaunchRoute,
   SettingsRoute: SettingsRoute,
   SshKeysRoute: SshKeysRoute,
