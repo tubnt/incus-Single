@@ -85,6 +85,9 @@ type Quota struct {
 	MaxDiskGB    int   `json:"max_disk_gb" db:"max_disk_gb"`
 	MaxIPs       int   `json:"max_ips" db:"max_ips"`
 	MaxSnapshots int   `json:"max_snapshots" db:"max_snapshots"`
+	// PLAN-035 用户级 firewall quota（默认 5 组 × 20 规则）
+	MaxFirewallGroups        int `json:"max_firewall_groups" db:"max_firewall_groups"`
+	MaxFirewallRulesPerGroup int `json:"max_firewall_rules_per_group" db:"max_firewall_rules_per_group"`
 }
 
 type IPPool struct {
@@ -206,6 +209,10 @@ type FirewallGroup struct {
 	Slug        string    `json:"slug" db:"slug"`
 	Name        string    `json:"name" db:"name"`
 	Description string    `json:"description" db:"description"`
+	// OwnerID 区分共享组（NULL）与用户私有组（=users.id）。PLAN-035。
+	// service.ACLName 按此字段决定 Incus ACL 命名前缀（共享组保留 fwg-<slug>
+	// 旧名向后兼容，用户组用 fwg-u<id>-<slug> 隔离 namespace）。
+	OwnerID     *int64    `json:"owner_id,omitempty" db:"owner_id"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }

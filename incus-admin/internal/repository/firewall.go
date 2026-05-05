@@ -19,12 +19,15 @@ func NewFirewallRepo(db *sql.DB) *FirewallRepo {
 
 // --- groups ---
 
-const firewallGroupColumns = `id, slug, name, description, created_at, updated_at`
+// PLAN-035：owner_id 区分 admin 共享组（NULL）与用户私有组。所有 SELECT 一并取。
+const firewallGroupColumns = `id, slug, name, description, owner_id, created_at, updated_at`
 
 func scanFirewallGroup(row interface{ Scan(dest ...any) error }, g *model.FirewallGroup) error {
-	return row.Scan(&g.ID, &g.Slug, &g.Name, &g.Description, &g.CreatedAt, &g.UpdatedAt)
+	return row.Scan(&g.ID, &g.Slug, &g.Name, &g.Description, &g.OwnerID, &g.CreatedAt, &g.UpdatedAt)
 }
 
+// ListGroups 返回所有 firewall_groups。仅 admin 端使用。
+// portal 端用 ListGroupsForUser 做 owner 过滤。
 func (r *FirewallRepo) ListGroups(ctx context.Context) ([]model.FirewallGroup, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+firewallGroupColumns+` FROM firewall_groups ORDER BY id ASC`)
@@ -42,6 +45,40 @@ func (r *FirewallRepo) ListGroups(ctx context.Context) ([]model.FirewallGroup, e
 		out = append(out, g)
 	}
 	return out, rows.Err()
+}
+
+// ListGroupsForUser 返回用户**可见**的 firewall_groups：admin 共享组（owner_id IS NULL）
+// + 自己拥有的私有组（owner_id = userID）。PLAN-035 portal 端使用。
+func (r *FirewallRepo) ListGroupsForUser(ctx context.Context, userID int64) ([]model.FirewallGroup, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+firewallGroupColumns+` FROM firewall_groups
+		 WHERE owner_id IS NULL OR owner_id = $1
+		 ORDER BY owner_id NULLS FIRST, id ASC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]model.FirewallGroup, 0)
+	for rows.Next() {
+		var g model.FirewallGroup
+		if err := scanFirewallGroup(rows, &g); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// CountGroupsByUser 统计某用户的私有组数量（不含共享组），用于 quota 校验。
+func (r *FirewallRepo) CountGroupsByUser(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM firewall_groups WHERE owner_id = $1`, userID,
+	).Scan(&n)
+	return n, err
 }
 
 func (r *FirewallRepo) GetGroupByID(ctx context.Context, id int64) (*model.FirewallGroup, error) {
@@ -62,7 +99,7 @@ func (r *FirewallRepo) GetGroupByID(ctx context.Context, id int64) (*model.Firew
 func (r *FirewallRepo) GetGroupBySlug(ctx context.Context, slug string) (*model.FirewallGroup, error) {
 	var g model.FirewallGroup
 	err := scanFirewallGroup(
-		r.db.QueryRowContext(ctx, `SELECT `+firewallGroupColumns+` FROM firewall_groups WHERE slug = $1`, slug),
+		r.db.QueryRowContext(ctx, `SELECT `+firewallGroupColumns+` FROM firewall_groups WHERE slug = $1 AND owner_id IS NULL`, slug),
 		&g,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -78,10 +115,10 @@ func (r *FirewallRepo) CreateGroup(ctx context.Context, g *model.FirewallGroup) 
 	var out model.FirewallGroup
 	err := scanFirewallGroup(
 		r.db.QueryRowContext(ctx,
-			`INSERT INTO firewall_groups (slug, name, description)
-			 VALUES ($1, $2, $3)
+			`INSERT INTO firewall_groups (slug, name, description, owner_id)
+			 VALUES ($1, $2, $3, $4)
 			 RETURNING `+firewallGroupColumns,
-			g.Slug, g.Name, g.Description,
+			g.Slug, g.Name, g.Description, g.OwnerID,
 		),
 		&out,
 	)
@@ -97,6 +134,16 @@ func (r *FirewallRepo) UpdateGroup(ctx context.Context, g *model.FirewallGroup) 
 		g.Slug, g.Name, g.Description, g.ID,
 	)
 	return err
+}
+
+// CountBindingsForGroup returns how many VMs are currently bound to a group;
+// callers (DeleteGroup handler) use it to refuse deletion of in-use groups.
+func (r *FirewallRepo) CountBindingsForGroup(ctx context.Context, groupID int64) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM vm_firewall_bindings WHERE group_id = $1`, groupID,
+	).Scan(&n)
+	return n, err
 }
 
 func (r *FirewallRepo) DeleteGroup(ctx context.Context, id int64) error {

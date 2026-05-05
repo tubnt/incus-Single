@@ -8,16 +8,27 @@ import (
 )
 
 func TestACLName(t *testing.T) {
-	cases := map[string]string{
-		"default-web":  "fwg-default-web",
-		"ssh-only":     "fwg-ssh-only",
-		"database-lan": "fwg-database-lan",
-		"":             "fwg-", // caller's validator must reject empty; we still pin the shape.
+	uid := int64(42)
+	type tc struct {
+		group model.FirewallGroup
+		want  string
 	}
-	for slug, want := range cases {
-		if got := ACLName(slug); got != want {
-			t.Errorf("ACLName(%q) = %q, want %q", slug, got, want)
+	cases := []tc{
+		// admin 共享组（OwnerID == nil）保留旧名 — 向后兼容生产已有 ACL
+		{model.FirewallGroup{Slug: "default-web", OwnerID: nil}, "fwg-default-web"},
+		{model.FirewallGroup{Slug: "ssh-only", OwnerID: nil}, "fwg-ssh-only"},
+		{model.FirewallGroup{Slug: "database-lan", OwnerID: nil}, "fwg-database-lan"},
+		// 用户私有组用 fwg-u<owner>-<slug> 命名 — slug 在 (owner, slug) 唯一
+		{model.FirewallGroup{Slug: "myapp", OwnerID: &uid}, "fwg-u42-myapp"},
+		{model.FirewallGroup{Slug: "default-web", OwnerID: &uid}, "fwg-u42-default-web"},
+	}
+	for _, c := range cases {
+		if got := ACLName(&c.group); got != c.want {
+			t.Errorf("ACLName(%+v) = %q, want %q", c.group, got, c.want)
 		}
+	}
+	if got := ACLName(nil); got != "" {
+		t.Errorf("ACLName(nil) = %q, want empty", got)
 	}
 }
 

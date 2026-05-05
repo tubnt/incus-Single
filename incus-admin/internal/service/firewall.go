@@ -31,11 +31,19 @@ func NewFirewallService(clusters *cluster.Manager, vmSvc *VMService) *FirewallSe
 // juggling per-project ACLs — they'd collapse to default anyway.
 const ACLProject = "default"
 
-// ACLName returns the Incus ACL name for a firewall_group slug. The prefix
-// isolates our managed ACLs from anything the operator might create
-// by-hand, and it's stable so operators can correlate via name.
-func ACLName(slug string) string {
-	return "fwg-" + slug
+// ACLName returns the Incus ACL name for a firewall_group. PLAN-035:
+//   - admin 共享组（OwnerID == nil）保留旧名 "fwg-<slug>"，向后兼容生产已有
+//     的 default-web/ssh-only/database-lan 等 ACL 与已绑 VM 的 NIC security.acls；
+//   - 用户私有组（OwnerID != nil）使用 "fwg-u<owner>-<slug>" 在 Incus 单 project
+//     的 ACL 命名空间里隔离，允许不同用户复用同 slug。
+func ACLName(group *model.FirewallGroup) string {
+	if group == nil {
+		return ""
+	}
+	if group.OwnerID == nil {
+		return "fwg-" + group.Slug
+	}
+	return fmt.Sprintf("fwg-u%d-%s", *group.OwnerID, group.Slug)
 }
 
 type aclRule struct {
@@ -96,7 +104,7 @@ func (s *FirewallService) EnsureACL(ctx context.Context, group *model.FirewallGr
 	}
 	ingress, egress := splitRulesByDirection(rules)
 	body := aclBody{
-		Name:        ACLName(group.Slug),
+		Name:        ACLName(group),
 		Description: group.Description,
 		Ingress:     rulesToIncus(ingress),
 		Egress:      rulesToIncus(egress),
@@ -125,19 +133,19 @@ func (s *FirewallService) EnsureACL(ctx context.Context, group *model.FirewallGr
 	return nil
 }
 
-// DeleteACL removes the Incus ACL for a group slug. 404-equivalent errors
-// are swallowed so repeated deletes (admin retry) don't error out.
-func (s *FirewallService) DeleteACL(ctx context.Context, slug string) error {
+// DeleteACL removes the Incus ACL for a group. 404-equivalent errors are
+// swallowed so repeated deletes (admin retry) don't error out.
+func (s *FirewallService) DeleteACL(ctx context.Context, group *model.FirewallGroup) error {
 	clients := s.clusters.List()
 	if len(clients) == 0 {
 		return nil
 	}
-	name := ACLName(slug)
+	name := ACLName(group)
 	path := fmt.Sprintf("/1.0/network-acls/%s?project=%s", url.PathEscape(name), ACLProject)
 	for _, c := range clients {
 		if _, err := c.APIDelete(ctx, path); err != nil {
 			if strings.Contains(err.Error(), "not found") {
-				slog.Info("acl already absent on cluster", "cluster", c.Name, "slug", slug)
+				slog.Info("acl already absent on cluster", "cluster", c.Name, "slug", group.Slug)
 				continue
 			}
 			return fmt.Errorf("delete acl on %s: %w", c.Name, err)
@@ -146,20 +154,20 @@ func (s *FirewallService) DeleteACL(ctx context.Context, slug string) error {
 	return nil
 }
 
-// AttachACLToVM adds `ACLName(slug)` to the VM's eth0 security.acls list.
+// AttachACLToVM adds `ACLName(group)` to the VM's eth0 security.acls list.
 // The NIC device config is read-modify-write; other devices / config keys
 // are preserved verbatim.
-func (s *FirewallService) AttachACLToVM(ctx context.Context, clusterName, project, vmName, slug string) error {
+func (s *FirewallService) AttachACLToVM(ctx context.Context, clusterName, project, vmName string, group *model.FirewallGroup) error {
 	return s.updateVMACLs(ctx, clusterName, project, vmName, func(cur []string) []string {
-		return addUnique(cur, ACLName(slug))
+		return addUnique(cur, ACLName(group))
 	})
 }
 
-// DetachACLFromVM removes the slug's ACL name from the VM's NIC list. Noop
+// DetachACLFromVM removes the group's ACL name from the VM's NIC list. Noop
 // if the ACL wasn't attached.
-func (s *FirewallService) DetachACLFromVM(ctx context.Context, clusterName, project, vmName, slug string) error {
+func (s *FirewallService) DetachACLFromVM(ctx context.Context, clusterName, project, vmName string, group *model.FirewallGroup) error {
 	return s.updateVMACLs(ctx, clusterName, project, vmName, func(cur []string) []string {
-		return removeValue(cur, ACLName(slug))
+		return removeValue(cur, ACLName(group))
 	})
 }
 

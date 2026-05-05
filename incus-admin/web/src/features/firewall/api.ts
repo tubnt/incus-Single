@@ -21,6 +21,8 @@ export interface FirewallGroup {
   slug: string;
   name: string;
   description: string;
+  // PLAN-035：null = admin 共享组（用户只读），number = 用户私有组（仅 owner 可编辑）
+  owner_id?: number | null;
   created_at?: string;
   updated_at?: string;
   rules?: FirewallRule[];
@@ -124,5 +126,52 @@ export function usePortalUnbindVMFirewallMutation(vmID: number) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: firewallKeys.vmBindings(vmID) });
     },
+  });
+}
+
+// PLAN-035 portal-only group CRUD：
+//
+// - 创建私有 group（owner 自动 = current user，受 max_firewall_groups quota 限）
+// - 改 name/description（slug 不可改）
+// - 替换 rules（受 max_firewall_rules_per_group quota 限）
+// - 删（被 VM 绑定时返 409，需先解绑）
+//
+// 后端走 /portal/firewall/groups[/{id}/rules]，与 admin /admin/firewall/groups 路径
+// 隔离；admin 共享组（owner_id=NULL）这里 403/404，仅自己拥有的组可改。
+
+export function usePortalCreateFirewallGroupMutation() {
+  return useMutation({
+    mutationFn: (data: CreateFirewallGroupPayload) =>
+      http.post<{ group: FirewallGroup; warning?: string; sync_err?: string }>(
+        "/portal/firewall/groups",
+        data,
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}
+
+export function usePortalUpdateFirewallGroupMutation(id: number) {
+  return useMutation({
+    mutationFn: (data: { name?: string; description?: string }) =>
+      http.put<FirewallGroup>(`/portal/firewall/groups/${id}`, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}
+
+export function usePortalReplaceFirewallRulesMutation(id: number) {
+  return useMutation({
+    mutationFn: (rules: FirewallRule[]) =>
+      http.put<{ rules: FirewallRule[]; warning?: string; sync_err?: string }>(
+        `/portal/firewall/groups/${id}/rules`,
+        { rules },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
+  });
+}
+
+export function usePortalDeleteFirewallGroupMutation(id: number) {
+  return useMutation({
+    mutationFn: () => http.delete(`/portal/firewall/groups/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: firewallKeys.all }),
   });
 }
