@@ -285,7 +285,7 @@
           "privateKey": "Paste Private Key (PEM)",
           "savedCred": "Choose a saved credential",
           "savedCredPlaceholder": "Pick credential",
-          "noSavedCreds": "No credentials yet — create one in the manage page first",
+          "noSavedCreds": "No saved credentials yet — use the button to create one",
           "manageCredentials": "Manage Credentials",
           "savePersist": "Save as named credential (encrypted at rest)",
           "savePersistName": "Credential name (e.g. node6-deploy-key)",
@@ -311,7 +311,14 @@
           "nicRoles": "Roles",
           "roleMgmt": "mgmt",
           "roleCeph": "ceph",
-          "roleBridge": "bridge"
+          "roleBridge": "bridge",
+          "trustAndContinue": "Trust & continue →",
+          "fingerprintNoteSingleStep": "Verify the SHA256 fingerprint above matches the target host, then click \"Trust & continue\". The known_hosts entry will be written for strict checks afterwards.",
+          "nicAutoSummary": "Auto-detected NIC roles",
+          "nicCollapse": "Collapse",
+          "nicExpand": "Adjust",
+          "newCredential": "New credential",
+          "manageCredentialsFull": "Open credential manager (delete / view fingerprint)"
         }
       },
       "remove": {
@@ -355,7 +362,8 @@
       "errMissingName": "Name is required",
       "errMissingPassword": "Password is required",
       "errMissingKey": "Private key is required",
-      "securityNote": "This page stores admin SSH credentials used to bootstrap new nodes. All actions are step-up gated. Passwords / private keys are AES-256-GCM encrypted at rest; the list shows fingerprints only."
+      "securityNote": "This page stores admin SSH credentials used to bootstrap new nodes. All actions are step-up gated. Passwords / private keys are AES-256-GCM encrypted at rest; the list shows fingerprints only.",
+      "inlineHint": "Credential will be applied to the current node-join flow on save"
     },
     "observability": {
       "accessNoteBody": "These dashboards are on the cluster internal network (10.0.20.0/24). Access requires WireGuard VPN or SSH tunnel. The embedded view only works if your browser can reach the cluster network.",
@@ -493,7 +501,16 @@
       "topUpSubmit": "Top up",
       "topUpSubmitting": "Topping up...",
       "topUpTitle": "Top up balance",
-      "totalCount": "Users ({{count}})"
+      "totalCount": "Users ({{count}})",
+      "openDetail": "Detail / Top-up",
+      "batchTopUp": "Batch top-up",
+      "batchTopUpTitle": "Batch top-up",
+      "batchTopUpMessage": "Top up {{count}} users by {{amount}} each (total {{total}})?",
+      "batchTopUpHint": "{{count}} users selected. Each transaction is recorded with a separate audit log.",
+      "batchTopUpOk": "Batch top-up succeeded: {{n}} × {{amt}}",
+      "batchTopUpPartial": "Partial: {{ok}} ok, {{fail}} failed",
+      "batchTopUpExecute": "Execute ({{count}})",
+      "batchTopUpTotalPreview": "Total {{total}} ({{count}} × {{each}})"
     },
     "vmCreated": "VM Created Successfully",
     "vmsCreated": "Enqueued {{n}} VMs",
@@ -502,7 +519,25 @@
       "memory": "Memory",
       "network": "Network"
     },
-    "vmsDescription": "Cross-cluster VM overview. Click a VM name to see details; actions via the row menu."
+    "vmsDescription": "Cross-cluster VM overview. Click a VM name to see details; actions via the row menu.",
+    "userSheet": {
+      "description": "Balance · Quick top-up · Quota · Advanced",
+      "balance": "Balance",
+      "advanced": "Advanced"
+    },
+    "topUpSuccess": "Topped up {{amount}} for {{email}}",
+    "orders": {
+      "statusChanged": "Order #{{id}} → {{status}}",
+      "approve": "Approve",
+      "approveTitle": "Approve order",
+      "approveMessage": "Mark order #{{orderId}} as paid?",
+      "reject": "Reject",
+      "rejectTitle": "Reject order",
+      "rejectMessage": "Cancel order #{{orderId}}? This cannot be undone.",
+      "expire": "Expire",
+      "expireTitle": "Expire order",
+      "expireMessage": "Mark order #{{orderId}} as expired?"
+    }
   },
   "adminOverview": {
     "apiStatus": "API Status",
@@ -1121,7 +1156,7 @@
     "actions": "Actions",
     "assigning": "assigning...",
     "backToList": "Back to VM list",
-    "batchDeleteMessage": "Permanently delete {{count}} VMs and their disk data. This cannot be undone.\nType DELETE to confirm.",
+    "batchDeleteMessage": "Move {{count}} VMs to trash? Undo within 30 seconds.\nType DELETE to confirm.",
     "batchDeleteTitle": "Batch delete VMs?",
     "batchPartial": "Partial success: {{ok}} ok, {{fail}} failed",
     "batchSuccess": "Batch {{action}} succeeded ({{count}})",
@@ -1172,7 +1207,7 @@
     "monitor": "Monitor",
     "moreActions": "More actions →",
     "myVms": "My VMs",
-    "myVmsDescription": "Manage your VMs: start / stop / console / snapshots. Open the detail page for more actions.",
+    "myVmsDescription": "Manage your VMs: start / stop / console / snapshots. Delete supports 30-second undo.",
     "name": "Name",
     "network": "Network",
     "node": "Node",
@@ -1221,7 +1256,7 @@
     "size": "Size",
     "snapshots": "Snapshots",
     "snapshotsHelp": "VM-level snapshot management. Snapshot deletion is irreversible.",
-    "snapshotsHelpUser": "You can create, restore or delete snapshots (deletion is irreversible).",
+    "snapshotsHelpUser": "Create / rollback / delete snapshots (delete is permanent).",
     "start": "Start",
     "status": "Status",
     "statusValue": {
@@ -1244,7 +1279,19 @@
     "title": "My VMs",
     "unfreeze": "Unfreeze",
     "unknownError": "Unknown error",
-    "username": "Username"
+    "username": "Username",
+    "batchConfirmTitle": "Batch action",
+    "batchConfirmMessage": "Apply {{action}} to {{count}} VMs?",
+    "batchOk": "{{n}} VMs {{action}}",
+    "selectAll": "Select all",
+    "selectHint": "Tick rows to batch (press x on the highlighted row)",
+    "selectedHint": "{{n}}/{{total}} selected",
+    "selectRow": "Select {{name}}",
+    "trashBannerLead": "{{n}} VMs in the trash",
+    "trashedOneToast": "{{name}} moved to trash · undo within 30s",
+    "trashedToast": "{{n}} VMs moved to trash · undo within 30s",
+    "undo": "Undo",
+    "undoAll": "Undo all"
   },
   "jobs": {
     "queued": "Queued, waiting for a worker...",

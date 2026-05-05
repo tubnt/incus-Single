@@ -68,11 +68,12 @@ func (r *VMRepo) Create(ctx context.Context, vm *model.VM) error {
 func (r *VMRepo) GetByID(ctx context.Context, id int64) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
 		 FROM vms WHERE id = $1`, id,
 	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
 		&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
 		&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+		&vm.TrashedAt, &vm.TrashedPrevStatus,
 		&vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -88,8 +89,10 @@ func (r *VMRepo) ListByUser(ctx context.Context, userID int64) ([]model.VM, erro
 		// Users never need to see `gone` rows — the instance is unreachable
 		// and they can't act on it. Admins see them via the admin list page
 		// (ListPaged) so they can force-delete.
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
-		 FROM vms WHERE user_id = $1 AND status NOT IN ('deleted','gone') ORDER BY id DESC`, userID)
+		// Trashed rows are also filtered — user-visible recycling is a separate
+		// query (ListMyTrashed) so the main list stays clean during the 30s window.
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms WHERE user_id = $1 AND status NOT IN ('deleted','gone') AND trashed_at IS NULL ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +106,15 @@ func (r *VMRepo) ListAll(ctx context.Context) ([]model.VM, error) {
 }
 
 // ListPaged 返回非删除态 VM 的分页结果与过滤后总数。limit<=0 表示不限制。
+// Trashed 行（PLAN-034）也排除——admin 主表只看 active VM；trash bin 走单独的 ListTrashedBefore。
 func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, int64, error) {
 	var total int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vms WHERE status != 'deleted'`).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vms WHERE status != 'deleted' AND trashed_at IS NULL`).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count vms: %w", err)
 	}
 
-	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
-		 FROM vms WHERE status != 'deleted' ORDER BY id DESC`
+	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms WHERE status != 'deleted' AND trashed_at IS NULL ORDER BY id DESC`
 	args := []any{}
 	if limit > 0 {
 		query += ` LIMIT $1 OFFSET $2`
@@ -132,10 +136,11 @@ func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, 
 func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) {
 	var vm model.VM
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
-		 FROM vms WHERE name = $1 AND status != 'deleted' LIMIT 1`, name,
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms WHERE name = $1 AND status != 'deleted' AND trashed_at IS NULL LIMIT 1`, name,
 	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
 		&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+		&vm.TrashedAt, &vm.TrashedPrevStatus,
 		&vm.CreatedAt, &vm.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -162,7 +167,7 @@ func (r *VMRepo) IPsByNames(ctx context.Context, names []string) (map[string]str
 	}
 	q := `SELECT name, host(ip)::text FROM vms
 	      WHERE name IN (` + strings.Join(placeholders, ",") + `)
-	        AND status != 'deleted' AND ip IS NOT NULL`
+	        AND status != 'deleted' AND trashed_at IS NULL AND ip IS NOT NULL`
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ips by names: %w", err)
@@ -233,12 +238,15 @@ func (r *VMRepo) Delete(ctx context.Context, id int64) error {
 // Incus instance listing. The cutoff excludes just-provisioned rows so a VM
 // created within the buffer window isn't mislabelled as gone while Incus is
 // still materialising it. Does not include status='gone' or 'deleted' rows.
+// Trashed rows are excluded too — they're awaiting hard-delete by the trash
+// purger, no point flipping them to 'gone' if Incus already considers them gone.
 func (r *VMRepo) ListActiveForReconcile(ctx context.Context, clusterID int64, cutoff time.Time) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
 		 FROM vms
 		 WHERE cluster_id = $1
 		   AND status IN ('creating','running','stopped','migrating')
+		   AND trashed_at IS NULL
 		   AND created_at < $2`,
 		clusterID, cutoff,
 	)
@@ -277,8 +285,10 @@ func (r *VMRepo) CountByUser(ctx context.Context, userID int64) (vms int, vcpus 
 		// 'gone' = Incus instance vanished out-of-band (PLAN-020 reconciler).
 		// Counting it would double-charge quota after the reconciler flips
 		// the row but before the admin force-deletes it.
+		// Trashed rows (PLAN-034) are excluded from quota — once trashed_at is set
+		// the VM is on the way to hard-delete and shouldn't count against the user's cap.
 		`SELECT COUNT(*), COALESCE(SUM(cpu),0), COALESCE(SUM(memory_mb),0), COALESCE(SUM(disk_gb),0)
-		 FROM vms WHERE user_id = $1 AND status NOT IN ('deleted','error','gone')`, userID,
+		 FROM vms WHERE user_id = $1 AND status NOT IN ('deleted','error','gone') AND trashed_at IS NULL`, userID,
 	).Scan(&vms, &vcpus, &ramMB, &diskGB)
 	return
 }
@@ -289,11 +299,16 @@ func (r *VMRepo) CountByUser(ctx context.Context, userID int64) (vms int, vcpus 
 // 'deleted' (user-initiated) or 'gone' rows are left alone. Returns nil
 // (not ErrNoRows) when the name isn't found so event arrival after the
 // reconciler already cleaned up is a no-op.
+//
+// PLAN-034: trashed rows are explicitly excluded — when the trash purger
+// drives Incus DELETE the resulting instance-deleted event would otherwise
+// race against the purger's own DB UPDATE status='deleted'.
 func (r *VMRepo) MarkGoneByName(ctx context.Context, clusterID int64, name string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE vms SET status = 'gone', updated_at = NOW()
 		 WHERE cluster_id = $1 AND name = $2
-		   AND status IN ('creating','running','stopped','migrating')`,
+		   AND status IN ('creating','running','stopped','migrating')
+		   AND trashed_at IS NULL`,
 		clusterID, name,
 	)
 	if err != nil {
@@ -349,7 +364,7 @@ func (r *VMRepo) UpdateNodeByName(ctx context.Context, clusterID int64, name str
 // Ordered by updated_at DESC so the freshest drift shows first.
 func (r *VMRepo) ListGone(ctx context.Context) ([]model.VM, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, created_at, updated_at
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
 		 FROM vms WHERE status = 'gone' ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list gone vms: %w", err)
@@ -375,6 +390,7 @@ func scanVMs(rows *sql.Rows) ([]model.VM, error) {
 		if err := rows.Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
 			&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
 			&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+			&vm.TrashedAt, &vm.TrashedPrevStatus,
 			&vm.CreatedAt, &vm.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan vm: %w", err)
 		}
@@ -382,6 +398,97 @@ func scanVMs(rows *sql.Rows) ([]model.VM, error) {
 		vms = append(vms, vm)
 	}
 	return vms, rows.Err()
+}
+
+// MarkTrashed atomically flags a VM as trashed (PLAN-034). prevStatus is
+// recorded so Restore can return the VM to the same lifecycle (running →
+// running，stopped → stopped). Idempotent: a row already in trash returns
+// (false, nil). Returns the row id on success so the caller can audit.
+func (r *VMRepo) MarkTrashed(ctx context.Context, vmID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE vms
+		 SET trashed_at = NOW(), trashed_prev_status = status, updated_at = NOW()
+		 WHERE id = $1 AND trashed_at IS NULL AND status NOT IN ('deleted','gone')`,
+		vmID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("mark trashed: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// UnmarkTrashed reverses MarkTrashed within the trash window. Idempotent:
+// a row not in trash returns (false, nil). Caller can read trashed_prev_status
+// off the row before calling to know what state to restore Incus to.
+func (r *VMRepo) UnmarkTrashed(ctx context.Context, vmID int64) (bool, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE vms
+		 SET trashed_at = NULL, trashed_prev_status = NULL, updated_at = NOW()
+		 WHERE id = $1 AND trashed_at IS NOT NULL`,
+		vmID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unmark trashed: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// ListTrashedBefore returns trashed VMs whose trashed_at <= cutoff so the
+// purger worker can hard-delete them. Includes only rows that haven't already
+// completed hard-delete (status != 'deleted'). The caller iterates and calls
+// service.PurgeTrashed for each.
+func (r *VMRepo) ListTrashedBefore(ctx context.Context, cutoff time.Time) ([]model.VM, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms WHERE trashed_at IS NOT NULL AND trashed_at <= $1 AND status != 'deleted'
+		 ORDER BY trashed_at ASC`, cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list trashed before: %w", err)
+	}
+	defer rows.Close()
+	return scanVMs(rows)
+}
+
+// ListMyTrashed returns the user's currently-trashed VMs (within the trash
+// window). Used by the portal to show an "undo" affordance even after page
+// reload — the toast lives in localStorage but the source of truth is the DB.
+func (r *VMRepo) ListMyTrashed(ctx context.Context, userID int64) ([]model.VM, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms
+		 WHERE user_id = $1 AND trashed_at IS NOT NULL AND status != 'deleted'
+		 ORDER BY trashed_at DESC`, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list my trashed: %w", err)
+	}
+	defer rows.Close()
+	return scanVMs(rows)
+}
+
+// GetByNameIncludingTrashed is like GetByName but also returns rows currently
+// in the trash window. Restore / Purge handlers need this since GetByName
+// filters trashed rows out by design.
+func (r *VMRepo) GetByNameIncludingTrashed(ctx context.Context, name string) (*model.VM, error) {
+	var vm model.VM
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+		 FROM vms WHERE name = $1 AND status != 'deleted' LIMIT 1`, name,
+	).Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP, &vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
+		&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+		&vm.TrashedAt, &vm.TrashedPrevStatus,
+		&vm.CreatedAt, &vm.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get vm by name (incl trashed): %w", err)
+	}
+	vm.Password = decryptOnRead(vm.Password)
+	return &vm, nil
 }
 
 // SetRescueState atomically transitions a VM from 'normal' to 'rescue' and

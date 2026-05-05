@@ -1,6 +1,7 @@
-import type { NodeInfo, ProbeNodeResult } from "@/features/nodes/api";
+import type {NodeInfo, ProbeNodeResult} from "@/features/nodes/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useReducer } from "react";
+import { CheckCircle2, ChevronDown, Plus, ShieldCheck } from "lucide-react";
+import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useJobQuery } from "@/features/jobs/api";
@@ -8,6 +9,7 @@ import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
   useAddNodeMutation,
+  useCreateCredentialMutation,
   useNodeCredentialsQuery,
   useProbeHostKeyMutation,
   useProbeNodeMutation,
@@ -24,6 +26,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/shared/components/ui/dialog";
 import { Input, Textarea } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -35,6 +46,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Stepper } from "@/shared/components/ui/stepper";
 import { Switch } from "@/shared/components/ui/switch";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/node-join")({
@@ -502,37 +514,42 @@ function CredStep({
 
       {state.kind === "saved" ? (
         <FormField label={t("admin.nodes.add.wizard.savedCred", "选择已保存凭据")}>
-          <Select
-            value={state.savedID ? String(state.savedID) : ""}
-            onValueChange={(v) => dispatch({ type: "cred/update", patch: { savedID: Number(v) || null } })}
-          >
-            <SelectTrigger>
-              <SelectValue>
-                {state.savedID ? credentials.find((c) => c.id === state.savedID)?.name ?? null : t("admin.nodes.add.wizard.savedCredPlaceholder", "选择凭据")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {credentials.length === 0 ? (
-                <SelectItem value="empty" disabled>
-                  {t("admin.nodes.add.wizard.noSavedCreds", "暂无凭据，先去管理凭据页面创建")}
-                </SelectItem>
-              ) : null}
-              {credentials.map((c) => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.name} · {c.kind === "password" ? t("admin.nodes.add.wizard.credPassword", "密码") : t("admin.nodes.add.wizard.credPrivateKey", "私钥粘贴")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {credentials.length === 0 ? (
-            <button
-              type="button"
-              className="mt-2 text-caption text-accent hover:underline"
-              onClick={() => navigate({ to: "/admin/node-credentials" })}
+          <div className="flex items-center gap-2">
+            <Select
+              value={state.savedID ? String(state.savedID) : ""}
+              onValueChange={(v) => dispatch({ type: "cred/update", patch: { savedID: Number(v) || null } })}
             >
-              {t("admin.nodes.add.wizard.manageCredentials", "管理凭据")} →
-            </button>
-          ) : null}
+              <SelectTrigger className="flex-1">
+                <SelectValue>
+                  {state.savedID ? credentials.find((c) => c.id === state.savedID)?.name ?? null : t("admin.nodes.add.wizard.savedCredPlaceholder", "选择凭据")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {credentials.length === 0 ? (
+                  <SelectItem value="empty" disabled>
+                    {t("admin.nodes.add.wizard.noSavedCreds", "暂无凭据，使用旁边按钮新建")}
+                  </SelectItem>
+                ) : null}
+                {credentials.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name} · {c.kind === "password" ? t("admin.nodes.add.wizard.credPassword", "密码") : t("admin.nodes.add.wizard.credPrivateKey", "私钥粘贴")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <InlineCreateCredentialButton
+              onCreated={(id) =>
+                dispatch({ type: "cred/update", patch: { savedID: id } })
+              }
+            />
+          </div>
+          <button
+            type="button"
+            className="mt-2 text-caption text-text-tertiary hover:underline"
+            onClick={() => navigate({ to: "/admin/node-credentials" })}
+          >
+            {t("admin.nodes.add.wizard.manageCredentialsFull", "去凭据管理页（删除/查看指纹）")} →
+          </button>
         </FormField>
       ) : null}
 
@@ -599,6 +616,13 @@ function FingerprintStep({
   onProbe: () => void;
 }) {
   const { t } = useTranslation();
+  // PLAN-034 D2：TOFU 单步——按钮文字"信任并继续"承担确认语义。fingerprint 仍
+  // 完整可见，运维可肉眼比对；点击 = ack + probe 一气呵成（OpenSSH 单步体验）。
+  // 内部环境信任 fingerprint 单步（用户决策记录）；仍记 audit 写 known_hosts 严格校验。
+  const onTrustAndContinue = () => {
+    if (!info.acknowledged) onAck();
+    onProbe();
+  };
   return (
     <CardContent className="space-y-4">
       <div className="rounded-md border border-border bg-surface-1 p-4 space-y-2">
@@ -611,14 +635,10 @@ function FingerprintStep({
       </div>
       <div className="rounded-md border border-status-warning/30 bg-status-warning/8 p-3 text-caption text-status-warning">
         {t(
-          "admin.nodes.add.wizard.fingerprintNote",
-          "首次添加节点必须确认主机密钥（防 MITM）。确认后 admin 会写入 known_hosts，后续严格校验。",
+          "admin.nodes.add.wizard.fingerprintNoteSingleStep",
+          "请人工核对上方 SHA256 指纹与目标主机一致后点击「信任并继续」。点击后 admin 会写入 known_hosts，后续严格校验。",
         )}
       </div>
-      <label className="flex items-center gap-2 text-small">
-        <input type="checkbox" checked={info.acknowledged} onChange={onAck} className="size-4" />
-        {t("admin.nodes.add.wizard.fingerprintAck", "我已确认这是预期的目标主机")}
-      </label>
       {error ? (
         <div className="rounded-md border border-status-error/30 bg-status-error/8 p-3 text-sm text-status-error">{error}</div>
       ) : null}
@@ -626,8 +646,11 @@ function FingerprintStep({
         <Button variant="ghost" size="sm" onClick={onBack}>
           {t("common.back", "返回")}
         </Button>
-        <Button variant="primary" disabled={!info.acknowledged || busy} onClick={onProbe}>
-          {busy ? t("admin.nodes.add.testing", "测试中...") : t("admin.nodes.add.wizard.probe", "探测节点信息")}
+        <Button variant="primary" disabled={busy} onClick={onTrustAndContinue}>
+          <ShieldCheck size={14} aria-hidden="true" />
+          {busy
+            ? t("admin.nodes.add.testing", "测试中...")
+            : t("admin.nodes.add.wizard.trustAndContinue", "信任并继续 →")}
         </Button>
       </div>
     </CardContent>
@@ -737,50 +760,219 @@ function NICTable({
   dispatch: React.Dispatch<Action>;
 }) {
   const { t } = useTranslation();
+  // PLAN-034 P2-A：当三角色（mgmt / ceph / bridge）全部由 heuristics 命中时，
+  // 默认折叠表格——80% 案例直接下一步即可，仅在 misroute 时手动展开校正。
+  const heuristicConfident =
+    !!data.mgmtNIC && !!data.cephNIC && !!data.bridgeNIC;
+  const [expanded, setExpanded] = useState(!heuristicConfident);
   return (
     <div className="space-y-2">
-      <Label>{t("admin.nodes.add.wizard.nicTable", "网卡（探测自节点）")}</Label>
-      <div className="rounded-md border border-border overflow-hidden">
-        <table className="w-full text-caption">
-          <thead className="bg-surface-1 text-text-tertiary">
-            <tr>
-              <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicName", "名称")}</th>
-              <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicKind", "类型")}</th>
-              <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicAddr", "IPv4")}</th>
-              <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicRoles", "角色")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {interfaces.map((iface) => (
-              <tr key={iface.name} className="border-t border-border">
-                <td className="px-3 py-2 font-mono">{iface.name}</td>
-                <td className="px-3 py-2 text-text-secondary">{iface.kind}{iface.is_default_route ? " · default" : ""}</td>
-                <td className="px-3 py-2 text-text-secondary">{(iface.addresses ?? []).join(", ") || "—"}</td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    <RoleChip
-                      active={data.mgmtNIC === iface.name}
-                      label={t("admin.nodes.add.wizard.roleMgmt", "mgmt")}
-                      onClick={() => dispatch({ type: "confirm/update", patch: { mgmtNIC: iface.name } })}
-                    />
-                    <RoleChip
-                      active={data.cephNIC === iface.name}
-                      label={t("admin.nodes.add.wizard.roleCeph", "ceph")}
-                      onClick={() => dispatch({ type: "confirm/update", patch: { cephNIC: iface.name } })}
-                    />
-                    <RoleChip
-                      active={data.bridgeNIC === iface.name}
-                      label={t("admin.nodes.add.wizard.roleBridge", "bridge")}
-                      onClick={() => dispatch({ type: "confirm/update", patch: { bridgeNIC: iface.name } })}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex items-center justify-between gap-2">
+        <Label>{t("admin.nodes.add.wizard.nicTable", "网卡（探测自节点）")}</Label>
+        {heuristicConfident ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={expanded}
+          >
+            <ChevronDown
+              size={12}
+              aria-hidden="true"
+              className={cn("transition-transform", expanded ? "" : "-rotate-90")}
+            />
+            {expanded
+              ? t("admin.nodes.add.wizard.nicCollapse", "折叠")
+              : t("admin.nodes.add.wizard.nicExpand", "展开调整")}
+          </Button>
+        ) : null}
       </div>
+      {heuristicConfident && !expanded ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-success/30 bg-status-success/8 px-3 py-2 text-caption text-text-secondary">
+          <CheckCircle2 size={14} aria-hidden="true" className="text-status-success" />
+          <span>
+            {t("admin.nodes.add.wizard.nicAutoSummary", "已自动推断网卡角色")}
+          </span>
+          <span className="font-mono text-text-tertiary">
+            mgmt={data.mgmtNIC} · ceph={data.cephNIC} · bridge={data.bridgeNIC}
+          </span>
+        </div>
+      ) : null}
+      {expanded ? (
+        <div className="rounded-md border border-border overflow-hidden">
+          <table className="w-full text-caption">
+            <NICTableInner interfaces={interfaces} data={data} dispatch={dispatch} />
+          </table>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+// 抽出表头表体方便维持 NICTable 的折叠/展开切换不破原 DOM 结构
+function NICTableInner({
+  interfaces, data, dispatch,
+}: {
+  interfaces: NodeInfo["interfaces"];
+  data: ConfirmState;
+  dispatch: React.Dispatch<Action>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <thead className="bg-surface-1 text-text-tertiary">
+        <tr>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicName", "名称")}</th>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicKind", "类型")}</th>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicAddr", "IPv4")}</th>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicRoles", "角色")}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {interfaces.map((iface) => (
+          <tr key={iface.name} className="border-t border-border">
+            <td className="px-3 py-2 font-mono">{iface.name}</td>
+            <td className="px-3 py-2 text-text-secondary">{iface.kind}{iface.is_default_route ? " · default" : ""}</td>
+            <td className="px-3 py-2 text-text-secondary">{(iface.addresses ?? []).join(", ") || "—"}</td>
+            <td className="px-3 py-2">
+              <div className="flex flex-wrap gap-1">
+                <RoleChip
+                  active={data.mgmtNIC === iface.name}
+                  label={t("admin.nodes.add.wizard.roleMgmt", "mgmt")}
+                  onClick={() => dispatch({ type: "confirm/update", patch: { mgmtNIC: iface.name } })}
+                />
+                <RoleChip
+                  active={data.cephNIC === iface.name}
+                  label={t("admin.nodes.add.wizard.roleCeph", "ceph")}
+                  onClick={() => dispatch({ type: "confirm/update", patch: { cephNIC: iface.name } })}
+                />
+                <RoleChip
+                  active={data.bridgeNIC === iface.name}
+                  label={t("admin.nodes.add.wizard.roleBridge", "bridge")}
+                  onClick={() => dispatch({ type: "confirm/update", patch: { bridgeNIC: iface.name } })}
+                />
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </>
+  );
+}
+
+/**
+ * InlineCreateCredentialButton（PLAN-034 P2-A）：把"创建凭据"从单独的页面下沉到
+ * wizard 内 dialog，免去跳页打断流程。保存成功后回调 onCreated(id) 让 wizard 自动选中。
+ *
+ * 视觉：DialogContent 走 token；表单复用 FormField + Input/Textarea/Select；按钮
+ * 走 buttonVariants。
+ */
+function InlineCreateCredentialButton({ onCreated }: { onCreated: (id: number) => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"password" | "private_key">("password");
+  const [password, setPassword] = useState("");
+  const [keyData, setKeyData] = useState("");
+  const create = useCreateCredentialMutation();
+
+  const reset = () => {
+    setName("");
+    setPassword("");
+    setKeyData("");
+  };
+
+  const onSave = () => {
+    if (!name.trim()) {
+      toast.error(t("admin.nodeCredentials.errMissingName", "凭据名必填"));
+      return;
+    }
+    if (kind === "password" && !password) {
+      toast.error(t("admin.nodeCredentials.errMissingPassword", "密码必填"));
+      return;
+    }
+    if (kind === "private_key" && !keyData) {
+      toast.error(t("admin.nodeCredentials.errMissingKey", "私钥必填"));
+      return;
+    }
+    create.mutate(
+      {
+        name: name.trim(),
+        kind,
+        password: kind === "password" ? password : undefined,
+        key_data: kind === "private_key" ? keyData : undefined,
+      },
+      {
+        onSuccess: (created) => {
+          toast.success(t("admin.nodeCredentials.saved", "凭据已保存"));
+          if (created?.credential?.id) onCreated(created.credential.id);
+          setOpen(false);
+          reset();
+        },
+        onError: (err) => toast.error(formatError(err)),
+      },
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button variant="subtle" size="sm">
+            <Plus size={12} aria-hidden="true" />
+            {t("admin.nodes.add.wizard.newCredential", "新建凭据")}
+          </Button>
+        }
+      />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("admin.nodeCredentials.createTitle", "新增凭据")}</DialogTitle>
+          <DialogDescription>
+            {t("admin.nodeCredentials.inlineHint", "保存后会自动应用到当前节点添加流程")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <FormField label={t("admin.nodeCredentials.name", "名称")}>
+            <Input value={name} placeholder="node6-deploy" onChange={(e) => setName(e.target.value)} />
+          </FormField>
+          <FormField label={t("admin.nodeCredentials.kind", "类型")}>
+            <Select value={kind} onValueChange={(v) => setKind(v as typeof kind)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="password">{t("admin.nodeCredentials.kindPassword", "密码")}</SelectItem>
+                <SelectItem value="private_key">{t("admin.nodeCredentials.kindKey", "私钥（PEM）")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          {kind === "password" ? (
+            <FormField label={t("admin.nodeCredentials.password", "密码")}>
+              <Input type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </FormField>
+          ) : (
+            <FormField label={t("admin.nodeCredentials.privateKey", "私钥（PEM）")}>
+              <Textarea
+                value={keyData}
+                spellCheck={false}
+                autoComplete="off"
+                rows={6}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                onChange={(e) => setKeyData(e.target.value)}
+              />
+            </FormField>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="subtle" onClick={() => setOpen(false)}>
+            {t("common.cancel", "取消")}
+          </Button>
+          <Button variant="primary" disabled={create.isPending} onClick={onSave}>
+            {create.isPending ? t("common.processing", "处理中...") : t("common.save", "保存")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

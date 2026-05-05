@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { createRootRoute, Outlet, useRouterState } from "@tanstack/react-router";
-import { useState } from "react";
+import { createRootRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Toaster } from "sonner";
 import { CommandPalette } from "@/shared/components/command-palette/command-palette";
+import { useCommandActions } from "@/shared/components/command-palette/use-command-actions";
 import { useGoToNavigation } from "@/shared/components/command-palette/use-go-to-navigation";
 import { ErrorBoundary } from "@/shared/components/error-boundary";
 import { AppShell, WorkspaceShell } from "@/shared/components/layout/app-shell";
@@ -39,6 +40,7 @@ function NotFound() {
 function RootLayout() {
   const { t } = useTranslation();
   const router = useRouterState();
+  const navigate = useNavigate();
   const isWorkspace = isWorkspacePath(router.location.pathname);
   const [commandOpen, setCommandOpen] = useState(false);
 
@@ -50,6 +52,50 @@ function RootLayout() {
 
   // Linear 风 g 序列导航：g h / g v / g M ...
   useGoToNavigation({ isAdmin: !!user && isAdmin(user) });
+
+  // PLAN-034 P2-B：全局 quick actions（无论当前页都可在 ⌘K / `/` 下访问）。
+  // - "新建 VM"：所有用户
+  // - "添加节点 / 给用户充值"：仅 admin
+  // 单页 useCommandActions 注册的动作仍然 deduped（key 不冲突即并存）。
+  const adminUser = !!user && isAdmin(user);
+  const globalActions = useMemo(
+    () => [
+      {
+        id: "global.create-vm",
+        title: t("vm.createVm", { defaultValue: "新建 VM" }),
+        icon: "Plus",
+        keywords: ["new", "create", "launch", "vm", "新建"],
+        perform: () => navigate({ to: "/launch" }),
+      },
+      ...(adminUser
+        ? [
+            {
+              id: "global.add-node",
+              title: t("admin.nodes.add.cta", { defaultValue: "添加节点（管理员）" }),
+              icon: "Server",
+              keywords: ["add", "node", "join", "添加节点"],
+              perform: () => navigate({ to: "/admin/node-join" }),
+            },
+            {
+              id: "global.users-page",
+              title: t("admin.users.title", { defaultValue: "用户管理 / 充值" }),
+              icon: "Users",
+              keywords: ["topup", "balance", "user", "充值"],
+              perform: () => navigate({ to: "/admin/users" }),
+            },
+            {
+              id: "global.orders-page",
+              title: t("admin.orders.title", { defaultValue: "订单审批" }),
+              icon: "ShoppingCart",
+              keywords: ["order", "approve", "审批"],
+              perform: () => navigate({ to: "/admin/orders" }),
+            },
+          ]
+        : []),
+    ],
+    [navigate, t, adminUser],
+  );
+  useCommandActions(() => globalActions, [globalActions]);
 
   if (isLoading) {
     return (

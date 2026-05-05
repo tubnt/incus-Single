@@ -7,7 +7,7 @@ import {
   Package, Plus, Server, ServerCog, Settings, Share2, Shield, ShieldCheck,
   ShoppingCart, Terminal, Ticket, Users,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
 import {
@@ -73,6 +73,30 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
     [onOpenChange, isConsole],
   );
 
+  // PLAN-034 P2-B：`/` 是 Linear / GitHub / Vim 风搜索快捷键，作为 ⌘K 的字母键替代。
+  // react-hotkeys-hook v5 不能直接绑定字面 "/"——切回原生 keydown 监听，与
+  // useGoToNavigation 同一模式（在 input/dialog 内不触发；带修饰键不触发）。
+  const openOnSlash = useCallback(() => onOpenChange(true), [onOpenChange]);
+  useEffect(() => {
+    if (isConsole) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/") return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (target.isContentEditable) return;
+        // 避开命令面板自身 / 其它 dialog
+        if (target.closest("[role='dialog'], [cmdk-input]")) return;
+      }
+      e.preventDefault();
+      openOnSlash();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isConsole, openOnSlash]);
+
   const [search, setSearch] = useState("");
 
   // 打开时清空搜索，给焦点一个干净起点
@@ -105,6 +129,10 @@ export function CommandPalette({ open, onOpenChange, user }: CommandPaletteProps
     return groups;
   }, [user, t]);
 
+  // recent 列表只在面板打开时重新计算（每次 open 切换 true 重读 localStorage）。
+  // open 是该 memo 唯一依赖；ESLint exhaustive-deps 误判 readRecent 为外部依赖，
+  // 这里是显式 token 故意只关注 open，禁用 lint：
+  // eslint-disable-next-line react/exhaustive-deps
   const recent = useMemo(() => readRecent(), [open]);
 
   // 当前路由相关的动作（从 zustand store 读取）

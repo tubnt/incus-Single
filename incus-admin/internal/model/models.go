@@ -52,6 +52,11 @@ type VM struct {
 	RescueState         string     `json:"rescue_state" db:"rescue_state"`
 	RescueStartedAt     *time.Time `json:"rescue_started_at,omitempty" db:"rescue_started_at"`
 	RescueSnapshotName  *string    `json:"rescue_snapshot_name,omitempty" db:"rescue_snapshot_name"`
+	// PLAN-034 trash-with-undo. TrashedAt != nil 表示 VM 在回收站；超过 trash 窗口后
+	// worker 走原 hard-delete 路径。TrashedPrevStatus 记 trash 前的 status，restore
+	// 时让前端决定是否要重新启动（不自动启，更安全）。
+	TrashedAt           *time.Time `json:"trashed_at,omitempty" db:"trashed_at"`
+	TrashedPrevStatus   *string    `json:"trashed_prev_status,omitempty" db:"trashed_prev_status"`
 	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -282,6 +287,10 @@ const (
 	VMStatusSuspended = "suspended"
 	VMStatusError     = "error"
 	VMStatusDeleted   = "deleted"
+
+	// PLAN-034: trash 窗口 30s。worker 每 5s 扫一次 trashed_at <= NOW()-VMTrashWindow
+	// 的行执行 hard-delete。
+	VMTrashWindowSeconds = 30
 
 	OrderPending      = "pending"
 	OrderPaid         = "paid"

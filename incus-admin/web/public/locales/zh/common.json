@@ -287,7 +287,7 @@
           "privateKey": "粘贴私钥（PEM）",
           "savedCred": "选择已保存凭据",
           "savedCredPlaceholder": "选择凭据",
-          "noSavedCreds": "暂无凭据，先去管理凭据页面创建",
+          "noSavedCreds": "暂无凭据，使用旁边按钮新建",
           "manageCredentials": "管理凭据",
           "savePersist": "保存为命名凭据（加密入库）",
           "savePersistName": "凭据名（如 node6-deploy-key）",
@@ -313,7 +313,14 @@
           "nicRoles": "角色",
           "roleMgmt": "mgmt",
           "roleCeph": "ceph",
-          "roleBridge": "bridge"
+          "roleBridge": "bridge",
+          "trustAndContinue": "信任并继续 →",
+          "fingerprintNoteSingleStep": "请人工核对上方 SHA256 指纹与目标主机一致后点击\"信任并继续\"。点击后 admin 会写入 known_hosts，后续严格校验。",
+          "nicAutoSummary": "已自动推断网卡角色",
+          "nicCollapse": "折叠",
+          "nicExpand": "展开调整",
+          "newCredential": "新建凭据",
+          "manageCredentialsFull": "去凭据管理页（删除/查看指纹）"
         }
       },
       "remove": {
@@ -357,7 +364,8 @@
       "errMissingName": "凭据名必填",
       "errMissingPassword": "密码必填",
       "errMissingKey": "私钥必填",
-      "securityNote": "本页用于保存 admin 进入新节点的 SSH 凭据，操作受 step-up 二次认证保护。所有密码 / 私钥使用 AES-256-GCM 加密落库；列表仅展示指纹。"
+      "securityNote": "本页用于保存 admin 进入新节点的 SSH 凭据，操作受 step-up 二次认证保护。所有密码 / 私钥使用 AES-256-GCM 加密落库；列表仅展示指纹。",
+      "inlineHint": "保存后会自动应用到当前节点添加流程"
     },
     "observability": {
       "accessNoteBody": "这些面板位于集群内网 (10.0.20.0/24)，需要 WireGuard VPN 或 SSH 隧道才能访问。嵌入视图仅在浏览器可达集群网络时有效。",
@@ -495,7 +503,16 @@
       "topUpSubmit": "充值",
       "topUpSubmitting": "充值中...",
       "topUpTitle": "充值余额",
-      "totalCount": "用户 ({{count}})"
+      "totalCount": "用户 ({{count}})",
+      "openDetail": "详情 / 充值",
+      "batchTopUp": "批量充值",
+      "batchTopUpTitle": "批量充值",
+      "batchTopUpMessage": "确认给 {{count}} 个用户 每人充值 {{amount}}（合计 {{total}}）？",
+      "batchTopUpHint": "已选 {{count}} 个用户。每人将单独入账并产生独立 audit log。",
+      "batchTopUpOk": "批量充值成功：{{n}} 人 × {{amt}}",
+      "batchTopUpPartial": "部分成功：成功 {{ok}} 失败 {{fail}}",
+      "batchTopUpExecute": "执行（{{count}} 人）",
+      "batchTopUpTotalPreview": "合计 {{total}}（{{count}} × {{each}}）"
     },
     "vmCreated": "云主机创建成功",
     "vmsCreated": "已入队 {{n}} 台云主机",
@@ -504,7 +521,25 @@
       "memory": "内存",
       "network": "网络"
     },
-    "vmsDescription": "跨集群 VM 总览。点击 VM 名称查看详情；操作通过行内菜单。"
+    "vmsDescription": "跨集群 VM 总览。点击 VM 名称查看详情；操作通过行内菜单。",
+    "userSheet": {
+      "description": "用户余额 · 快捷充值 · 配额 · 高级操作",
+      "balance": "余额",
+      "advanced": "高级"
+    },
+    "topUpSuccess": "已充值 {{amount}} 给 {{email}}",
+    "orders": {
+      "statusChanged": "订单 #{{id}} 已置为 {{status}}",
+      "approve": "批准",
+      "approveTitle": "批准订单",
+      "approveMessage": "确认将订单 #{{orderId}} 标为已支付？",
+      "reject": "拒绝",
+      "rejectTitle": "拒绝订单",
+      "rejectMessage": "确认取消订单 #{{orderId}}？此操作无法撤销。",
+      "expire": "作废",
+      "expireTitle": "作废订单",
+      "expireMessage": "确认将订单 #{{orderId}} 标为已过期？"
+    }
   },
   "adminOverview": {
     "apiStatus": "API 状态",
@@ -1123,8 +1158,8 @@
     "actions": "操作",
     "assigning": "分配中...",
     "backToList": "返回云主机列表",
-    "batchDeleteMessage": "将永久删除 {{count}} 台 VM 及其磁盘数据。此操作不可撤销。\n请输入 DELETE 以确认。",
-    "batchDeleteTitle": "批量删除 VM？",
+    "batchDeleteMessage": "将 {{count}} 台 VM 移入回收站？30 秒内可撤销。\n请输入 DELETE 以确认。",
+    "batchDeleteTitle": "批量删除？",
     "batchPartial": "部分成功：成功 {{ok}}，失败 {{fail}}",
     "batchSuccess": "批量 {{action}} 成功（{{count}}）",
     "cachedAt": "缓存数据 · {{time}}",
@@ -1174,7 +1209,7 @@
     "monitor": "监控",
     "moreActions": "更多操作 →",
     "myVms": "我的云主机",
-    "myVmsDescription": "管理你的虚拟机：启动 / 停止 / 控制台 / 快照。更多操作请进入详情页。",
+    "myVmsDescription": "管理你的虚拟机：启动 / 停止 / 控制台 / 快照。删除支持 30 秒撤销。",
     "name": "名称",
     "network": "网络",
     "node": "节点",
@@ -1246,7 +1281,19 @@
     "title": "我的云主机",
     "unfreeze": "解冻",
     "unknownError": "未知错误",
-    "username": "用户名"
+    "username": "用户名",
+    "batchConfirmTitle": "批量操作",
+    "batchConfirmMessage": "确认对 {{count}} 台 VM 执行 {{action}}？",
+    "batchOk": "{{n}} 台已 {{action}}",
+    "selectAll": "全选",
+    "selectHint": "勾选以批量操作（按 x 切换当前行）",
+    "selectedHint": "已选 {{n}}/{{total}}",
+    "selectRow": "选择 {{name}}",
+    "trashBannerLead": "{{n}} 台 VM 在回收站",
+    "trashedOneToast": "{{name}} 已移入回收站 · 30 秒内可撤销",
+    "trashedToast": "{{n}} 台已移入回收站 · 30 秒内可撤销",
+    "undo": "撤销",
+    "undoAll": "全部撤销"
   },
   "jobs": {
     "queued": "已排队，等待 worker 拾取...",

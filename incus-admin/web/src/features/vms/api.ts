@@ -74,6 +74,7 @@ export interface AdminVMDetail {
 //   ["vm", "detail", id]      portal detail
 //   ["vm", "list", "cluster", name]  admin cluster list
 //   ["vm", "detail", "cluster", name, vmName, project]  admin single-vm detail
+//   ["vm", "trashed", "my"]   portal trash bin (PLAN-034)
 export const vmKeys = {
   all: ["vm"] as const,
   myList: () => [...vmKeys.all, "list", "my"] as const,
@@ -82,6 +83,7 @@ export const vmKeys = {
   clusterDetail: (clusterName: string, vmName: string, project?: string) =>
     [...vmKeys.all, "detail", "cluster", clusterName, vmName, project ?? ""] as const,
   gone: () => [...vmKeys.all, "gone"] as const,
+  myTrash: () => [...vmKeys.all, "trashed", "my"] as const,
 };
 
 /**
@@ -142,6 +144,50 @@ export function useVMActionMutation(vmId: number) {
   return useMutation({
     mutationFn: (action: string) => http.post(`/portal/services/${vmId}/actions/${action}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+// PLAN-034 portal trash-with-undo
+export interface TrashServiceResult {
+  status: string;
+  vm_id: number;
+  name: string;
+  trashed_at: string;
+  window_s: number;
+}
+
+export function useTrashServiceMutation() {
+  return useMutation({
+    mutationFn: (vmId: number) =>
+      http.delete<TrashServiceResult>(`/portal/services/${vmId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+export function useRestoreServiceMutation() {
+  return useMutation({
+    mutationFn: (vmId: number) =>
+      http.post<{ status: string; vm_id: number; name: string; prev_status: string }>(
+        `/portal/services/${vmId}/restore`,
+        {},
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+  });
+}
+
+export interface MyTrashedVM {
+  id: number;
+  name: string;
+  trashed_at: string;
+  window_s: number;
+}
+
+export function useMyTrashedQuery(refetchIntervalMs = 5_000) {
+  return useQuery({
+    queryKey: vmKeys.myTrash(),
+    queryFn: () => http.get<{ vms: MyTrashedVM[]; count: number }>("/portal/services/trashed"),
+    refetchInterval: refetchIntervalMs,
+    staleTime: 2_000,
   });
 }
 
