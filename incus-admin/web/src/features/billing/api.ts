@@ -151,3 +151,31 @@ export function useCancelOrderMutation() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: orderKeys.all }),
   });
 }
+
+// PLAN-034 P3：admin 直接改订单状态（批准 → paid，拒绝 → cancelled，作废 → expired）。
+// 后端 PUT /admin/orders/{id}/status 接收 oneof=pending|paid|provisioning|active|expired|cancelled。
+export type AdminOrderStatus =
+  | "pending"
+  | "paid"
+  | "provisioning"
+  | "active"
+  | "expired"
+  | "cancelled";
+
+export function useAdminUpdateOrderStatusMutation() {
+  return useMutation({
+    mutationFn: (params: { orderId: number; status: AdminOrderStatus }) =>
+      http.put<{ status: string }>(
+        `/admin/orders/${params.orderId}/status`,
+        { status: params.status },
+        {
+          intent: {
+            action: "order.status",
+            args: { order_id: params.orderId, status: params.status },
+            description: `订单 #${params.orderId} → ${params.status}`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: orderKeys.all }),
+  });
+}

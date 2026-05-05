@@ -312,6 +312,12 @@ func main() {
 		// Flip to 'partial' so the history UI doesn't show stuck entries.
 		go worker.RunHealingExpireStale(workerCtx, healingRepo, 15*time.Minute, 5*time.Minute)
 
+		// PLAN-034: VM trash purger — 5s tick，30s 窗口过后接管 hard-delete。
+		// 复用 service.VMService.PurgeTrashed（语义即原 Delete 路径），manager
+		// 提供 ID→name 反查。worker 会同时把 DB 行翻 status='deleted'。
+		trashWindow := time.Duration(model.VMTrashWindowSeconds) * time.Second
+		go worker.RunVMTrashPurger(workerCtx, vmRepo, clusterMgr, vmSvc.PurgeTrashed, trashWindow, 5*time.Second)
+
 		// One-shot startup reconcile: ensure every DB firewall_groups row
 		// has a matching Incus network ACL. Migration 011 INSERTs seed rows
 		// (default-web / ssh-only / database-lan) but only handler.CreateGroup

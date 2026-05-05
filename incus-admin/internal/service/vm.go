@@ -266,6 +266,28 @@ func (s *VMService) Delete(ctx context.Context, clusterName, project, vmName str
 	return err
 }
 
+// Trash 把 VM 软移入回收站（PLAN-034）：先尝试停机，但不动 Incus 实例 / 不调
+// Incus DELETE。DB 层由 handler 调 VMRepo.MarkTrashed 完成。Restore 期间 VM 保持
+// stopped 不重启（更安全；用户可手动 start）。worker.RunVMTrashPurger 在 trash
+// 窗口过后接手 hard-delete。
+//
+// stop 失败不视为致命错误：用户可能在 Incus 已经离线的情况下 trash，purger 兜底。
+func (s *VMService) Trash(ctx context.Context, clusterName, project, vmName string) error {
+	if err := s.ChangeState(ctx, clusterName, project, vmName, "stop", true); err != nil {
+		// running 状态下 stop 失败仅日志告警，不阻断 trash 流程——VM 仍会进入 30s
+		// 窗口，purger 最终走 force=true 路径。
+		slog.Warn("trash: stop vm failed (continuing)", "vm", vmName, "error", err)
+	}
+	return nil
+}
+
+// PurgeTrashed 是 trash 窗口过后实际的 hard-delete。等价于历史 Delete 路径
+// （先 force-stop 再 Incus DELETE），独立命名让 worker / handler 调用语义更清楚。
+// 调用者负责在 Purge 成功后把 DB 行 status='deleted'。
+func (s *VMService) PurgeTrashed(ctx context.Context, clusterName, project, vmName string) error {
+	return s.Delete(ctx, clusterName, project, vmName)
+}
+
 // ReinstallParams is resolved by the handler — callers pick a template_slug
 // or a legacy os_image string, and the handler translates that into the four
 // fields below so this service stays oblivious to the os_templates table.

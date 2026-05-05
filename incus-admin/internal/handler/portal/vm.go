@@ -51,6 +51,113 @@ func (h *VMHandler) Routes(r chi.Router) {
 	r.Post("/services/{id}/actions/{action}", h.VMAction)
 	r.Post("/services/{id}/reinstall", h.Reinstall)
 	r.Post("/services/{id}/reset-password", h.ResetPassword)
+	// PLAN-034: 用户自助 trash-with-undo。删除 = 软移入回收站（30s 窗口可撤销），
+	// purge 后 status = 'deleted'。配合 admin 端 worker.RunVMTrashPurger。
+	r.Delete("/services/{id}", h.TrashService)
+	r.Post("/services/{id}/restore", h.RestoreService)
+	r.Get("/services/trashed", h.ListMyTrashed)
+}
+
+// TrashService 是用户自助 VM 删除的入口（PLAN-034）。校验 owner = current user，
+// stop Incus 实例后 DB 标 trashed_at = NOW()。30s 内可调 POST /services/{id}/restore。
+func (h *VMHandler) TrashService(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	vmID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	clusterName := h.clusters.NameByID(vm.ClusterID)
+	if clusterName == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "cluster unavailable"})
+		return
+	}
+	project := "customers"
+	if err := h.vmSvc.Trash(r.Context(), clusterName, project, vm.Name); err != nil {
+		slog.Warn("portal trash: stop failed", "vm", vm.Name, "error", err)
+	}
+	ok, err := h.vmRepo.MarkTrashed(r.Context(), vm.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm already trashed or deleted"})
+		return
+	}
+	audit(r.Context(), r, "vm.trash", "vm", vm.ID, map[string]any{"name": vm.Name, "self": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "trashed",
+		"vm_id":      vm.ID,
+		"name":       vm.Name,
+		"trashed_at": time.Now().UTC(),
+		"window_s":   model.VMTrashWindowSeconds,
+	})
+}
+
+// RestoreService 撤销 30s 窗口内的删除（PLAN-034）。owner check 同 TrashService。
+func (h *VMHandler) RestoreService(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	vmID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if vmID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), vmID)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
+		return
+	}
+	if vm.TrashedAt == nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm not in trash"})
+		return
+	}
+	ok, err := h.vmRepo.UnmarkTrashed(r.Context(), vm.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm not in trash (race)"})
+		return
+	}
+	prev := ""
+	if vm.TrashedPrevStatus != nil {
+		prev = *vm.TrashedPrevStatus
+	}
+	audit(r.Context(), r, "vm.restore", "vm", vm.ID, map[string]any{"name": vm.Name, "prev_status": prev, "self": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":      "restored",
+		"vm_id":       vm.ID,
+		"name":        vm.Name,
+		"prev_status": prev,
+	})
+}
+
+// ListMyTrashed 返回当前用户在 30s 窗口内的 trashed VM。即便用户刷新页面，前端也能
+// 据此恢复 undo 提示（之前的 toast 不指望存活，DB 是真理之源）。
+func (h *VMHandler) ListMyTrashed(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	rows, err := h.vmRepo.ListMyTrashed(r.Context(), userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, vm := range rows {
+		out = append(out, map[string]any{
+			"id":         vm.ID,
+			"name":       vm.Name,
+			"trashed_at": vm.TrashedAt,
+			"window_s":   model.VMTrashWindowSeconds,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vms": out, "count": len(out)})
 }
 
 func (h *VMHandler) Reinstall(w http.ResponseWriter, r *http.Request) {
@@ -375,6 +482,12 @@ func (h *AdminVMHandler) Routes(r chi.Router) {
 	r.Post("/vms/{name}/migrate", h.MigrateVM)
 	r.Post("/vms/{name}/reset-password", h.ResetPasswordAdmin)
 	r.Delete("/vms/{name}", h.DeleteVM)
+	// PLAN-034: trash-with-undo 三联——回收站列表、按名 restore、按名 purge（强删，
+	// 跳过 30s 等待，运维 escape hatch）。restore/purge 路径必须先于 force-delete
+	// 的 {id} 通配，避免 chi 误匹配。
+	r.Get("/vms/trashed", h.ListTrashedVMs)
+	r.Post("/vms/{name}/restore", h.RestoreVM)
+	r.Post("/vms/{name}/purge", h.PurgeVM)
 	// PLAN-020 Phase B: gone-VM inventory + force-delete must sit on static
 	// path segments before the name-wildcard routes so chi doesn't match
 	// /vms/gone as name="gone".
@@ -1232,6 +1345,13 @@ func (h *AdminVMHandler) vmIDByName(ctx context.Context, name string) int64 {
 	return v.ID
 }
 
+// DeleteVM 现在执行"软删除（回收站）"——PLAN-034。
+//
+// 流程：先 stop Incus 实例（best-effort），再 DB 标 trashed_at = NOW()。Incus
+// 实例本身保留 30s（model.VMTrashWindowSeconds），window 过后由 worker.RunVMTrashPurger
+// 走原 hard-delete 路径。期间用户可调 POST /vms/{name}/restore 撤销。
+//
+// 强制立即删（不等窗口）走 POST /vms/{name}/purge，保留运维逃生口。
 func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 	vmName := chi.URLParam(r, "name")
 	if !isValidName(vmName) {
@@ -1248,26 +1368,142 @@ func (h *AdminVMHandler) DeleteVM(w http.ResponseWriter, r *http.Request) {
 		}
 		clusterParam = clients[0].Name
 	}
-	if projectParam == "" { projectParam = "default" }
+	if projectParam == "" {
+		projectParam = "default"
+	}
 
-	req := struct{ Cluster, Project string }{clusterParam, projectParam}
-
-	err := h.vmSvc.Delete(r.Context(), req.Cluster, req.Project, vmName)
-	if err != nil {
-		slog.Error("delete VM failed", "vm", vmName, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	dbVM, _ := h.vmRepo.GetByName(r.Context(), vmName)
+	if dbVM == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not found"})
 		return
 	}
 
-	var deletedID int64
-	if dbVM, _ := h.vmRepo.GetByName(r.Context(), vmName); dbVM != nil {
-		deletedID = dbVM.ID
-		_ = h.vmRepo.Delete(r.Context(), dbVM.ID)
+	// best-effort stop Incus；purger 兜底走 force=true，所以这里失败不阻塞 trash
+	if err := h.vmSvc.Trash(r.Context(), clusterParam, projectParam, vmName); err != nil {
+		slog.Warn("trash vm: stop failed", "vm", vmName, "error", err)
 	}
 
-	slog.Info("vm deleted", "vm", vmName)
-	audit(r.Context(), r, "vm.delete", "vm", deletedID, map[string]any{"name": vmName})
-	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted"})
+	ok, err := h.vmRepo.MarkTrashed(r.Context(), dbVM.ID)
+	if err != nil {
+		slog.Error("mark trashed failed", "vm", vmName, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm already trashed or deleted"})
+		return
+	}
+	slog.Info("vm trashed", "vm", vmName, "window_s", model.VMTrashWindowSeconds)
+	audit(r.Context(), r, "vm.trash", "vm", dbVM.ID, map[string]any{"name": vmName, "window_s": model.VMTrashWindowSeconds})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "trashed",
+		"vm_id":      dbVM.ID,
+		"name":       vmName,
+		"trashed_at": time.Now().UTC(),
+		"window_s":   model.VMTrashWindowSeconds,
+	})
+}
+
+// RestoreVM 把 trashed VM 拉回主列表（PLAN-034）。窗口未过则成功；已被 purger
+// 抢先 hard-delete 的 → 404。restore 后 VM 在 Incus 仍是 stopped（DeleteVM 阶段
+// 主动 stop 过），故不自动启动；前端 toast 引导用户手动 start。
+func (h *AdminVMHandler) RestoreVM(w http.ResponseWriter, r *http.Request) {
+	vmName := chi.URLParam(r, "name")
+	if !isValidName(vmName) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid vm name"})
+		return
+	}
+	dbVM, _ := h.vmRepo.GetByNameIncludingTrashed(r.Context(), vmName)
+	if dbVM == nil || dbVM.TrashedAt == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "vm not in trash"})
+		return
+	}
+	ok, err := h.vmRepo.UnmarkTrashed(r.Context(), dbVM.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "vm not in trash (race)"})
+		return
+	}
+	prev := ""
+	if dbVM.TrashedPrevStatus != nil {
+		prev = *dbVM.TrashedPrevStatus
+	}
+	slog.Info("vm restored from trash", "vm", vmName, "prev_status", prev)
+	audit(r.Context(), r, "vm.restore", "vm", dbVM.ID, map[string]any{"name": vmName, "prev_status": prev})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":      "restored",
+		"vm_id":       dbVM.ID,
+		"name":        vmName,
+		"prev_status": prev,
+	})
+}
+
+// PurgeVM 强制立即 hard-delete trashed VM（不等 30s 窗口）。运维 escape hatch；
+// 不在 trash 中的 VM 不允许 purge——admin 走标准 DELETE 才行（强制 user-flow）。
+func (h *AdminVMHandler) PurgeVM(w http.ResponseWriter, r *http.Request) {
+	vmName := chi.URLParam(r, "name")
+	if !isValidName(vmName) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid vm name"})
+		return
+	}
+	clusterParam := r.URL.Query().Get("cluster")
+	projectParam := r.URL.Query().Get("project")
+	if clusterParam == "" {
+		clients := h.clusters.List()
+		if len(clients) == 0 {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no clusters"})
+			return
+		}
+		clusterParam = clients[0].Name
+	}
+	if projectParam == "" {
+		projectParam = "default"
+	}
+
+	dbVM, _ := h.vmRepo.GetByNameIncludingTrashed(r.Context(), vmName)
+	if dbVM == nil || dbVM.TrashedAt == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "vm not in trash; call DELETE first"})
+		return
+	}
+	if err := h.vmSvc.PurgeTrashed(r.Context(), clusterParam, projectParam, vmName); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if err := h.vmRepo.Delete(r.Context(), dbVM.ID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	slog.Info("vm purged from trash", "vm", vmName)
+	audit(r.Context(), r, "vm.purge", "vm", dbVM.ID, map[string]any{"name": vmName})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "purged", "name": vmName})
+}
+
+// ListTrashedVMs 返回所有处于 trash 窗口内的 VM。admin 视角：包含全部用户的
+// trashed VM；窗口尚未过的行 worker 还未 purge。前端可显示倒计时 + restore 按钮。
+func (h *AdminVMHandler) ListTrashedVMs(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.vmRepo.ListTrashedBefore(r.Context(), time.Now().Add(24*time.Hour))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, vm := range rows {
+		out = append(out, map[string]any{
+			"id":                  vm.ID,
+			"name":                vm.Name,
+			"cluster_id":          vm.ClusterID,
+			"user_id":             vm.UserID,
+			"ip":                  vm.IP,
+			"status":              vm.Status,
+			"trashed_at":          vm.TrashedAt,
+			"trashed_prev_status": vm.TrashedPrevStatus,
+			"window_s":            model.VMTrashWindowSeconds,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"vms": out, "count": len(out)})
 }
 
 func (h *AdminVMHandler) ReinstallVM(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 import type {PageParams} from "@/features/users/api";
+import type { User } from "@/shared/lib/auth";
 import { createFileRoute } from "@tanstack/react-router";
-import { ShieldCheck, UserCog } from "lucide-react";
+import { CircleDollarSign, ShieldCheck, UserCog } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,6 +9,7 @@ import {
   useAdminUsersQuery,
   useBatchUserMutation,
 } from "@/features/users/api";
+import { UserDetailSheet } from "@/features/users/components/user-detail-sheet";
 import { UserRow } from "@/features/users/components/user-row";
 import {
   PageContent,
@@ -19,6 +21,15 @@ import { Button } from "@/shared/components/ui/button";
 import { Card } from "@/shared/components/ui/card";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Input } from "@/shared/components/ui/input";
 import { Pagination } from "@/shared/components/ui/pagination";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
@@ -28,16 +39,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError, http } from "@/shared/lib/http";
+import { queryClient } from "@/shared/lib/query-client";
+import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/users")({
   component: UsersPage,
 });
+
+// 批量充值预设；与 UserDetailSheet 同一档位口径，便于运维形成肌肉记忆。
+const BATCH_TOPUP_PRESETS = [10, 50, 200] as const;
 
 function UsersPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const [page, setPage] = useState<PageParams>({ limit: 50, offset: 0 });
   const [selectedIds, setSelectedIds] = useState<Record<number, boolean>>({});
+  const [openUser, setOpenUser] = useState<User | null>(null);
+  const [batchTopUpOpen, setBatchTopUpOpen] = useState(false);
+  const [batchAmount, setBatchAmount] = useState<string>("");
+  const [batchPending, setBatchPending] = useState(false);
   const { data, isLoading } = useAdminUsersQuery(page);
   const users = data?.users ?? [];
   const total = data?.total ?? users.length;
@@ -116,9 +137,66 @@ function UsersPage() {
           }
           clearSelection();
         },
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => toast.error(formatError(e)),
       },
     );
+  };
+
+  // 批量充值：每人 X 元（不是平均分配 —— 业界 admin top-up 通常按"每人统一额度"
+  // 来奖励/补偿一组用户）。后端无 batch endpoint；前端 Promise.all 单笔下发，每笔
+  // 独立 audit log。partial 失败时返回数量对比。
+  const runBatchTopUp = async (amount: number) => {
+    if (!(amount > 0) || selected.length === 0) return;
+    const ok = await confirm({
+      title: t("admin.users.batchTopUpTitle", { defaultValue: "批量充值" }),
+      message: t("admin.users.batchTopUpMessage", {
+        defaultValue: "确认给 {{count}} 个用户 每人充值 {{amount}}（合计 {{total}}）？",
+        count: selected.length,
+        amount: formatCurrency(amount),
+        total: formatCurrency(amount * selected.length),
+      }),
+    });
+    if (!ok) return;
+    setBatchPending(true);
+    const results = await Promise.allSettled(
+      selected.map((id) =>
+        http.post(
+          `/admin/users/${id}/balance`,
+          { amount, description: "Admin batch top-up" },
+          {
+            intent: {
+              action: "user.topup",
+              args: { user_id: id, amount, batch: true },
+              description: `批量充值 #${id} +${amount}`,
+            },
+          },
+        ),
+      ),
+    );
+    setBatchPending(false);
+    const okCount = results.filter((r) => r.status === "fulfilled").length;
+    const failCount = results.length - okCount;
+    queryClient.invalidateQueries({ queryKey: ["user"] });
+    if (failCount === 0) {
+      toast.success(
+        t("admin.users.batchTopUpOk", {
+          defaultValue: "批量充值成功：{{n}} 人 × {{amt}}",
+          n: okCount,
+          amt: formatCurrency(amount),
+        }),
+      );
+    } else {
+      toast.warning(
+        t("admin.users.batchTopUpPartial", {
+          defaultValue: "部分成功：成功 {{ok}} 失败 {{fail}}",
+          ok: okCount,
+          fail: failCount,
+        }),
+      );
+    }
+    setBatchTopUpOpen(false);
+    setBatchAmount("");
+    clearSelection();
   };
 
   return (
@@ -128,6 +206,15 @@ function UsersPage() {
       />
       <PageContent>
         <BatchToolbar count={selected.length} onClear={clearSelection}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={batchMutation.isPending || batchPending}
+            onClick={() => setBatchTopUpOpen(true)}
+          >
+            <CircleDollarSign size={12} aria-hidden="true" />
+            {t("admin.users.batchTopUp", { defaultValue: "批量充值" })}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -188,6 +275,7 @@ function UsersPage() {
                       onSelect={(next) =>
                         setSelectedIds((prev) => ({ ...prev, [u.id]: next }))
                       }
+                      onOpen={() => setOpenUser(u)}
                     />
                   ))}
                 </TableBody>
@@ -203,6 +291,79 @@ function UsersPage() {
           </>
         )}
       </PageContent>
+
+      <UserDetailSheet
+        user={openUser}
+        open={openUser !== null}
+        onOpenChange={(o) => { if (!o) setOpenUser(null); }}
+      />
+
+      <Dialog open={batchTopUpOpen} onOpenChange={setBatchTopUpOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("admin.users.batchTopUp", { defaultValue: "批量充值" })}</DialogTitle>
+            <DialogDescription>
+              {t("admin.users.batchTopUpHint", {
+                defaultValue: "已选 {{count}} 个用户。每人将单独入账并产生独立 audit log。",
+                count: selected.length,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex flex-wrap gap-1.5">
+              {BATCH_TOPUP_PRESETS.map((amt) => (
+                <Button
+                  key={amt}
+                  size="sm"
+                  variant={Number.parseFloat(batchAmount) === amt ? "primary" : "subtle"}
+                  onClick={() => setBatchAmount(String(amt))}
+                >
+                  {`+${formatCurrency(amt)}`}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-caption text-text-tertiary">$</span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={batchAmount}
+                onChange={(e) => setBatchAmount(e.target.value)}
+                placeholder={t("admin.amount", { defaultValue: "金额" })}
+              />
+            </div>
+            {batchAmount && Number.parseFloat(batchAmount) > 0 ? (
+              <p className="text-caption text-text-tertiary">
+                {t("admin.users.batchTopUpTotalPreview", {
+                  defaultValue: "合计 {{total}}（{{count}} × {{each}}）",
+                  total: formatCurrency(Number.parseFloat(batchAmount) * selected.length),
+                  count: selected.length,
+                  each: formatCurrency(Number.parseFloat(batchAmount)),
+                })}
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="subtle" onClick={() => setBatchTopUpOpen(false)}>
+              {t("common.cancel", { defaultValue: "取消" })}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={batchPending || !(Number.parseFloat(batchAmount) > 0)}
+              onClick={() => runBatchTopUp(Number.parseFloat(batchAmount))}
+            >
+              {batchPending
+                ? "..."
+                : t("admin.users.batchTopUpExecute", {
+                    defaultValue: "执行（{{count}} 人）",
+                    count: selected.length,
+                  })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
