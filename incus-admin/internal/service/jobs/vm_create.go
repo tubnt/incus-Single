@@ -163,6 +163,13 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 	}
 	rt.finishStep(ctx, job.ID, 4, stepFinalize, model.StepStatusSucceeded, "")
 
+	// PLAN-036 默认 firewall_groups 软失败应用：读用户 default 列表，
+	// 串行 attach。任一失败仅 log + audit，不阻塞 finalize。VM 已 active，
+	// 用户事后可通过 /firewall 集中管理页或 vm-detail 手动补绑。
+	if rt.deps.Firewall != nil && job.VMID != nil {
+		applyUserDefaultFirewallGroups(ctx, rt, job, rt.clusterName(job.ClusterID), params.Project, job.TargetName)
+	}
+
 	// 消费 params
 	rt.takeParams(job.ID)
 	return nil
@@ -272,4 +279,51 @@ func (r *Runtime) clusterName(clusterID int64) string {
 		return ""
 	}
 	return r.deps.Clusters.NameByID(clusterID)
+}
+
+// applyUserDefaultFirewallGroups 在 vm.create finalize 后串行 attach 用户的
+// 默认 firewall_groups（PLAN-036 D3 软失败口径）。任一失败 log + audit，但
+// 整体不阻塞——VM 已 active，用户事后可补绑。
+func applyUserDefaultFirewallGroups(
+	ctx context.Context,
+	rt *Runtime,
+	job *model.ProvisioningJob,
+	clusterName, project, vmName string,
+) {
+	groups, err := rt.deps.Firewall.ListDefaultGroups(ctx, job.UserID)
+	if err != nil {
+		slog.Error("default firewall: list failed", "job_id", job.ID, "user_id", job.UserID, "error", err)
+		rt.deps.Audit.Log(ctx, &job.UserID, "firewall.default_apply_failed", "vm", *job.VMID,
+			map[string]any{"reason": "list_failed", "error": err.Error()}, "")
+		return
+	}
+	if len(groups) == 0 {
+		return
+	}
+	if clusterName == "" || vmName == "" {
+		slog.Warn("default firewall: missing cluster/vm name", "job_id", job.ID)
+		return
+	}
+	failed := []map[string]any{}
+	ok := 0
+	for i := range groups {
+		g := &groups[i]
+		if err := rt.deps.Firewall.Attach(ctx, clusterName, project, vmName, g); err != nil {
+			failed = append(failed, map[string]any{"group_id": g.ID, "slug": g.Slug, "error": err.Error()})
+			continue
+		}
+		if err := rt.deps.Firewall.Bind(ctx, *job.VMID, g.ID); err != nil {
+			failed = append(failed, map[string]any{"group_id": g.ID, "slug": g.Slug, "error": "bind: " + err.Error()})
+			continue
+		}
+		ok++
+	}
+	if len(failed) > 0 {
+		slog.Warn("default firewall: partial apply", "vm_id", *job.VMID, "ok", ok, "failed", len(failed))
+		rt.deps.Audit.Log(ctx, &job.UserID, "firewall.default_apply_failed", "vm", *job.VMID,
+			map[string]any{"ok": ok, "failed_count": len(failed), "failed": failed}, "")
+	} else {
+		rt.deps.Audit.Log(ctx, &job.UserID, "firewall.default_apply_ok", "vm", *job.VMID,
+			map[string]any{"group_count": ok}, "")
+	}
 }

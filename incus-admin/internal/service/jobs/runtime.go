@@ -22,8 +22,19 @@ type Deps struct {
 	Audit      AuditWriter
 	Clusters   *cluster.Manager
 	OSTemplates *repository.OSTemplateRepo // 重装时按 slug 查 image_source
+	// PLAN-036：vm.create finalize 软失败应用用户默认 firewall_groups。
+	// 任一为 nil 时跳过（保持向后兼容 + 测试环境无 firewall service）。
+	Firewall    DefaultFirewallApplier
 	// PoolSize 是 worker 池容量；建议 4–8。0 取默认 4。
 	PoolSize int
+}
+
+// DefaultFirewallApplier 拓窄到 jobs 所需：列出用户默认组 + attach 到 VM。
+// service.FirewallService + repository.FirewallRepo 通过 main 的 adapter 实现此接口。
+type DefaultFirewallApplier interface {
+	ListDefaultGroups(ctx context.Context, userID int64) ([]model.FirewallGroup, error)
+	Attach(ctx context.Context, clusterName, project, vmName string, group *model.FirewallGroup) error
+	Bind(ctx context.Context, vmID, groupID int64) error
 }
 
 // AuditWriter 与 worker.AuditWriter 同形态：jobs 在终态写 vm.provisioning.{started,succeeded,failed} 三段 audit。
