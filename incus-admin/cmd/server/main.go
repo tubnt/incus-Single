@@ -392,7 +392,7 @@ func main() {
 		Events:      portal.NewEventsHandler(clusterMgr),
 		Healing:     portal.NewHealingHandler(healingRepo, clusterMgr),
 		OSTemplates: portal.NewOSTemplateHandler(osTemplateRepo),
-		Firewall:    portal.NewFirewallHandler(firewallRepo, service.NewFirewallService(clusterMgr, vmSvc), vmRepo, clusterMgr),
+		Firewall:    portal.NewFirewallHandler(firewallRepo, service.NewFirewallService(clusterMgr, vmSvc), vmRepo, clusterMgr).WithQuotas(quotaRepo),
 		FloatingIPs: portal.NewFloatingIPHandler(floatingIPRepo, service.NewFloatingIPService(clusterMgr), vmRepo, clusterRepo, clusterMgr),
 		Rescue:      portal.NewRescueHandler(vmRepo, service.NewRescueService(vmSvc, clusterMgr), clusterMgr),
 		Jobs:        jobsHandlerOrNil(jobsRuntime, jobRepo, vmRepo),
