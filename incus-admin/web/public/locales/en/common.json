@@ -1356,6 +1356,12 @@
     "defaultsPickTitle": "Add default group",
     "defaultsPickPlaceholder": "Pick a group",
     "defaultsPickAllUsed": "All groups already in defaults",
-    "defaultsMine": "Mine"
+    "defaultsMine": "Mine",
+    "defaultsButton": "Defaults · {{n}}",
+    "defaultsSheetTitle": "Default groups (auto-applied to new VMs only)",
+    "filterAll": "All",
+    "filterMine": "Mine",
+    "filterShared": "Shared",
+    "listEmpty": "No firewall groups."
   }
 }

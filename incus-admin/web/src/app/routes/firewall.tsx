@@ -1,11 +1,12 @@
 import type { FirewallGroup } from "@/features/firewall/api";
 import { createFileRoute } from "@tanstack/react-router";
-import { Pencil, Plus, Server, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Pencil, Plus, Server, Settings, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   usePortalDeleteFirewallGroupMutation,
+  usePortalFirewallDefaultsQuery,
   usePortalFirewallGroupsQuery,
 } from "@/features/firewall/api";
 import { BindToVMsDialog } from "@/features/firewall/components/bind-to-vms-dialog";
@@ -22,41 +23,71 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
-import { EmptyState } from "@/shared/components/ui/empty-state";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { StatusPill } from "@/shared/components/ui/status";
 import { formatError } from "@/shared/lib/http";
+import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/firewall")({
   component: UserFirewallPage,
 });
 
+type Filter = "all" | "mine" | "shared";
+
 /**
- * /firewall —— PLAN-036 用户级集中管理页。
+ * /firewall —— PLAN-036 用户级集中管理页（B 简化重构）。
  *
- * 三 section：
- *   1. 默认 firewall 组（仅新建 VM 自动应用，DefaultGroupsManager）
- *   2. 我的组（CRUD + 应用到 VMs）
- *   3. 管理员共享组（read-only + 应用到 VMs）
+ * 旧版 3 sections：Default + My + Shared，4 级标题 + 大空状态 + 重复 Tip。
+ * 新版：1 行 toolbar（Default 摘要 + filter + 新建）+ 1 个统一列表。
+ *
+ * 默认组管理收到右抽屉，避免在主区永久占位。
  */
 function UserFirewallPage() {
   const { t } = useTranslation();
   const groupsQuery = usePortalFirewallGroupsQuery();
+  const defaultsQuery = usePortalFirewallDefaultsQuery();
+  const [filter, setFilter] = useState<Filter>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<FirewallGroup | null>(null);
   const [bindingTo, setBindingTo] = useState<FirewallGroup | null>(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
 
-  const groups = groupsQuery.data?.groups ?? [];
-  const myGroups = groups.filter((g) => g.owner_id != null);
-  const sharedGroups = groups.filter((g) => g.owner_id == null);
+  const allGroups = groupsQuery.data?.groups ?? [];
+  const defaultsCount = defaultsQuery.data?.groups?.length ?? 0;
+
+  // mine 在前，shared 在后；mine 内按 id desc（新组在前），shared 按 id asc（稳定）
+  const sortedGroups = useMemo(() => {
+    const mine = allGroups.filter((g) => g.owner_id != null).sort((a, b) => b.id - a.id);
+    const shared = allGroups.filter((g) => g.owner_id == null).sort((a, b) => a.id - b.id);
+    return [...mine, ...shared];
+  }, [allGroups]);
+
+  const filtered = useMemo(() => {
+    if (filter === "mine") return sortedGroups.filter((g) => g.owner_id != null);
+    if (filter === "shared") return sortedGroups.filter((g) => g.owner_id == null);
+    return sortedGroups;
+  }, [sortedGroups, filter]);
+
+  const counts = useMemo(
+    () => ({
+      all: sortedGroups.length,
+      mine: sortedGroups.filter((g) => g.owner_id != null).length,
+      shared: sortedGroups.filter((g) => g.owner_id == null).length,
+    }),
+    [sortedGroups],
+  );
 
   return (
     <PageShell>
       <PageHeader
         title={t("firewall.userPageTitle", { defaultValue: "我的防火墙" })}
-        description={t("firewall.userPageDescription", {
-          defaultValue: "集中管理你的 firewall 组、规则、默认策略和绑定关系。",
-        })}
         actions={
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
             <Plus size={14} aria-hidden="true" />
@@ -65,66 +96,38 @@ function UserFirewallPage() {
         }
       />
       <PageContent>
+        {/* Toolbar 行：默认组摘要按钮 + filter chips */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <FilterChips filter={filter} onChange={setFilter} counts={counts} />
+          <Button variant="subtle" size="sm" onClick={() => setDefaultsOpen(true)}>
+            <Settings size={12} aria-hidden="true" />
+            {t("firewall.defaultsButton", {
+              defaultValue: "默认组 · {{n}}",
+              n: defaultsCount,
+            })}
+          </Button>
+        </div>
+
         {groupsQuery.isLoading ? (
-          <Skeleton className="h-40" />
+          <Skeleton className="h-32" />
+        ) : filtered.length === 0 ? (
+          <div className="rounded-md border border-border bg-surface-1 p-6 text-center text-caption text-text-tertiary">
+            {filter === "mine"
+              ? t("firewall.userMyGroupsEmptyHint", {
+                  defaultValue: "点上方 \"新建组\" 创建你的第一个 firewall 规则集。",
+                })
+              : t("firewall.listEmpty", { defaultValue: "无防火墙组。" })}
+          </div>
         ) : (
-          <div className="space-y-8">
-            {/* Section 1：默认组 */}
-            <DefaultGroupsManager />
-
-            {/* Section 2：我的组 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-emphasis">
-                {t("vm.firewall.userMyGroups", { defaultValue: "我的防火墙组" })}
-              </h3>
-              {myGroups.length === 0 ? (
-                <EmptyState
-                  title={t("firewall.userMyGroupsEmptyTitle", {
-                    defaultValue: "还没有自定义组",
-                  })}
-                  description={t("firewall.userMyGroupsEmptyHint", {
-                    defaultValue: "点上方 \"新建组\" 创建你的第一个 firewall 规则集。",
-                  })}
-                />
-              ) : (
-                <div className="space-y-2">
-                  {myGroups.map((g) => (
-                    <UserGroupRow
-                      key={g.id}
-                      group={g}
-                      onEdit={() => setEditing(g)}
-                      onApply={() => setBindingTo(g)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Section 3：管理员共享组 */}
-            <section className="space-y-2">
-              <h3 className="text-sm font-emphasis">
-                {t("vm.firewall.userSharedGroups", { defaultValue: "管理员共享组" })}
-              </h3>
-              {sharedGroups.length === 0 ? (
-                <Card>
-                  <CardContent className="p-3 text-caption text-text-tertiary">
-                    {t("vm.firewall.userSharedEmpty", {
-                      defaultValue: "管理员未发布任何共享组",
-                    })}
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-2">
-                  {sharedGroups.map((g) => (
-                    <SharedGroupRow
-                      key={g.id}
-                      group={g}
-                      onApply={() => setBindingTo(g)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+          <div className="space-y-1.5">
+            {filtered.map((g) => (
+              <GroupRow
+                key={g.id}
+                group={g}
+                onEdit={() => setEditing(g)}
+                onApply={() => setBindingTo(g)}
+              />
+            ))}
           </div>
         )}
       </PageContent>
@@ -140,11 +143,64 @@ function UserFirewallPage() {
         open={bindingTo !== null}
         onOpenChange={(o) => { if (!o) setBindingTo(null); }}
       />
+
+      {/* 默认组管理抽屉 */}
+      <Sheet open={defaultsOpen} onOpenChange={setDefaultsOpen}>
+        <SheetContent side="right" size="min(96vw, 32rem)">
+          <SheetHeader>
+            <SheetTitle>
+              {t("firewall.defaultsSheetTitle", { defaultValue: "默认组（仅新建 VM 自动应用）" })}
+            </SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <DefaultGroupsManager />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </PageShell>
   );
 }
 
-function UserGroupRow({
+function FilterChips({
+  filter,
+  onChange,
+  counts,
+}: {
+  filter: Filter;
+  onChange: (next: Filter) => void;
+  counts: { all: number; mine: number; shared: number };
+}) {
+  const { t } = useTranslation();
+  const items: Array<{ key: Filter; label: string; n: number }> = [
+    { key: "all", label: t("firewall.filterAll", { defaultValue: "全部" }), n: counts.all },
+    { key: "mine", label: t("firewall.filterMine", { defaultValue: "我的" }), n: counts.mine },
+    { key: "shared", label: t("firewall.filterShared", { defaultValue: "共享" }), n: counts.shared },
+  ];
+  return (
+    <div className="inline-flex rounded-md border border-border bg-surface-1 p-0.5" role="tablist">
+      {items.map((it) => (
+        <button
+          key={it.key}
+          type="button"
+          role="tab"
+          aria-selected={filter === it.key}
+          onClick={() => onChange(it.key)}
+          className={cn(
+            "px-3 h-7 rounded-md text-caption font-emphasis transition-colors",
+            filter === it.key
+              ? "bg-surface-2 text-foreground"
+              : "text-text-tertiary hover:text-foreground",
+          )}
+        >
+          {it.label}
+          <span className="ml-1.5 text-text-quaternary">{it.n}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GroupRow({
   group: g,
   onEdit,
   onApply,
@@ -156,6 +212,8 @@ function UserGroupRow({
   const { t } = useTranslation();
   const confirm = useConfirm();
   const deleteMutation = usePortalDeleteFirewallGroupMutation(g.id);
+  const isMine = g.owner_id != null;
+  const ruleCount = g.rules?.length ?? 0;
 
   const onDelete = async () => {
     const ok = await confirm({
@@ -182,70 +240,46 @@ function UserGroupRow({
     <Card>
       <CardContent className="p-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="font-emphasis text-sm">{g.name}</div>
-          <div className="text-caption text-text-tertiary font-mono">{g.slug}</div>
-          {g.description ? (
-            <div className="text-caption text-text-tertiary mt-0.5">{g.description}</div>
-          ) : null}
-          <div className="text-caption text-text-tertiary mt-0.5">
-            {(g.rules?.length ?? 0)}
-            {" "}
-            {t("vm.firewall.userRulesCount", { defaultValue: "条规则" })}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-emphasis text-sm truncate">{g.name}</span>
+            {!isMine ? (
+              <StatusPill status="disabled">
+                {t("vm.firewall.userSharedBadge", { defaultValue: "共享" })}
+              </StatusPill>
+            ) : null}
+            <span className="font-mono text-caption text-text-tertiary truncate">{g.slug}</span>
+            <span className="text-caption text-text-quaternary">
+              ·
+              {" "}
+              {ruleCount}
+              {" "}
+              {t("vm.firewall.userRulesCount", { defaultValue: "条规则" })}
+            </span>
           </div>
         </div>
         <div className="shrink-0 flex items-center gap-1.5">
-          <Button size="sm" variant="ghost" onClick={onEdit} aria-label={`Edit firewall group ${g.slug}`}>
-            <Pencil size={12} aria-hidden="true" />
-            {t("common.edit", { defaultValue: "编辑" })}
-          </Button>
+          {isMine ? (
+            <Button size="sm" variant="ghost" onClick={onEdit} aria-label={`Edit firewall group ${g.slug}`}>
+              <Pencil size={12} aria-hidden="true" />
+              {t("common.edit", { defaultValue: "编辑" })}
+            </Button>
+          ) : null}
           <Button size="sm" variant="primary" onClick={onApply} aria-label={`Apply firewall group ${g.slug} to VMs`}>
             <Server size={12} aria-hidden="true" />
             {t("firewall.applyToVMs", { defaultValue: "应用到 VMs" })}
           </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={onDelete}
-            disabled={deleteMutation.isPending}
-            aria-label={`Delete firewall group ${g.slug}`}
-            className="text-status-error"
-          >
-            <Trash2 size={14} aria-hidden="true" />
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SharedGroupRow({
-  group: g,
-  onApply,
-}: {
-  group: FirewallGroup;
-  onApply: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <Card>
-      <CardContent className="p-3 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-emphasis text-sm">{g.name}</span>
-            <StatusPill status="disabled">
-              {t("vm.firewall.userSharedBadge", { defaultValue: "共享" })}
-            </StatusPill>
-          </div>
-          <div className="text-caption text-text-tertiary font-mono">{g.slug}</div>
-          {g.description ? (
-            <div className="text-caption text-text-tertiary mt-0.5">{g.description}</div>
+          {isMine ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              onClick={onDelete}
+              disabled={deleteMutation.isPending}
+              aria-label={`Delete firewall group ${g.slug}`}
+              className="text-status-error"
+            >
+              <Trash2 size={14} aria-hidden="true" />
+            </Button>
           ) : null}
-        </div>
-        <div className="shrink-0">
-          <Button size="sm" variant="primary" onClick={onApply} aria-label={`Apply shared firewall group ${g.slug} to VMs`}>
-            <Server size={12} aria-hidden="true" />
-            {t("firewall.applyToVMs", { defaultValue: "应用到 VMs" })}
-          </Button>
         </div>
       </CardContent>
     </Card>
