@@ -3,6 +3,7 @@ package portal
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,12 @@ import (
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/service"
 )
+
+// PR #17 code review P2 修复：admin 共享组 slug 不允许 ^u\d+- 前缀，否则会与
+// 用户私有组 ACL 命名（fwg-u<id>-<slug>）在 Incus 命名空间撞名。例如 admin
+// 创建 slug="u1-myapp" → ACL "fwg-u1-myapp" ↔ 用户1 私有 slug="myapp" → 同名 ACL，
+// 双方 EnsureACL PUT 互相覆盖。
+var adminReservedSlugPrefix = regexp.MustCompile(`^u\d+-`)
 
 type FirewallHandler struct {
 	repo     *repository.FirewallRepo
@@ -155,6 +162,12 @@ func rulesFromBody(groupID int64, body []firewallRuleBody) []model.FirewallRule 
 func (h *FirewallHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var req createFirewallGroupReq
 	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if adminReservedSlugPrefix.MatchString(req.Slug) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "admin slug must not start with 'u<number>-' (reserved for user-private ACL namespace)",
+		})
 		return
 	}
 	created, err := h.repo.CreateGroup(r.Context(), &model.FirewallGroup{
