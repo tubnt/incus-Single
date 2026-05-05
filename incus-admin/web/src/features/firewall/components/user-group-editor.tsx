@@ -1,6 +1,6 @@
 import type { FirewallGroup, FirewallRule } from "@/features/firewall/api";
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -185,27 +185,41 @@ export function EditUserGroupSheet({
   onOpenChange: (next: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [name, setName] = useState(group?.name ?? "");
-  const [description, setDescription] = useState(group?.description ?? "");
-  const [rules, setRules] = useState<RuleRow[]>(() =>
-    (group?.rules ?? [emptyRule(10)]).map(withUI),
-  );
-  const updateGroup = usePortalUpdateFirewallGroupMutation(group?.id ?? 0);
-  const replaceRules = usePortalReplaceFirewallRulesMutation(group?.id ?? 0);
 
-  // 当 group 切换时同步本地 state
-  if (group != null && group.id !== 0 && name === "" && group.name !== "") {
-    // first sync after open
+  // PR #17 fixup（PLAN-034 同款）：关闭 transition 期间保留最后一个 group 引用，
+  // 避免 base-ui Sheet 还在跑 close 动画时 group=null 导致 portal 立刻 unmount，
+  // focus trap / body[inert] 残留致页面后续不可点。
+  const lastGroupRef = useRef<FirewallGroup | null>(group);
+  if (group) lastGroupRef.current = group;
+  const display = group ?? lastGroupRef.current;
+
+  const [name, setName] = useState(display?.name ?? "");
+  const [description, setDescription] = useState(display?.description ?? "");
+  const [rules, setRules] = useState<RuleRow[]>(() =>
+    (display?.rules ?? [emptyRule(10)]).map(withUI),
+  );
+  const updateGroup = usePortalUpdateFirewallGroupMutation(display?.id ?? 0);
+  const replaceRules = usePortalReplaceFirewallRulesMutation(display?.id ?? 0);
+
+  // PR #17 fixup（替代原 in-render setState 反模式）：每次 open 切到 true 或者
+  // group.id 变化时，从最新 group 重新加载本地 state。这样"先编辑组 A 再编辑
+  // 组 B" 不会让 B 显示 A 的字段。
+  // 同步 set-state-in-effect 是有意为之——这里没用 useReducer 因为字段独立编辑
+  // 频繁，effect 只在 open/id 边界跑一次。
+  /* eslint-disable react/set-state-in-effect, react/exhaustive-deps -- intentional sync-on-open */
+  useEffect(() => {
+    if (!open || !group) return;
     setName(group.name);
     setDescription(group.description);
     setRules((group.rules ?? [emptyRule(10)]).map(withUI));
-  }
+  }, [open, group?.id]);
+  /* eslint-enable react/set-state-in-effect, react/exhaustive-deps */
 
-  if (!group) return null;
+  if (!display) return null;
 
   const save = async () => {
     try {
-      if (name !== group.name || description !== group.description) {
+      if (name !== display.name || description !== display.description) {
         await updateGroup.mutateAsync({ name, description });
       }
       const res = await replaceRules.mutateAsync(
@@ -231,7 +245,7 @@ export function EditUserGroupSheet({
           <SheetTitle>
             {t("vm.firewall.userEditTitle", { defaultValue: "编辑组" })}
             {" · "}
-            <span className="font-mono text-text-tertiary">{group.slug}</span>
+            <span className="font-mono text-text-tertiary">{display.slug}</span>
           </SheetTitle>
         </SheetHeader>
         <SheetBody className="space-y-4">
