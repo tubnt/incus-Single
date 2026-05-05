@@ -78,7 +78,8 @@ func (h *FirewallHandler) PortalRoutes(r chi.Router) {
 
 type firewallGroupDTO struct {
 	model.FirewallGroup
-	Rules []model.FirewallRule `json:"rules"`
+	Rules        []model.FirewallRule `json:"rules"`
+	BindingCount int                  `json:"binding_count,omitempty"`
 }
 
 func (h *FirewallHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
@@ -572,13 +573,19 @@ func (h *FirewallHandler) portalRequireOwnedGroup(r *http.Request, w http.Respon
 	return g, true
 }
 
-// PortalListGroups —— 用户视角列出 admin 共享组 + 自己的私有组（含 rules）。
+// PortalListGroups —— 用户视角列出 admin 共享组 + 自己的私有组（含 rules + 自己 VM 中的 binding 数）。
 func (h *FirewallHandler) PortalListGroups(w http.ResponseWriter, r *http.Request) {
 	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
 	groups, err := h.repo.ListGroupsForUser(r.Context(), userID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
+	}
+	// 一次性聚合 binding count，避免 N+1
+	counts, err := h.repo.BindingCountsForUser(r.Context(), userID)
+	if err != nil {
+		// soft-fail：count 缺失只是 UI 不显数字，列表仍可用
+		counts = map[int64]int{}
 	}
 	out := make([]firewallGroupDTO, 0, len(groups))
 	for _, g := range groups {
@@ -587,7 +594,7 @@ func (h *FirewallHandler) PortalListGroups(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 			return
 		}
-		out = append(out, firewallGroupDTO{FirewallGroup: g, Rules: rules})
+		out = append(out, firewallGroupDTO{FirewallGroup: g, Rules: rules, BindingCount: counts[g.ID]})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"groups": out})
 }

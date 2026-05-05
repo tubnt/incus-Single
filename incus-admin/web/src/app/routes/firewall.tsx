@@ -1,6 +1,6 @@
-import type { FirewallGroup } from "@/features/firewall/api";
+import type { FirewallGroup, FirewallRule } from "@/features/firewall/api";
 import { createFileRoute } from "@tanstack/react-router";
-import { Pencil, Plus, Server, Settings, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Server, Settings, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -23,6 +23,12 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { Input } from "@/shared/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/components/ui/popover";
 import {
   Sheet,
   SheetBody,
@@ -54,6 +60,7 @@ function UserFirewallPage() {
   const groupsQuery = usePortalFirewallGroupsQuery();
   const defaultsQuery = usePortalFirewallDefaultsQuery();
   const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<FirewallGroup | null>(null);
   const [bindingTo, setBindingTo] = useState<FirewallGroup | null>(null);
@@ -70,10 +77,20 @@ function UserFirewallPage() {
   }, [allGroups]);
 
   const filtered = useMemo(() => {
-    if (filter === "mine") return sortedGroups.filter((g) => g.owner_id != null);
-    if (filter === "shared") return sortedGroups.filter((g) => g.owner_id == null);
-    return sortedGroups;
-  }, [sortedGroups, filter]);
+    let list = sortedGroups;
+    if (filter === "mine") list = list.filter((g) => g.owner_id != null);
+    if (filter === "shared") list = list.filter((g) => g.owner_id == null);
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (g) =>
+          g.name.toLowerCase().includes(q)
+          || g.slug.toLowerCase().includes(q)
+          || g.description.toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [sortedGroups, filter, search]);
 
   const counts = useMemo(
     () => ({
@@ -96,16 +113,27 @@ function UserFirewallPage() {
         }
       />
       <PageContent>
-        {/* Toolbar 行：默认组摘要按钮 + filter chips */}
+        {/* Toolbar 行：filter chips + 搜索 + 默认组摘要 */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <FilterChips filter={filter} onChange={setFilter} counts={counts} />
-          <Button variant="subtle" size="sm" onClick={() => setDefaultsOpen(true)}>
-            <Settings size={12} aria-hidden="true" />
-            {t("firewall.defaultsButton", {
-              defaultValue: "默认组 · {{n}}",
-              n: defaultsCount,
-            })}
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={12} aria-hidden="true" className="absolute left-2 top-1/2 -translate-y-1/2 text-text-tertiary" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("firewall.searchPlaceholder", { defaultValue: "搜索 name / slug" })}
+                className="h-7 w-input-narrow pl-7 text-caption"
+              />
+            </div>
+            <Button variant="subtle" size="sm" onClick={() => setDefaultsOpen(true)}>
+              <Settings size={12} aria-hidden="true" />
+              {t("firewall.defaultsButton", {
+                defaultValue: "默认组 · {{n}}",
+                n: defaultsCount,
+              })}
+            </Button>
+          </div>
         </div>
 
         {groupsQuery.isLoading ? (
@@ -236,11 +264,12 @@ function GroupRow({
     });
   };
 
+  const bindingCount = g.binding_count ?? 0;
   return (
     <Card>
       <CardContent className="p-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <span className="font-emphasis text-sm truncate">{g.name}</span>
             {!isMine ? (
               <StatusPill status="disabled">
@@ -248,13 +277,38 @@ function GroupRow({
               </StatusPill>
             ) : null}
             <span className="font-mono text-caption text-text-tertiary truncate">{g.slug}</span>
-            <span className="text-caption text-text-quaternary">
-              ·
-              {" "}
-              {ruleCount}
-              {" "}
-              {t("vm.firewall.userRulesCount", { defaultValue: "条规则" })}
-            </span>
+            {/* 规则数 chip — hover 弹 popover 展示具体规则 */}
+            {ruleCount > 0 ? (
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-pill border border-border bg-surface-1 px-2 py-0.5 text-caption text-text-secondary hover:bg-surface-2 transition-colors"
+                      aria-label={t("firewall.rulesPreview", { defaultValue: "查看规则" })}
+                    >
+                      {ruleCount}
+                      {" "}
+                      {t("vm.firewall.userRulesCount", { defaultValue: "条规则" })}
+                    </button>
+                  }
+                />
+                <PopoverContent>
+                  <RulesPreview rules={g.rules ?? []} />
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <span className="text-caption text-text-quaternary">
+                {t("admin.firewall.noRules", { defaultValue: "无规则" })}
+              </span>
+            )}
+            {/* 已绑 VM 数量 chip — 只对自己 VM 计数 */}
+            {bindingCount > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-pill border border-status-success/30 bg-status-success/8 px-2 py-0.5 text-caption text-status-success">
+                <Server size={10} aria-hidden="true" />
+                {t("firewall.boundCount", { defaultValue: "已绑 {{n}}", n: bindingCount })}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="shrink-0 flex items-center gap-1.5">
@@ -283,5 +337,36 @@ function GroupRow({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function RulesPreview({ rules }: { rules: FirewallRule[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-1.5 min-w-[16rem]">
+      <div className="text-caption font-emphasis text-text-tertiary uppercase">
+        {t("vm.firewall.userRules", { defaultValue: "规则" })}
+      </div>
+      <table className="w-full text-caption">
+        <thead className="text-text-tertiary">
+          <tr>
+            <th className="text-left pr-2 font-emphasis">{t("admin.firewall.ruleAction", { defaultValue: "动作" })}</th>
+            <th className="text-left pr-2 font-emphasis">{t("admin.firewall.ruleProtocol", { defaultValue: "协议" })}</th>
+            <th className="text-left pr-2 font-emphasis">{t("admin.firewall.ruleDestPort", { defaultValue: "端口" })}</th>
+            <th className="text-left font-emphasis">{t("admin.firewall.ruleSource", { defaultValue: "来源" })}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rules.map((r) => (
+            <tr key={r.id ?? `${r.direction}-${r.action}-${r.destination_port}-${r.source_cidr}`} className="border-t border-border">
+              <td className="pr-2 py-1 font-mono">{r.action}</td>
+              <td className="pr-2 py-1 font-mono">{r.protocol || "any"}</td>
+              <td className="pr-2 py-1 font-mono">{r.destination_port || "any"}</td>
+              <td className="py-1 font-mono">{r.source_cidr || "any"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

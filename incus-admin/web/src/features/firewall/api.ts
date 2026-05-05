@@ -26,6 +26,9 @@ export interface FirewallGroup {
   created_at?: string;
   updated_at?: string;
   rules?: FirewallRule[];
+  // /firewall polish：portal 端 ListGroups 返该用户已绑该组的 VM 数量，
+  // 仅统计自己的 VM。omitempty 时（如 admin 端 endpoint）= 不显示
+  binding_count?: number;
 }
 
 export interface CreateFirewallGroupPayload {

@@ -332,6 +332,38 @@ func (r *FirewallRepo) ReplaceDefaultGroups(ctx context.Context, userID int64, g
 	return tx.Commit()
 }
 
+// BindingCountsForUser 一次返回 group_id → user 自己 VM 中已绑该组的数量。
+// admin 共享组在本结果里只计该用户自己的 VM，避免跨用户信息泄漏。
+// 用于 PortalListGroups 给每行显示 "已绑 X 台" chip，免去 N+1。
+func (r *FirewallRepo) BindingCountsForUser(ctx context.Context, userID int64) (map[int64]int, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT g.id, COUNT(b.vm_id)
+		 FROM firewall_groups g
+		 LEFT JOIN vm_firewall_bindings b ON b.group_id = g.id
+		 LEFT JOIN vms v ON v.id = b.vm_id
+		   AND v.user_id = $1
+		   AND v.status NOT IN ('deleted','gone')
+		   AND v.trashed_at IS NULL
+		 WHERE g.owner_id IS NULL OR g.owner_id = $1
+		 GROUP BY g.id`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var gid int64
+		var n int
+		if err := rows.Scan(&gid, &n); err != nil {
+			return nil, err
+		}
+		out[gid] = n
+	}
+	return out, rows.Err()
+}
+
 // ListBoundVMsForGroup 返回当前用户拥有的、绑定到给定 group 的 VM 列表。
 // 仅返自己的 VM —— admin 共享组的跨用户绑定不通过此 endpoint 暴露。
 func (r *FirewallRepo) ListBoundVMsForGroup(ctx context.Context, groupID, userID int64) ([]model.VM, error) {
