@@ -220,6 +220,14 @@ func (s *FirewallService) updateVMACLs(ctx context.Context, clusterName, project
 		updatedNIC[k] = v
 	}
 	updatedNIC["security.acls"] = strings.Join(next, ",")
+	// Incus ACL 默认行为：未匹配任何规则的流量按 default action 处理，且默认是 reject。
+	// 我们的产品语义是 "ingress 白名单 + egress 不限制"——用户只关心限制谁进来，
+	// 不希望绑组就把 VM 出站全死（apt update / DNS / curl 都被 reject）。所以
+	// 强制把 NIC 上 egress default action 设成 allow，ingress 留 reject 默认。
+	// Detach 后 ACL 列表为空时该 key 没有作用，留着无害；不主动清理避免重复 PATCH。
+	if len(next) > 0 {
+		updatedNIC["security.acls.default.egress.action"] = "allow"
+	}
 	patchBody := map[string]any{
 		"devices": map[string]map[string]any{
 			nic: updatedNIC,
