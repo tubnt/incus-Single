@@ -66,15 +66,15 @@ function UserFirewallPage() {
   const [bindingTo, setBindingTo] = useState<FirewallGroup | null>(null);
   const [defaultsOpen, setDefaultsOpen] = useState(false);
 
-  const allGroups = groupsQuery.data?.groups ?? [];
   const defaultsCount = defaultsQuery.data?.groups?.length ?? 0;
 
   // mine 在前，shared 在后；mine 内按 id desc（新组在前），shared 按 id asc（稳定）
   const sortedGroups = useMemo(() => {
-    const mine = allGroups.filter((g) => g.owner_id != null).sort((a, b) => b.id - a.id);
-    const shared = allGroups.filter((g) => g.owner_id == null).sort((a, b) => a.id - b.id);
+    const all = groupsQuery.data?.groups ?? [];
+    const mine = all.filter((g) => g.owner_id != null).sort((a, b) => b.id - a.id);
+    const shared = all.filter((g) => g.owner_id == null).sort((a, b) => a.id - b.id);
     return [...mine, ...shared];
-  }, [allGroups]);
+  }, [groupsQuery.data]);
 
   const filtered = useMemo(() => {
     let list = sortedGroups;
@@ -86,7 +86,7 @@ function UserFirewallPage() {
         (g) =>
           g.name.toLowerCase().includes(q)
           || g.slug.toLowerCase().includes(q)
-          || g.description.toLowerCase().includes(q),
+          || (g.description ?? "").toLowerCase().includes(q),
       );
     }
     return list;

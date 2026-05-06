@@ -335,9 +335,12 @@ func (r *FirewallRepo) ReplaceDefaultGroups(ctx context.Context, userID int64, g
 // BindingCountsForUser 一次返回 group_id → user 自己 VM 中已绑该组的数量。
 // admin 共享组在本结果里只计该用户自己的 VM，避免跨用户信息泄漏。
 // 用于 PortalListGroups 给每行显示 "已绑 X 台" chip，免去 N+1。
+//
+// COUNT(v.id) 不计 LEFT JOIN 落空（非本用户 VM / 已删 / 已 trash）的 b 行；
+// 用 COUNT(b.vm_id) 会让 admin 共享组把别人挂的 VM 数泄漏给当前用户。
 func (r *FirewallRepo) BindingCountsForUser(ctx context.Context, userID int64) (map[int64]int, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT g.id, COUNT(b.vm_id)
+		`SELECT g.id, COUNT(v.id)
 		 FROM firewall_groups g
 		 LEFT JOIN vm_firewall_bindings b ON b.group_id = g.id
 		 LEFT JOIN vms v ON v.id = b.vm_id
