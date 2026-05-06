@@ -661,6 +661,9 @@ func generatePassword() string {
 }
 
 func buildCloudInit(password string, sshKeys []string) string {
+	// hostname 由 Incus NoCloud meta-data 从 instance name 自动注入；这里只设
+	// password / SSH。如果之后想让 cloud-config 也显式接管 hostname，可以加
+	// preserve_hostname: false + hostname: <name> 字段（需要把 vm name 传进来）。
 	ci := fmt.Sprintf("#cloud-config\npassword: %s\nchpasswd:\n  expire: false\nssh_pwauth: true\n", password)
 	if len(sshKeys) > 0 {
 		ci += "ssh_authorized_keys:\n"

@@ -60,7 +60,13 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		"config": map[string]any{
 			"limits.cpu":                fmt.Sprintf("%d", params.CPU),
 			"limits.memory":             fmt.Sprintf("%dMiB", params.MemoryMB),
-			"user.cloud-init":           cloudInit,
+			// Incus 标准 key 是 cloud-init.user-data / cloud-init.network-config
+			// （legacy alias: user.user-data / user.network-config）。
+			// 历史代码用 user.cloud-init，不是任何 cloud-init datasource 认识的
+			// key，导致 NoCloud 找不到种子 → cloud-init-generator 自禁 →
+			// netplan 不写入 → enp5s0 永远 DOWN。所有自 PLAN-005 起新建的
+			// VM 都中招（admin VM 看似正常是因为没人测过出站）。
+			"cloud-init.user-data":      cloudInit,
 			"cloud-init.network-config": netCfg,
 			"security.secureboot":       "false",
 			"migration.stateful":        "true",
