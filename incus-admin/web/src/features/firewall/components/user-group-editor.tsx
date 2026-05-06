@@ -316,6 +316,11 @@ function RulesEditor({
           {t("admin.firewall.addRule", { defaultValue: "添加规则" })}
         </Button>
       </div>
+      <p className="text-caption text-text-tertiary">
+        {t("firewall.editorWhitelistHint", {
+          defaultValue: "白名单：未在下表 allow 的流量由 Incus ACL 默认 reject。reject / drop 用来在 allow 前覆盖更窄的来源（按 drop > reject > allow 优先级）。",
+        })}
+      </p>
       {rules.length === 0 ? (
         <p className="text-caption text-text-tertiary">
           {t("admin.firewall.noRules", { defaultValue: "无规则" })}
