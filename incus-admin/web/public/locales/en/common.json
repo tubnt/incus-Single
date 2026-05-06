@@ -1362,6 +1362,8 @@
     "filterAll": "All",
     "filterMine": "Mine",
     "filterShared": "Shared",
-    "listEmpty": "No firewall groups."
+    "listEmpty": "No firewall groups.",
+    "whitelistHint": "Whitelist model: only explicit allow rules let traffic through; everything else is rejected by Incus ACL's default policy. A VM with no group bound has no ACL attached and is fully open.",
+    "editorWhitelistHint": "Whitelist: traffic not matched by an allow rule is rejected by the Incus ACL default. Use reject / drop to override narrower sources before an allow (priority: drop > reject > allow)."
   }
 }

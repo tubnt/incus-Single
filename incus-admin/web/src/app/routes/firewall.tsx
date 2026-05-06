@@ -1,6 +1,6 @@
 import type { FirewallGroup, FirewallRule } from "@/features/firewall/api";
 import { createFileRoute } from "@tanstack/react-router";
-import { Pencil, Plus, Search, Server, Settings, Trash2 } from "lucide-react";
+import { Info, Pencil, Plus, Search, Server, Settings, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -113,6 +113,15 @@ function UserFirewallPage() {
         }
       />
       <PageContent>
+        {/* 白名单机制说明：Incus ACL 默认 reject 未匹配流量；这里统一向用户传达 */}
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-status-info/30 bg-status-info/8 px-3 py-2 text-caption text-text-secondary">
+          <Info size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-status-info" />
+          <p className="leading-snug">
+            {t("firewall.whitelistHint", {
+              defaultValue: "白名单机制：只有显式 allow 的端口 / 来源 才放行；未匹配规则的流量由 Incus ACL 默认 reject。VM 未绑任何组时不挂 ACL，即等价全开放。",
+            })}
+          </p>
+        </div>
         {/* Toolbar 行：filter chips + 搜索 + 默认组摘要 */}
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <FilterChips filter={filter} onChange={setFilter} counts={counts} />
