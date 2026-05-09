@@ -140,15 +140,21 @@ func (s *VMService) Create(ctx context.Context, params CreateVMParams) (*CreateV
 		imageAlias = imageAlias[7:]
 	}
 
+	imageSource := map[string]any{
+		"type":  "image",
+		"alias": imageAlias,
+	}
+	// 不含 "/" 的 alias 视为本地 incus image store（管理员 import 的镜像，如 windows-server-2022），
+	// 让 Incus 走本地查找；含 "/" 的（如 ubuntu/24.04/cloud）走上游 simplestreams。
+	if strings.Contains(imageAlias, "/") {
+		imageSource["server"] = "https://images.linuxcontainers.org"
+		imageSource["protocol"] = "simplestreams"
+	}
+
 	body := map[string]any{
-		"name": vmName,
-		"type": "virtual-machine",
-		"source": map[string]any{
-			"type":     "image",
-			"alias":    imageAlias,
-			"server":   "https://images.linuxcontainers.org",
-			"protocol": "simplestreams",
-		},
+		"name":   vmName,
+		"type":   "virtual-machine",
+		"source": imageSource,
 		"config": map[string]any{
 			"limits.cpu":                fmt.Sprintf("%d", params.CPU),
 			"limits.memory":            fmt.Sprintf("%dMiB", params.MemoryMB),
@@ -251,6 +257,214 @@ func (s *VMService) ChangeState(ctx context.Context, clusterName, project, vmNam
 	}
 
 	return nil
+}
+
+// MigrateMode 描述迁移模式。
+//
+//   - MigrateAuto：probe 实例 migration.stateful；true → live，否则 cold（默认）
+//   - MigrateLive：强制 live 不停机；不支持 → 报错（不 fallback）
+//   - MigrateCold：强制冷迁移（停 → 迁 → 启）
+type MigrateMode string
+
+const (
+	MigrateAuto MigrateMode = "auto"
+	MigrateLive MigrateMode = "live"
+	MigrateCold MigrateMode = "cold"
+)
+
+// MigrateResult 描述一次迁移的结果，供 handler / batch executor 共用。
+type MigrateResult struct {
+	WasRunning bool        `json:"was_running"`
+	Target     string      `json:"target"`
+	Mode       MigrateMode `json:"mode"` // 实际走的模式（auto 时回填 live/cold）
+}
+
+// Migrate 把 VM 迁移到 cluster 内另一台节点。
+//
+// PLAN-039 / OPS-043：mode 决定 live / cold；auto 模式根据 instance 的
+// `migration.stateful` 配置自动选。
+//
+//   - cold：probe state → 如果 running 则 force-stop → POST migration → wait → 启回
+//   - live：直接 POST `{name, migration:true, live:true}` 不停机；失败不 fallback
+//   - auto：probe instance.config["migration.stateful"]==="true" 则走 live；否则 cold
+//
+// 失败 fallback 规则：
+//   - cold 路径迁移失败 → best-effort 启回原节点（避免留 stopped）
+//   - live 路径迁移失败 → 不 fallback（admin 选 live 表示明确要 live；自动 fallback
+//     可能掩盖问题）；返错让 handler 决策
+func (s *VMService) Migrate(ctx context.Context, clusterName, project, vmName, targetNode string, mode MigrateMode) (*MigrateResult, error) {
+	client, ok := s.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("cluster %q not found", clusterName)
+	}
+
+	if mode == "" {
+		mode = MigrateAuto
+	}
+	resolvedMode := mode
+	if mode == MigrateAuto {
+		stateful, _ := s.isStateful(ctx, client, project, vmName)
+		if stateful {
+			resolvedMode = MigrateLive
+		} else {
+			resolvedMode = MigrateCold
+		}
+	}
+
+	switch resolvedMode {
+	case MigrateLive:
+		return s.migrateLive(ctx, client, clusterName, project, vmName, targetNode)
+	case MigrateCold:
+		return s.migrateCold(ctx, clusterName, project, vmName, targetNode)
+	default:
+		return nil, fmt.Errorf("unknown migrate mode %q", mode)
+	}
+}
+
+// migrateLive 走 Incus live migration（不停机）。
+// 需要 instance.config["migration.stateful"] == "true"（已通过 isStateful 检查
+// 或 mode=live 强制时由 admin 自负）+ 共享存储（vmc.5ok.co ceph-pool 满足）。
+func (s *VMService) migrateLive(ctx context.Context, client *cluster.Client, clusterName, project, vmName, targetNode string) (*MigrateResult, error) {
+	wasRunning, _ := s.isRunning(ctx, client, project, vmName)
+	body := fmt.Sprintf(`{"name":%q,"migration":true,"live":true}`, vmName)
+	path := fmt.Sprintf("/1.0/instances/%s?project=%s&target=%s", vmName, project, targetNode)
+	resp, err := client.APIPost(ctx, path, strings.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("live migrate request: %w", err)
+	}
+	if resp != nil && resp.Type == "async" && resp.Operation != "" {
+		parts := strings.Split(resp.Operation, "/")
+		opID := parts[len(parts)-1]
+		if opID != "" {
+			if waitErr := client.WaitForOperation(ctx, opID); waitErr != nil {
+				return nil, fmt.Errorf("wait live migrate op: %w", waitErr)
+			}
+		}
+	}
+	return &MigrateResult{WasRunning: wasRunning, Target: targetNode, Mode: MigrateLive}, nil
+}
+
+// migrateCold 走传统冷迁移（停 → 迁 → 启）。与 PLAN-037 之前的实现一致。
+func (s *VMService) migrateCold(ctx context.Context, clusterName, project, vmName, targetNode string) (*MigrateResult, error) {
+	client, ok := s.clusters.Get(clusterName)
+	if !ok {
+		return nil, fmt.Errorf("cluster %q not found", clusterName)
+	}
+
+	wasRunning, _ := s.isRunning(ctx, client, project, vmName)
+	if wasRunning {
+		if err := s.ChangeState(ctx, clusterName, project, vmName, "stop", true); err != nil {
+			return nil, fmt.Errorf("stop before migrate: %w", err)
+		}
+	}
+
+	body := fmt.Sprintf(`{"name":%q,"migration":true}`, vmName)
+	path := fmt.Sprintf("/1.0/instances/%s?project=%s&target=%s", vmName, project, targetNode)
+	resp, err := client.APIPost(ctx, path, strings.NewReader(body))
+	if err != nil {
+		if wasRunning {
+			_ = s.ChangeState(ctx, clusterName, project, vmName, "start", false)
+		}
+		return nil, fmt.Errorf("migrate request: %w", err)
+	}
+	if resp != nil && resp.Type == "async" && resp.Operation != "" {
+		parts := strings.Split(resp.Operation, "/")
+		opID := parts[len(parts)-1]
+		if opID != "" {
+			if waitErr := client.WaitForOperation(ctx, opID); waitErr != nil {
+				if wasRunning {
+					_ = s.ChangeState(ctx, clusterName, project, vmName, "start", false)
+				}
+				return nil, fmt.Errorf("wait migrate op: %w", waitErr)
+			}
+		}
+	}
+	if wasRunning {
+		if err := s.ChangeState(ctx, clusterName, project, vmName, "start", false); err != nil {
+			slog.Warn("migrate post-start failed", "vm", vmName, "target", targetNode, "error", err)
+		}
+	}
+	return &MigrateResult{WasRunning: wasRunning, Target: targetNode, Mode: MigrateCold}, nil
+}
+
+// isStateful 读 instance config 判断是否已设 `migration.stateful=true`。
+func (s *VMService) isStateful(ctx context.Context, client *cluster.Client, project, vmName string) (bool, error) {
+	path := fmt.Sprintf("/1.0/instances/%s?project=%s", vmName, project)
+	resp, err := client.APIGet(ctx, path)
+	if err != nil {
+		return false, err
+	}
+	var inst struct {
+		Config map[string]string `json:"config"`
+	}
+	if err := json.Unmarshal(resp.Metadata, &inst); err != nil {
+		return false, err
+	}
+	v, ok := inst.Config["migration.stateful"]
+	return ok && (v == "true" || v == "1"), nil
+}
+
+// EnableStateful 把 VM 的 `migration.stateful` 设为 true 并按需重启。
+// 必须重启才生效（QEMU 进程级别需要带 live migration 支持启动）。
+//
+// 幂等：已经 stateful=true 的 VM 直接 return，不会引入无谓停机（pma-cr F2）。
+// 仅 stateful=false / 缺省的 VM 走 stop → set config → start。stopped 的 VM 只
+// set config，不强行 start（保留用户原状态）。
+//
+// PLAN-039 / OPS-043 Phase B1：让历史 VM 也能 live migrate。
+func (s *VMService) EnableStateful(ctx context.Context, clusterName, project, vmName string) error {
+	client, ok := s.clusters.Get(clusterName)
+	if !ok {
+		return fmt.Errorf("cluster %q not found", clusterName)
+	}
+	// pma-cr F2 幂等保护：已启用就直接退出，避免对已 stateful 的 VM 触发无谓
+	// 30s+ 停机（admin 误点批量启用是常见场景）。
+	// pma-cr F8：probe 错误不再静默吞——出错时仍按"未启用"继续走 stop+patch
+	// 路径，但留 warn 日志方便排查（如 VM 已删 / API 超时这类根因被掩盖）。
+	already, statefulErr := s.isStateful(ctx, client, project, vmName)
+	if statefulErr != nil {
+		slog.Warn("enable-stateful probe failed; proceeding with stop/patch path",
+			"vm", vmName, "cluster", clusterName, "error", statefulErr)
+	}
+	if already {
+		return nil
+	}
+	wasRunning, _ := s.isRunning(ctx, client, project, vmName)
+	if wasRunning {
+		if err := s.ChangeState(ctx, clusterName, project, vmName, "stop", true); err != nil {
+			return fmt.Errorf("stop before enable-stateful: %w", err)
+		}
+	}
+	patchBody := `{"config":{"migration.stateful":"true"}}`
+	patchPath := fmt.Sprintf("/1.0/instances/%s?project=%s", vmName, project)
+	if _, err := client.APIPatch(ctx, patchPath, strings.NewReader(patchBody)); err != nil {
+		// 启回避免用户无感卡停机
+		if wasRunning {
+			_ = s.ChangeState(ctx, clusterName, project, vmName, "start", false)
+		}
+		return fmt.Errorf("patch instance: %w", err)
+	}
+	if wasRunning {
+		if err := s.ChangeState(ctx, clusterName, project, vmName, "start", false); err != nil {
+			return fmt.Errorf("start after enable-stateful: %w", err)
+		}
+	}
+	return nil
+}
+
+// isRunning 探活；失败默认 false（避免误 stop）。
+func (s *VMService) isRunning(ctx context.Context, client *cluster.Client, project, vmName string) (bool, error) {
+	stateData, err := client.GetInstanceState(ctx, project, vmName)
+	if err != nil {
+		return false, err
+	}
+	var state struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(stateData, &state); err != nil {
+		return false, err
+	}
+	return state.Status == "Running", nil
 }
 
 func (s *VMService) Delete(ctx context.Context, clusterName, project, vmName string) error {

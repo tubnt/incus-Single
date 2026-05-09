@@ -1,10 +1,20 @@
 import { useTranslation } from "react-i18next";
+import { AIDiagnosePanel } from "@/features/jobs/components/ai-diagnose-panel";
 import { PageContent } from "@/shared/components/page/page-shell";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 
-/** /launch 失败态：错误文案 + retry CTA。后端已在 SSE 流内自动退款。 */
-export function FailedPanel({ error, onRetry }: { error: string; onRetry: () => void }) {
+/** /launch 失败态：错误文案 + retry CTA。后端已在 SSE 流内自动退款。
+ *  PLAN-038 / OPS-041 Phase C + pma-cr F4：jobID 提供时挂 AI 诊断面板。 */
+export function FailedPanel({
+  error,
+  onRetry,
+  jobID,
+}: {
+  error: string;
+  onRetry: () => void;
+  jobID?: number;
+}) {
   const { t } = useTranslation();
   return (
     <PageContent>
@@ -23,6 +33,7 @@ export function FailedPanel({ error, onRetry }: { error: string; onRetry: () => 
           </div>
         </CardContent>
       </Card>
+      {jobID ? <AIDiagnosePanel jobID={jobID} /> : null}
     </PageContent>
   );
 }

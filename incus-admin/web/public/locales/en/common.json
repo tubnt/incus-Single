@@ -145,7 +145,36 @@
     "maxSnapshots": "Max snapshots",
     "maxVcpus": "Max vCPU",
     "maxVms": "Max VMs",
-    "migrate": "Migrate",
+    "migrate": {
+      "batchTitle": "Batch migrate",
+      "batchCount": "{{n}} VMs",
+      "batchDesc": "Cold migration: each VM is stopped then migrated to the target node. ~30s-2min each.",
+      "batchAction": "Migrate to...",
+      "sources": "Source nodes:",
+      "unknownSources": "(unknown, will probe)",
+      "target": "Target node",
+      "sourceTargetSame": "Target is in the source set; same-node VMs will be skipped.",
+      "coldNotice": "VMs are down during migration. Concurrency: ≤2 per source, ≤4 global.",
+      "confirm": "Migrate {{n}} VMs to {{node}}",
+      "jobLabel": "Job #{{id}}",
+      "jobOK": "Completed",
+      "jobPartial": "Partial success",
+      "jobFailed": "Failed",
+      "modeLabel": "Migration mode",
+      "modeAuto": "Auto",
+      "modeAutoHint": "Pick by VM config",
+      "modeLive": "Live",
+      "modeLiveHint": "No downtime",
+      "modeCold": "Cold",
+      "modeColdHint": "30s+ down",
+      "nonStatefulTitle": "{{n}} VM(s) without stateful",
+      "nonStatefulLive": "Live mode will fail for these VMs; enable stateful first (~30s restart each).",
+      "nonStatefulAuto": "Auto mode will fall back to cold for these VMs (30s+ down).",
+      "enableStateful": "Enable stateful for {{n}} VM(s) (restart)",
+      "statefulEnabledAll": "Stateful enabled on {{n}} VM(s) (restarted)",
+      "statefulEnabledPartial": "{{ok}}/{{total}} succeeded, {{fail}} failed",
+      "liveNotice": "Live migration: no downtime; requires stateful + shared storage; same concurrency limits."
+    },
     "migrateFailed": "Migration failed",
     "migrateRun": "Migrate",
     "migrateTitle": "Migrate to target node",
@@ -318,7 +347,29 @@
           "nicCollapse": "Collapse",
           "nicExpand": "Adjust",
           "newCredential": "New credential",
-          "manageCredentialsFull": "Open credential manager (delete / view fingerprint)"
+          "manageCredentialsFull": "Open credential manager (delete / view fingerprint)",
+          "nicSpeed": "Speed"
+        },
+        "ai": {
+          "title": "AI Role Suggestion (optional)",
+          "lowConfHint": "Tier 1 confidence low; please verify",
+          "highConfHint": "Tier 1 confident; AI is cross-check only",
+          "button": "AI explain this node",
+          "disabledHint": "AI service not enabled",
+          "providerLine": "provider={{p}} · model={{m}}",
+          "colRole": "Role",
+          "colNIC": "AI suggested",
+          "colTier1": "Tier 1 suggested",
+          "colConf": "Confidence",
+          "colReason": "Reason",
+          "colAction": "Action",
+          "adopt": "Adopt",
+          "diff": "Differs from Tier 1",
+          "same": "Same as Tier 1",
+          "errorTimeout": "AI request timed out; please retry",
+          "errorRateLimit": "Rate limit reached; please slow down",
+          "errorSchema": "AI returned malformed schema; please retry",
+          "errorGeneric": "AI request failed: {{msg}}"
         }
       },
       "remove": {
@@ -339,7 +390,35 @@
         "enterMessage": "Mark {{name}} as maintenance: new VMs will skip this node; existing VMs stay. Use Evacuate above to migrate existing.",
         "exitMessage": "Restore {{name}} to regular scheduling (new VMs may land here)."
       },
-      "downloadEnvScript": "Download cluster-env.sh"
+      "downloadEnvScript": "Download cluster-env.sh",
+      "topology": {
+        "title": "Cluster Topology",
+        "summary": "{{nodes}} nodes · {{vms}} VMs",
+        "maint": "Maint",
+        "evacuated": "Evacuated",
+        "chipAria": "{{node}}: {{vms}} VMs, memory used {{util}}%",
+        "vmCount": "{{n}} VM",
+        "runningCount": "{{n}} running",
+        "memUtil": "Mem {{pct}}%",
+        "load": "load {{v}}",
+        "loadHint": "5min load avg / CPU cores = {{load}}/{{cpu}}",
+        "score": "score {{v}}",
+        "scoreHint": "Scheduler score (mem 0.5 + cpu 0.4 + disk 0.1)"
+      },
+      "rebalance": {
+        "title": "Imbalance Analysis",
+        "expand": "Expand (on-demand)",
+        "balanced": "Cluster is balanced — no suggestions.",
+        "applyAll": "Apply all ({{n}})",
+        "confirmTitle": "Apply all suggestions?",
+        "confirmMessage": "Will batch cold-migrate {{count}} VMs. Each VM will be down for 30s-2min during migration.",
+        "enqueued": "Enqueued job #{{id}} ({{count}} items)",
+        "statsLabel": "Node memory utilization:",
+        "stats": "mean {{mean}}% · stddev {{stddev}}% · max diff {{diff}}%",
+        "hotCold": "Hot {{hot}} ↔ Cold {{cold}}",
+        "move": "Migration",
+        "reason": "Reason"
+      }
     },
     "nodeCredentials": {
       "title": "Node Credentials",
@@ -537,7 +616,17 @@
       "expire": "Expire",
       "expireTitle": "Expire order",
       "expireMessage": "Mark order #{{orderId}} as expired?"
-    }
+    },
+    "alerts": {
+      "imbalanceTitle": "Cluster {{cluster}} persistent imbalance",
+      "imbalanceStats": "mem stddev {{stddev}}% · {{ticks}} ticks",
+      "hotCold": "Hot {{hot}} ↔ Cold {{cold}}",
+      "howTo": "Open the Imbalance Analysis panel below to review suggestions and apply migrations.",
+      "dismiss": "Dismiss",
+      "dismissed": "Alert #{{id}} dismissed"
+    },
+    "vmStatefulHint": "Live migration ready (migration.stateful=true)",
+    "migrateBtn": "Migrate"
   },
   "adminOverview": {
     "apiStatus": "API Status",
@@ -1309,7 +1398,11 @@
     "trashedOneToast": "{{name}} moved to trash · undo within 30s",
     "trashedToast": "{{n}} VMs moved to trash · undo within 30s",
     "undo": "Undo",
-    "undoAll": "Undo all"
+    "undoAll": "Undo all",
+    "filterByNode": "Filter by node",
+    "allNodes": "All nodes",
+    "viewSiblingsOnNode": "View other VMs on {{node}}",
+    "locatedOnNode": "Running on node {{node}}"
   },
   "jobs": {
     "queued": "Queued, waiting for a worker...",
@@ -1326,6 +1419,22 @@
       "recreate": "Recreate instance",
       "waitRecreate": "Wait for image + disk",
       "startAfterReinstall": "Start new instance"
+    },
+    "ai": {
+      "diagnoseTitle": "AI Diagnostics (failure cause + fix steps)",
+      "expand": "Expand/collapse",
+      "disabled": "AI service not enabled",
+      "runAnalysis": "Click to run",
+      "category": "Category",
+      "rootCause": "Root cause",
+      "fixSteps": "Suggested fix steps (operator reference; not auto-executed)",
+      "manual": "Operator manual steps",
+      "safeRetry": "Safe to auto-retry: {{v}}",
+      "rerun": "Re-analyze",
+      "errorTimeout": "AI request timed out; please retry",
+      "errorRateLimit": "Rate limit reached; please slow down",
+      "errorSchema": "AI returned malformed schema; please retry",
+      "errorGeneric": "AI request failed: {{msg}}"
     }
   },
   "firewall": {

@@ -1,6 +1,6 @@
 import type {ResetPasswordMode} from "@/features/vms/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Play, RefreshCw, RotateCcw, ShieldCheck, Square, Terminal as TerminalIcon, Trash2, Truck } from "lucide-react";
+import { Play, RefreshCw, RotateCcw, Server, ShieldCheck, Square, Terminal as TerminalIcon, Trash2, Truck } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -62,6 +62,8 @@ function VMDetailPage() {
   const confirm = useConfirm();
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [migrateTarget, setMigrateTarget] = useState("");
+  // PLAN-039 / OPS-043: 单台迁移也支持 mode 三选；默认 auto
+  const [migrateMode, setMigrateMode] = useState<"auto" | "live" | "cold">("auto");
   const [reinstallOpen, setReinstallOpen] = useState(false);
   const [resetPwdOpen, setResetPwdOpen] = useState(false);
   const [reinstallSlug, setReinstallSlug] = useState(DEFAULT_TEMPLATE_SLUG);
@@ -91,7 +93,7 @@ function VMDetailPage() {
 
   const runMigrate = (target: string) =>
     migrateMutation.mutate(
-      { name, cluster, project, target_node: target },
+      { name, cluster, project, target_node: target, mode: migrateMode },
       {
         onSuccess: () => {
           toast.success(`${name} ${t("admin.migrated", { defaultValue: "已迁移" })}`);
@@ -278,12 +280,35 @@ function VMDetailPage() {
   return (
     <PageShell>
       <PageHeader
-        title={<span className="font-mono">{name}</span>}
+        title={
+          <span className="flex items-center gap-2">
+            <span className="font-mono">{name}</span>
+            {/* PLAN-037 / OPS-040：把节点标签提升为可点击 chip，跳到 admin/vms?node=X */}
+            {currentNode ? (
+              <Link
+                to="/admin/vms"
+                search={{ node: currentNode }}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-pill border border-border",
+                  "bg-surface-1 hover:bg-surface-2 transition-colors",
+                  "text-caption font-mono text-text-secondary",
+                )}
+                aria-label={t("vm.viewSiblingsOnNode", {
+                  defaultValue: "查看 {{node}} 上的其他 VM",
+                  node: currentNode,
+                })}
+              >
+                <Server size={12} aria-hidden="true" />
+                {currentNode}
+              </Link>
+            ) : null}
+          </span>
+        }
         breadcrumbs={[
           { label: t("nav.allVms"), to: "/admin/vms" },
           { label: name },
         ]}
-        description={`${cluster} / ${resolvedProject}${currentNode ? ` · ${currentNode}` : ""}`}
+        description={`${cluster} / ${resolvedProject}`}
         actions={
           <div className="flex flex-wrap items-center gap-1.5">
               {isRunning ? (
@@ -321,7 +346,7 @@ function VMDetailPage() {
               ) : null}
               <Button size="sm" variant="ghost" onClick={() => setMigrateOpen(true)}>
                 <Truck size={12} aria-hidden="true" />
-                {t("admin.migrate", { defaultValue: "迁移" })}
+                {t("admin.migrateBtn", { defaultValue: "迁移" })}
               </Button>
               <Button size="sm" variant="ghost" disabled={reinstallMutation.isPending} onClick={() => setReinstallOpen(true)}>
                 <RotateCcw size={12} aria-hidden="true" />
@@ -399,6 +424,37 @@ function VMDetailPage() {
                 className="w-full font-mono"
               />
             </div>
+            {/* PLAN-039 / OPS-043: 模式三选 */}
+            <fieldset className="space-y-1.5">
+              <legend className="text-sm font-emphasis">
+                {t("admin.migrate.modeLabel", { defaultValue: "迁移模式" })}
+              </legend>
+              <div className="flex gap-1">
+                {(["auto", "live", "cold"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMigrateMode(m)}
+                    className={`flex-1 rounded-md border px-2 py-1.5 text-caption transition-colors ${
+                      migrateMode === m
+                        ? "bg-surface-2 text-foreground border-ring"
+                        : "bg-surface-1 border-border text-text-secondary hover:bg-surface-2"
+                    }`}
+                  >
+                    <span className="font-emphasis">
+                      {m === "auto" && "Auto"}
+                      {m === "live" && "Live"}
+                      {m === "cold" && "Cold"}
+                    </span>
+                    <div className="text-tiny text-text-tertiary mt-0.5">
+                      {m === "auto" && t("admin.migrate.modeAutoHint", { defaultValue: "按 VM 配置自选" })}
+                      {m === "live" && t("admin.migrate.modeLiveHint", { defaultValue: "不停机" })}
+                      {m === "cold" && t("admin.migrate.modeColdHint", { defaultValue: "停 30s+" })}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
           </SheetBody>
           <SheetFooter>
             <Button variant="ghost" onClick={() => setMigrateOpen(false)}>

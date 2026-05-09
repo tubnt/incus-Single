@@ -37,6 +37,16 @@ var sensitiveRoutes = []sensitiveRoute{
 	// not per-action; even start/stop batch requires recent reauth as it's
 	// admin-only and high blast radius).
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:batch$`)},
+	// PLAN-037: 批量冷迁移；destructive（停机迁移）+ 高 blast radius
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:migrate-batch$`)},
+	// PLAN-039 / OPS-043: enable-stateful 涉及重启 VM（用户感知停机）
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms/[^/]+/enable-stateful$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:enable-stateful-batch$`)},
+	// PLAN-039 / OPS-044: dismiss alert（admin-only写）
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/system-alerts/\d+/dismiss$`)},
+	// PLAN-038 / OPS-041: AI 调用付费 + 拉取系统数据，按高敏处理
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/ai-suggest$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/jobs/\d+/ai-diagnose$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/floating-ips:batch$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/users:batch$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/[^/]+/evacuate$`)},

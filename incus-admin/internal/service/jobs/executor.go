@@ -67,4 +67,20 @@ type Params struct {
 	// 必须 Wipe Credential 把内存中的密码 / 私钥清零。
 	Credential             *sshexec.Credential
 	AcceptedHostKeySHA256  string // 启动 add-node job 前已写入 known_hosts，仅用于 audit
+
+	// PLAN-037 / OPS-040：cluster.vm.migrate-batch
+	ClusterName        string             // VM 所在集群（与 job.ClusterID 等价但批量执行需直接用名）
+	BatchItems         []MigrateBatchItem // 待迁移条目（同一 cluster 内）
+	ConcurrencyPerSrc  int                // 单个 source 节点并发上限；0 → 默认 2
+	GlobalConcurrency  int                // 全局并发上限；0 → 默认 4
+}
+
+// MigrateBatchItem 描述一台 VM 的迁移条目。
+type MigrateBatchItem struct {
+	VMName     string `json:"vm_name"`
+	Project    string `json:"project"`
+	SourceNode string `json:"source_node"` // 来自前端预解析；空字符串表示"未知/任意"
+	TargetNode string `json:"target_node"`
+	// PLAN-039 / OPS-043 mode：auto / live / cold；空 = auto。
+	Mode string `json:"mode,omitempty"`
 }

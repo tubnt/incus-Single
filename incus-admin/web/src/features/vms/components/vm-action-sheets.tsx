@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useJobQuery } from "@/features/jobs/api";
+import { AIDiagnosePanel } from "@/features/jobs/components/ai-diagnose-panel";
 import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
@@ -196,6 +197,10 @@ function ReinstallForm({
     return (
       <div className="space-y-3">
         <JobProgress steps={stream.steps} />
+        {/* PLAN-038 / OPS-041 Phase C + pma-cr F4：reinstall 失败时挂 AI 诊断 */}
+        {(stream.terminal === "failed" || stream.terminal === "partial") && (
+          <AIDiagnosePanel jobID={jobId} />
+        )}
         {stream.terminal != null
           ? null
           : (

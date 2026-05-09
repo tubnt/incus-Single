@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,7 +18,9 @@ import (
 	"github.com/incuscloud/incus-admin/internal/middleware"
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
+	"github.com/incuscloud/incus-admin/internal/service/aiassist"
 	"github.com/incuscloud/incus-admin/internal/service/jobs"
+	"github.com/incuscloud/incus-admin/internal/service/rebalance"
 	"github.com/incuscloud/incus-admin/internal/sshexec"
 )
 
@@ -36,6 +39,16 @@ type ClusterMgmtHandler struct {
 	nodeCredRepo *repository.NodeCredentialRepo
 	probeCache   *probeCache
 	probeRate    *rateLimiter
+	// PLAN-037 / OPS-040：topology + 不均衡建议
+	scheduler *cluster.Scheduler
+	vmRepo    *repository.VMRepo
+	// PLAN-039 / OPS-044：system_alerts CRUD
+	alertRepo *repository.SystemAlertRepo
+	// PLAN-038 / OPS-041 Phase B：Tier 2 LLM provider；nil 时 endpoint 503
+	aiProvider aiassist.Provider
+	// per-user 内存限流（10/h）：Tier 2 调用，与 Tier 3 隔离计数
+	aiRateMu sync.Mutex
+	aiRate   map[int64][]time.Time
 }
 
 func NewClusterMgmtHandler(mgr *cluster.Manager) *ClusterMgmtHandler {
@@ -50,6 +63,28 @@ func NewClusterMgmtHandler(mgr *cluster.Manager) *ClusterMgmtHandler {
 // flows can resolve a saved credential by id (PLAN-033 / OPS-039).
 func (h *ClusterMgmtHandler) WithNodeCredentials(repo *repository.NodeCredentialRepo) *ClusterMgmtHandler {
 	h.nodeCredRepo = repo
+	return h
+}
+
+// WithTopology 注入 scheduler + vmRepo 启用 PLAN-037 topology / 不均衡建议端点。
+func (h *ClusterMgmtHandler) WithTopology(scheduler *cluster.Scheduler, vmRepo *repository.VMRepo) *ClusterMgmtHandler {
+	h.scheduler = scheduler
+	h.vmRepo = vmRepo
+	return h
+}
+
+// WithAlerts 注入 system_alerts repo 启用 PLAN-039 / OPS-044 告警 CRUD。
+func (h *ClusterMgmtHandler) WithAlerts(repo *repository.SystemAlertRepo) *ClusterMgmtHandler {
+	h.alertRepo = repo
+	return h
+}
+
+// WithAIProvider 注入 LLM provider 启用 PLAN-038 / OPS-041 Tier 2 角色推荐。
+func (h *ClusterMgmtHandler) WithAIProvider(p aiassist.Provider) *ClusterMgmtHandler {
+	h.aiProvider = p
+	if h.aiRate == nil {
+		h.aiRate = make(map[int64][]time.Time)
+	}
 	return h
 }
 
@@ -88,6 +123,14 @@ func (h *ClusterMgmtHandler) AdminRoutes(r chi.Router) {
 	r.Post("/clusters/{name}/nodes/{node}/maintenance", h.SetMaintenance)
 	// OPS-024 C2 cluster-env.sh 生成（step-up gated；middleware 配置）
 	r.Get("/clusters/{name}/env-script", h.GenerateEnvScript)
+	// PLAN-037 / OPS-040：节点拓扑 + 不均衡建议（admin/nodes 顶部条带 + RebalancePanel）
+	r.Get("/clusters/{name}/nodes/topology", h.NodeTopology)
+	r.Get("/clusters/{name}/imbalance-suggestions", h.ImbalanceSuggestions)
+	// PLAN-039 / OPS-044：watchdog 告警
+	r.Get("/system-alerts", h.ListSystemAlerts)
+	r.Post("/system-alerts/{id}/dismiss", h.DismissSystemAlert)
+	// PLAN-038 / OPS-041 Phase B Tier 2：AI 角色推荐（仅在低置信度时点用）
+	r.Post("/clusters/{name}/nodes/ai-suggest", h.AISuggestRoles)
 }
 
 func (h *ClusterMgmtHandler) AddCluster(w http.ResponseWriter, r *http.Request) {
@@ -854,4 +897,356 @@ func (h *ClusterMgmtHandler) GenerateEnvScript(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Content-Disposition", "attachment; filename=\"cluster-env.sh\"")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(b.String()))
+}
+
+// memberMaintFlags 取每个 member 的 scheduler.instance / status，给 NodeTopology
+// 与 ImbalanceSuggestions 共用。返回 map[server_name] -> (maintenance, evacuated)。
+func memberMaintFlags(ctx context.Context, client *cluster.Client) (map[string]nodeFlags, error) {
+	raws, err := client.GetClusterMembers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]nodeFlags, len(raws))
+	for _, raw := range raws {
+		var m struct {
+			ServerName string            `json:"server_name"`
+			Status     string            `json:"status"`
+			Config     map[string]string `json:"config"`
+		}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			continue
+		}
+		flags := nodeFlags{}
+		if v, ok := m.Config["scheduler.instance"]; ok {
+			flags.Maintenance = strings.EqualFold(v, "manual")
+		}
+		flags.Evacuated = strings.EqualFold(m.Status, "Evacuated")
+		flags.Online = strings.EqualFold(m.Status, "Online")
+		flags.Status = m.Status
+		out[m.ServerName] = flags
+	}
+	return out, nil
+}
+
+type nodeFlags struct {
+	Maintenance bool
+	Evacuated   bool
+	Online      bool
+	Status      string
+}
+
+// NodeTopology 返回某 cluster 的节点分布快照：每节点 mem 利用率 + VM 计数 +
+// 维护 / 疏散态。供 admin/nodes 顶部 strip 与 RebalancePanel 同源。
+//
+// 路由：GET /api/admin/clusters/{name}/nodes/topology
+//
+// 数据组合：scheduler 缓存（mem/cpu，60s 刷新）+ DB 聚合（VM 计数）+ Incus
+// member raw（maintenance / evacuated）。
+func (h *ClusterMgmtHandler) NodeTopology(w http.ResponseWriter, r *http.Request) {
+	if h.scheduler == nil || h.vmRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "topology not configured"})
+		return
+	}
+	clusterName := chi.URLParam(r, "name")
+	client, ok := h.mgr.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+
+	nodes := h.scheduler.GetNodes(clusterName)
+	flags, _ := memberMaintFlags(r.Context(), client)
+
+	clusterID := h.mgr.IDByName(clusterName)
+	stats, err := h.vmRepo.CountVMsByNode(r.Context(), clusterID)
+	if err != nil {
+		slog.Warn("topology: count vms by node failed", "cluster", clusterName, "error", err)
+		stats = nil
+	}
+	statsByNode := make(map[string]repository.NodeVMStat, len(stats))
+	for _, s := range stats {
+		statsByNode[s.Node] = s
+	}
+
+	type nodeOut struct {
+		ServerName      string  `json:"server_name"`
+		Status          string  `json:"status"`
+		Message         string  `json:"message"`
+		CPUTotal        int     `json:"cpu_total"`
+		MemTotal        int64   `json:"mem_total"`
+		MemUsed         int64   `json:"mem_used"`
+		MemFree         int64   `json:"mem_free"`
+		FreeRatio       float64 `json:"free_ratio"`
+		LoadAverage5Min float64 `json:"load_5min"`        // PLAN-039 / OPS-042
+		CPUFreeRatio    float64 `json:"cpu_free_ratio"`   // PLAN-039 / OPS-042
+		DiskFreeRatio   float64 `json:"disk_free_ratio"`  // PLAN-039 / OPS-042（cluster-wide）
+		Score           float64 `json:"score"`            // PLAN-039 / OPS-042
+		VMCount         int     `json:"vm_count"`
+		VMRunning       int     `json:"vm_running"`
+		VMStopped       int     `json:"vm_stopped"`
+		VMOther         int     `json:"vm_other"`
+		Maintenance     bool    `json:"maintenance"`
+		Evacuated       bool    `json:"evacuated"`
+	}
+	out := make([]nodeOut, 0, len(nodes))
+	seen := make(map[string]struct{}, len(nodes))
+	for _, n := range nodes {
+		f := flags[n.Name]
+		s := statsByNode[n.Name]
+		// scheduler 已经写过 Maintenance/Evacuated；以 scheduler 为主，flags 兜底。
+		maint := n.Maintenance || f.Maintenance
+		evac := n.Evacuated || f.Evacuated
+		out = append(out, nodeOut{
+			ServerName:      n.Name,
+			Status:          n.Status,
+			Message:         n.Message,
+			CPUTotal:        n.CPUTotal,
+			MemTotal:        n.MemTotal,
+			MemUsed:         n.MemUsed,
+			MemFree:         n.MemFree,
+			FreeRatio:       n.FreeRatio,
+			LoadAverage5Min: n.LoadAverage5Min,
+			CPUFreeRatio:    n.CPUFreeRatio,
+			DiskFreeRatio:   n.DiskFreeRatio,
+			Score:           n.Score,
+			VMCount:         s.Total,
+			VMRunning:       s.Running,
+			VMStopped:       s.Stopped,
+			VMOther:         s.Other,
+			Maintenance:     maint,
+			Evacuated:       evac,
+		})
+		seen[n.Name] = struct{}{}
+	}
+	// DB 里有 VM 但 scheduler 没缓存的 node（节点新加入或缓存未刷新）也补出来。
+	for _, s := range stats {
+		if s.Node == "" {
+			continue
+		}
+		if _, ok := seen[s.Node]; ok {
+			continue
+		}
+		f := flags[s.Node]
+		out = append(out, nodeOut{
+			ServerName:  s.Node,
+			Status:      f.Status,
+			VMCount:     s.Total,
+			VMRunning:   s.Running,
+			VMStopped:   s.Stopped,
+			VMOther:     s.Other,
+			Maintenance: f.Maintenance,
+			Evacuated:   f.Evacuated,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cluster": clusterName,
+		"nodes":   out,
+	})
+}
+
+// ImbalanceSuggestions 调 rebalance 包给出"建议迁移条目"列表。
+//
+// 路由：GET /api/admin/clusters/{name}/imbalance-suggestions
+//
+// 仅返建议 + stats，不执行迁移；前端 RebalancePanel 拿到后用户决定是否
+// 一键提交到 /vms:migrate-batch。
+func (h *ClusterMgmtHandler) ImbalanceSuggestions(w http.ResponseWriter, r *http.Request) {
+	if h.scheduler == nil || h.vmRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "rebalance not configured"})
+		return
+	}
+	clusterName := chi.URLParam(r, "name")
+	client, ok := h.mgr.Get(clusterName)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+	clusterID := h.mgr.IDByName(clusterName)
+
+	rawNodes := h.scheduler.GetNodes(clusterName)
+	flags, _ := memberMaintFlags(r.Context(), client)
+	caps := make([]rebalance.NodeCapacity, 0, len(rawNodes))
+	for _, n := range rawNodes {
+		f := flags[n.Name]
+		caps = append(caps, rebalance.NodeCapacity{
+			Name:        n.Name,
+			MemTotal:    n.MemTotal,
+			MemUsed:     n.MemUsed,
+			Maintenance: f.Maintenance,
+			Online:      f.Online || n.Status == "Online",
+		})
+	}
+
+	// pma-cr F3：与 watchdog 同源用 ListActiveForRebalance（专用最小投影），
+	// 避免 ImbalanceSuggestions 与 watchdog 计算的 imbalance 不一致。
+	dbVMs, err := h.vmRepo.ListActiveForRebalance(r.Context(), clusterID)
+	if err != nil {
+		slog.Warn("imbalance: list vms failed", "cluster", clusterName, "error", err)
+		dbVMs = nil
+	}
+	vms := make([]rebalance.VM, 0, len(dbVMs))
+	for _, v := range dbVMs {
+		vms = append(vms, rebalance.VM{
+			Name:     v.Name,
+			Project:  v.Project,
+			Node:     v.Node,
+			MemoryMB: v.MemoryMB,
+		})
+	}
+
+	plan := rebalance.Compute(caps, vms, rebalance.Default())
+	writeJSON(w, http.StatusOK, plan)
+}
+
+// ListSystemAlerts 返当前 active 告警（PLAN-039 / OPS-044）。
+// 路由：GET /api/admin/system-alerts
+func (h *ClusterMgmtHandler) ListSystemAlerts(w http.ResponseWriter, r *http.Request) {
+	if h.alertRepo == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"alerts": []any{}})
+		return
+	}
+	alerts, err := h.alertRepo.ListActive(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if alerts == nil {
+		alerts = []repository.SystemAlert{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"alerts": alerts})
+}
+
+// DismissSystemAlert admin 手工 dismiss 告警（step-up gated）。
+// 路由：POST /api/admin/system-alerts/{id}/dismiss
+func (h *ClusterMgmtHandler) DismissSystemAlert(w http.ResponseWriter, r *http.Request) {
+	if h.alertRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "alerts not configured"})
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if err := h.alertRepo.Dismiss(r.Context(), id, userID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	audit(r.Context(), r, "system_alert.dismiss", "system_alert", id, nil)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "dismissed", "id": id})
+}
+
+// AISuggestRoles PLAN-038 / OPS-041 Phase B Tier 2 — LLM 角色推荐。
+//
+// 输入：probe_id（10min 缓存的探测结果引用）+ expected_role
+// 输出：4 角色 ranked 推荐 + 理由 + warnings
+//
+// 路由：POST /api/admin/clusters/{name}/nodes/ai-suggest（admin only + step-up）
+func (h *ClusterMgmtHandler) AISuggestRoles(w http.ResponseWriter, r *http.Request) {
+	if h.aiProvider == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ai disabled"})
+		return
+	}
+	clusterName := chi.URLParam(r, "name")
+	var req struct {
+		ProbeID      string `json:"probe_id"      validate:"required"`
+		ExpectedRole string `json:"expected_role" validate:"omitempty,oneof=osd mon-mgr-osd"`
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if req.ExpectedRole == "" {
+		req.ExpectedRole = "osd"
+	}
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if !h.allowAIRequest(userID) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "ai rate limit (10/h) exceeded"})
+		return
+	}
+	rec, ok := h.probeCache.get(req.ProbeID)
+	if !ok || rec.info == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "probe_id expired or unknown"})
+		return
+	}
+
+	// Tier 1 排序结果一并送 LLM 作 hint
+	tier1 := aiassist.RankNICRoles(rec.info)
+
+	// 集群上下文（暂用项目硬编码 CIDR；后续可从 cluster-env.sh 读）
+	cc := aiassist.ClusterContext{
+		NodeCount:       len(h.scheduler.GetNodes(clusterName)),
+		MgmtCIDR:        "10.0.10.0/24",
+		CephPublicCIDR:  "10.0.20.0/24",
+		CephClusterCIDR: "10.0.30.0/24",
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	resp, sug, err := aiassist.SuggestRoleMapping(ctx, h.aiProvider, rec.info, cc, req.ExpectedRole, tier1.Roles)
+	provider, model := "", ""
+	if sug != nil {
+		provider, model = sug.Provider, sug.Model
+	}
+	auditDetails := map[string]any{
+		"cluster":  clusterName,
+		"probe_id": req.ProbeID,
+		"role":     req.ExpectedRole,
+		"provider": provider,
+		"model":    model,
+	}
+	if sug != nil {
+		auditDetails["input_tokens"] = sug.UsageInputTokens
+		auditDetails["output_tokens"] = sug.UsageOutputTokens
+	}
+
+	if err != nil {
+		auditDetails["error"] = err.Error()
+		audit(r.Context(), r, "ai.role_mapping.failed", "cluster", h.mgr.IDByName(clusterName), auditDetails)
+		slog.Warn("ai role-mapping failed", "cluster", clusterName, "error", err)
+		switch {
+		case err == aiassist.ErrAIDisabled:
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ai disabled"})
+		case err == aiassist.ErrAITimeout:
+			writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "ai timeout"})
+		default:
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		}
+		return
+	}
+	audit(r.Context(), r, "ai.role_mapping.ok", "cluster", h.mgr.IDByName(clusterName), auditDetails)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"recommendations": resp.Recommendations,
+		"warnings":        resp.Warnings,
+		"tier1":           tier1, // 让前端能 diff 显示 Tier1 vs LLM
+		"provider":        provider,
+		"model":           model,
+	})
+}
+
+// allowAIRequest 简单内存限流（10/h/user）。
+func (h *ClusterMgmtHandler) allowAIRequest(userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	now := time.Now()
+	cutoff := now.Add(-time.Hour)
+	h.aiRateMu.Lock()
+	defer h.aiRateMu.Unlock()
+	hist := h.aiRate[userID]
+	keep := hist[:0]
+	for _, t := range hist {
+		if t.After(cutoff) {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= 10 {
+		h.aiRate[userID] = keep
+		return false
+	}
+	keep = append(keep, now)
+	h.aiRate[userID] = keep
+	return true
 }

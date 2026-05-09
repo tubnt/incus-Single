@@ -477,9 +477,15 @@ func (h *AdminVMHandler) Routes(r chi.Router) {
 	r.Get("/vms", h.ListAllVMs)
 	// PLAN-023: batch operations 必须排在 /{name} 通配前，避免 chi 把 ":batch" 当 vmName。
 	r.Post("/vms:batch", h.BatchVMs)
+	// PLAN-037: 批量冷迁移；同样必须先于 /{name} 通配。
+	r.Post("/vms:migrate-batch", h.MigrateVMBatch)
+	// PLAN-039 / OPS-043: 批量启用 stateful（live migration 前置）；先于 /{name} 通配
+	r.Post("/vms:enable-stateful-batch", h.EnableStatefulBatch)
 	r.Put("/vms/{name}/state", h.ChangeVMState)
 	r.Post("/vms/{name}/reinstall", h.ReinstallVM)
 	r.Post("/vms/{name}/migrate", h.MigrateVM)
+	// PLAN-039 / OPS-043: 单台启用 stateful
+	r.Post("/vms/{name}/enable-stateful", h.EnableStateful)
 	r.Post("/vms/{name}/reset-password", h.ResetPasswordAdmin)
 	r.Delete("/vms/{name}", h.DeleteVM)
 	// PLAN-034: trash-with-undo 三联——回收站列表、按名 restore、按名 purge（强删，
@@ -1669,6 +1675,8 @@ func (h *AdminVMHandler) MigrateVM(w http.ResponseWriter, r *http.Request) {
 		Cluster    string `json:"cluster"     validate:"required,safename"`
 		Project    string `json:"project"     validate:"omitempty,safename"`
 		TargetNode string `json:"target_node" validate:"required,safename"`
+		// PLAN-039 / OPS-043: auto / live / cold；空 → auto
+		Mode string `json:"mode" validate:"omitempty,oneof=auto live cold"`
 	}
 	if !decodeAndValidate(w, r, &req) {
 		return
@@ -1677,76 +1685,216 @@ func (h *AdminVMHandler) MigrateVM(w http.ResponseWriter, r *http.Request) {
 		req.Project = "customers"
 	}
 
-	client, ok := h.clusters.Get(req.Cluster)
-	if !ok {
+	if _, ok := h.clusters.Get(req.Cluster); !ok {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
 		return
 	}
 
-	// Incus migrate API: POST /1.0/instances/{name}?project=...&target=NODE
-	// `migration:true` flags this as a migration. Live migration requires
-	// per-VM `migration.stateful=true` AND Ceph block storage AND QEMU
-	// build with live migration patches; we don't set those at create time
-	// so we always do a cold migrate: stop → move stateless → start.
-	wasRunning, _ := h.vmIsRunning(r.Context(), client, req.Project, vmName)
-	if wasRunning {
-		if err := h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "stop", true); err != nil {
-			slog.Error("migrate stop failed", "vm", vmName, "error", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "migration failed (stop): " + err.Error()})
-			return
-		}
+	mode := service.MigrateMode(req.Mode)
+	if mode == "" {
+		mode = service.MigrateAuto
 	}
-
-	migrateBody := fmt.Sprintf(`{"name":"%s","migration":true}`, vmName)
-	path := fmt.Sprintf("/1.0/instances/%s?project=%s&target=%s", vmName, req.Project, req.TargetNode)
-	resp, err := client.APIPost(r.Context(), path, strings.NewReader(migrateBody))
+	res, err := h.vmSvc.Migrate(r.Context(), req.Cluster, req.Project, vmName, req.TargetNode, mode)
 	if err != nil {
-		slog.Error("migrate VM failed", "vm", vmName, "target", req.TargetNode, "error", err)
-		// Best-effort: try to start the VM back up on whatever node it
-		// ended up on so we don't leave it stopped after a migrate failure.
-		if wasRunning {
-			_ = h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "start", false)
-		}
+		slog.Error("migrate VM failed", "vm", vmName, "target", req.TargetNode, "mode", mode, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "migration failed: " + err.Error()})
 		return
 	}
 
-	// 等待异步操作完成
-	if resp != nil && resp.Type == "async" && resp.Operation != "" {
-		parts := strings.Split(resp.Operation, "/")
-		opID := parts[len(parts)-1]
-		if opID != "" {
-			_ = client.WaitForOperation(r.Context(), opID)
-		}
-	}
-
-	if wasRunning {
-		if err := h.vmSvc.ChangeState(r.Context(), req.Cluster, req.Project, vmName, "start", false); err != nil {
-			slog.Warn("migrate start failed; VM stopped on target node", "vm", vmName, "target", req.TargetNode, "error", err)
-		}
-	}
-
 	audit(r.Context(), r, "vm.migrate", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{
-		"name": vmName, "target": req.TargetNode, "cluster": req.Cluster, "was_running": wasRunning,
+		"name": vmName, "target": req.TargetNode, "cluster": req.Cluster,
+		"was_running": res.WasRunning, "requested_mode": string(mode), "actual_mode": string(res.Mode),
 	})
-	slog.Info("vm migrated", "vm", vmName, "target", req.TargetNode, "was_running", wasRunning)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "migrated", "target": req.TargetNode, "was_running": wasRunning})
+	slog.Info("vm migrated", "vm", vmName, "target", req.TargetNode,
+		"was_running", res.WasRunning, "mode", res.Mode)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":      "migrated",
+		"target":      req.TargetNode,
+		"was_running": res.WasRunning,
+		"mode":        res.Mode,
+	})
 }
 
-// vmIsRunning checks the live Incus state to know whether to stop+start
-// around a cold migrate. Failures default to false so we don't double-stop.
-func (h *AdminVMHandler) vmIsRunning(ctx context.Context, client *cluster.Client, project, vmName string) (bool, error) {
-	stateData, err := client.GetInstanceState(ctx, project, vmName)
+// EnableStateful 把 VM 的 migration.stateful 设为 true（live migration 前置）。
+// 必须重启才生效，因此 running 的 VM 会停 → set → 启。
+//
+// 路由：POST /admin/vms/{name}/enable-stateful（step-up gated）
+func (h *AdminVMHandler) EnableStateful(w http.ResponseWriter, r *http.Request) {
+	vmName := chi.URLParam(r, "name")
+	if !isValidName(vmName) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid vm name"})
+		return
+	}
+	var req struct {
+		Cluster string `json:"cluster" validate:"required,safename"`
+		Project string `json:"project" validate:"omitempty,safename"`
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if req.Project == "" {
+		req.Project = "customers"
+	}
+	if err := h.vmSvc.EnableStateful(r.Context(), req.Cluster, req.Project, vmName); err != nil {
+		slog.Error("enable-stateful failed", "vm", vmName, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	audit(r.Context(), r, "vm.enable_stateful", "vm", h.vmIDByName(r.Context(), vmName), map[string]any{
+		"name": vmName, "cluster": req.Cluster, "project": req.Project,
+	})
+	slog.Info("vm enable-stateful done", "vm", vmName, "cluster", req.Cluster)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "stateful_enabled", "name": vmName})
+}
+
+// EnableStatefulBatch 批量启用 stateful。串行执行避免节点同时停多台 VM 影响业务。
+//
+// 路由：POST /admin/vms:enable-stateful-batch（step-up gated）
+func (h *AdminVMHandler) EnableStatefulBatch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cluster string   `json:"cluster" validate:"required,safename"`
+		Project string   `json:"project" validate:"omitempty,safename"`
+		Names   []string `json:"names"   validate:"required,min=1,max=50,dive,safename"`
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if req.Project == "" {
+		req.Project = "customers"
+	}
+	type result struct {
+		Name  string `json:"name"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+	}
+	results := make([]result, 0, len(req.Names))
+	okCount := 0
+	for _, name := range req.Names {
+		err := h.vmSvc.EnableStateful(r.Context(), req.Cluster, req.Project, name)
+		if err != nil {
+			slog.Warn("batch enable-stateful failed", "vm", name, "error", err)
+			results = append(results, result{Name: name, OK: false, Error: err.Error()})
+			continue
+		}
+		results = append(results, result{Name: name, OK: true})
+		okCount++
+	}
+	audit(r.Context(), r, "vm.enable_stateful_batch", "vm", 0, map[string]any{
+		"cluster": req.Cluster, "project": req.Project, "names": req.Names,
+		"ok_count": okCount, "fail_count": len(req.Names) - okCount,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":     len(req.Names),
+		"succeeded": okCount,
+		"results":   results,
+	})
+}
+
+// MigrateVMBatch 批量冷迁移 N 台 VM 到目标节点。
+// PLAN-037 / OPS-040：异步 job 化执行（复用 jobs runtime + SSE）。
+// 与单台 MigrateVM 共享 vmSvc.Migrate 逻辑，单台失败不阻塞批次。
+//
+// Request:
+//
+//	{
+//	  "cluster": "ph-c0",
+//	  "items": [
+//	    {"vm_name":"vm-aaa","project":"customers","source_node":"node-1","target_node":"node-3"},
+//	    ...
+//	  ],
+//	  "concurrency_per_source": 2,    // 可选；默认 2
+//	  "global_concurrency":     4     // 可选；默认 4
+//	}
+//
+// Response: {"job_id": <id>}（前端用 SSE /admin/jobs/{id}/stream 跟进度）
+func (h *AdminVMHandler) MigrateVMBatch(w http.ResponseWriter, r *http.Request) {
+	if h.jobs == nil || h.jobRepo == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "jobs runtime unavailable"})
+		return
+	}
+	var req struct {
+		Cluster string `json:"cluster"  validate:"required,safename"`
+		Items   []struct {
+			VMName     string `json:"vm_name"     validate:"required,safename"`
+			Project    string `json:"project"     validate:"omitempty,safename"`
+			SourceNode string `json:"source_node" validate:"omitempty,safename"`
+			TargetNode string `json:"target_node" validate:"required,safename"`
+			// PLAN-039 / OPS-043 mode：每条独立可指定，默认整批 mode 兜底
+			Mode string `json:"mode" validate:"omitempty,oneof=auto live cold"`
+		} `json:"items"   validate:"required,min=1,max=200"`
+		ConcurrencyPerSource int    `json:"concurrency_per_source" validate:"gte=0,lte=8"`
+		GlobalConcurrency    int    `json:"global_concurrency"     validate:"gte=0,lte=16"`
+		Mode                 string `json:"mode"                   validate:"omitempty,oneof=auto live cold"` // 整批默认
+	}
+	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	if _, ok := h.clusters.Get(req.Cluster); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+		return
+	}
+
+	defaultMode := req.Mode
+	if defaultMode == "" {
+		defaultMode = "auto"
+	}
+	items := make([]jobs.MigrateBatchItem, 0, len(req.Items))
+	names := make([]string, 0, len(req.Items))
+	seen := make(map[string]struct{}, len(req.Items))
+	for _, it := range req.Items {
+		project := it.Project
+		if project == "" {
+			project = "customers"
+		}
+		key := project + "/" + it.VMName
+		if _, dup := seen[key]; dup {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "duplicate item: " + key})
+			return
+		}
+		seen[key] = struct{}{}
+		mode := it.Mode
+		if mode == "" {
+			mode = defaultMode
+		}
+		items = append(items, jobs.MigrateBatchItem{
+			VMName:     it.VMName,
+			Project:    project,
+			SourceNode: it.SourceNode,
+			TargetNode: it.TargetNode,
+			Mode:       mode,
+		})
+		names = append(names, it.VMName)
+	}
+
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	clusterID := h.clusters.IDByName(req.Cluster)
+	targetName := fmt.Sprintf("batch-%d-vms", len(items))
+	job, err := h.jobRepo.Create(r.Context(), model.JobKindClusterVMMigrateBatch, userID, clusterID, nil, nil, targetName)
 	if err != nil {
-		return false, err
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "create job: " + err.Error()})
+		return
 	}
-	var state struct {
-		Status string `json:"status"`
+
+	if err := h.jobs.Enqueue(r.Context(), job.ID, jobs.Params{
+		ClusterName:       req.Cluster,
+		BatchItems:        items,
+		ConcurrencyPerSrc: req.ConcurrencyPerSource,
+		GlobalConcurrency: req.GlobalConcurrency,
+	}); err != nil {
+		_ = h.jobRepo.Finish(r.Context(), job.ID, model.JobStatusFailed, "enqueue: "+err.Error())
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "enqueue job: " + err.Error()})
+		return
 	}
-	if err := json.Unmarshal(stateData, &state); err != nil {
-		return false, err
-	}
-	return state.Status == "Running", nil
+
+	audit(r.Context(), r, "vm.migrate-batch", "job", job.ID, map[string]any{
+		"cluster":                req.Cluster,
+		"item_count":             len(items),
+		"names":                  names,
+		"concurrency_per_source": req.ConcurrencyPerSource,
+		"global_concurrency":     req.GlobalConcurrency,
+	})
+	slog.Info("vm migrate-batch enqueued", "job_id", job.ID, "cluster", req.Cluster, "count", len(items))
+	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": job.ID})
 }
 
 // ListProjects 返回集群实际存在的 project 列表（来自 Incus `/1.0/projects?recursion=1`）。

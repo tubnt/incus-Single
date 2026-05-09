@@ -383,6 +383,93 @@ func (r *VMRepo) CountRunningByCluster(ctx context.Context, clusterID int64) (in
 	return n, err
 }
 
+// NodeVMStat 单节点的 VM 计数 + 按状态分桶（PLAN-037 / OPS-040 topology）。
+type NodeVMStat struct {
+	Node    string
+	Total   int
+	Running int
+	Stopped int
+	Other   int
+}
+
+// RebalanceVM 是 watchdog / rebalance 计算用的 VM 最小投影（PLAN-039 / OPS-044）。
+type RebalanceVM struct {
+	Name     string
+	Project  string
+	Node     string
+	MemoryMB int64
+}
+
+// ListActiveForRebalance 返某 cluster 下所有活跃 VM 的最小投影。
+// trashed/deleted/gone 不参与；node 为空也不参与（无法迁移）。
+func (r *VMRepo) ListActiveForRebalance(ctx context.Context, clusterID int64) ([]RebalanceVM, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT name, COALESCE(node, '') AS node, memory_mb
+		FROM vms
+		WHERE cluster_id = $1
+		  AND status IN ('creating','running','stopped','migrating')
+		  AND trashed_at IS NULL
+		  AND COALESCE(node, '') <> ''
+	`, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("list active for rebalance: %w", err)
+	}
+	defer rows.Close()
+	var out []RebalanceVM
+	for rows.Next() {
+		var v RebalanceVM
+		if err := rows.Scan(&v.Name, &v.Node, &v.MemoryMB); err != nil {
+			return nil, err
+		}
+		v.Project = "customers" // 项目当前固定 customers；DB 未单独存
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// CountVMsByNode 返回某 cluster 下所有 (node, status) 桶。trashed/deleted/gone
+// 不参与（topology 关心当前活跃放置）。空 node 字符串视为 "unassigned"。
+func (r *VMRepo) CountVMsByNode(ctx context.Context, clusterID int64) ([]NodeVMStat, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT COALESCE(NULLIF(node, ''), '') AS node, status, COUNT(*) AS n
+		FROM vms
+		WHERE cluster_id = $1
+		  AND status NOT IN ('deleted', 'gone')
+		  AND trashed_at IS NULL
+		GROUP BY node, status`, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("count vms by node: %w", err)
+	}
+	defer rows.Close()
+	byNode := make(map[string]*NodeVMStat)
+	for rows.Next() {
+		var node, status string
+		var n int
+		if err := rows.Scan(&node, &status, &n); err != nil {
+			return nil, err
+		}
+		s, ok := byNode[node]
+		if !ok {
+			s = &NodeVMStat{Node: node}
+			byNode[node] = s
+		}
+		s.Total += n
+		switch status {
+		case model.VMStatusRunning:
+			s.Running += n
+		case model.VMStatusStopped:
+			s.Stopped += n
+		default:
+			s.Other += n
+		}
+	}
+	out := make([]NodeVMStat, 0, len(byNode))
+	for _, s := range byNode {
+		out = append(out, *s)
+	}
+	return out, nil
+}
+
 func scanVMs(rows *sql.Rows) ([]model.VM, error) {
 	var vms []model.VM
 	for rows.Next() {

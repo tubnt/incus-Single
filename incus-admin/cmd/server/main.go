@@ -24,6 +24,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/server"
 	"github.com/incuscloud/incus-admin/internal/service"
+	"github.com/incuscloud/incus-admin/internal/service/aiassist"
 	"github.com/incuscloud/incus-admin/internal/service/jobs"
 	"github.com/incuscloud/incus-admin/internal/worker"
 )
@@ -143,6 +144,7 @@ func main() {
 	nodeCredRepo := repository.NewNodeCredentialRepo(db)
 	invoiceRepo := repository.NewInvoiceRepo(db)
 	quotaRepo := repository.NewQuotaRepo(db)
+	alertRepo := repository.NewSystemAlertRepo(db) // PLAN-039 / OPS-044
 
 	ipAddrRepo := repository.NewIPAddrRepo(db)
 	healingRepo := repository.NewHealingEventRepo(db)
@@ -318,6 +320,10 @@ func main() {
 		trashWindow := time.Duration(model.VMTrashWindowSeconds) * time.Second
 		go worker.RunVMTrashPurger(workerCtx, vmRepo, clusterMgr, vmSvc.PurgeTrashed, trashWindow, 5*time.Second)
 
+		// PLAN-039 / OPS-044: imbalance watchdog（仅告警，不自动迁移）
+		// 5min tick × 3 ticks = 15min 持续不均衡 → 写 system_alerts。
+		go worker.RunImbalanceWatchdog(workerCtx, scheduler, clusterMgr, vmRepo, alertRepo, 5*time.Minute, 3)
+
 		// One-shot startup reconcile: ensure every DB firewall_groups row
 		// has a matching Incus network ACL. Migration 011 INSERTs seed rows
 		// (default-web / ssh-only / database-lan) but only handler.CreateGroup
@@ -345,6 +351,7 @@ func main() {
 			Clusters:    clusterMgr,
 			OSTemplates: osTemplateRepo,
 			Firewall:    defaultFirewallApplier{repo: firewallRepo, svc: service.NewFirewallService(clusterMgr, vmSvc)},
+			Migrator:    vmMigratorAdapter{svc: vmSvc}, // PLAN-037: cluster.vm.migrate-batch
 			PoolSize:    4,
 		})
 		jobsRuntime.Start(workerCtx)
@@ -355,7 +362,17 @@ func main() {
 	portalVMHandler := portal.NewVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr)
 	orderHandler := portal.NewOrderHandler(orderRepo, productRepo, vmSvc, vmRepo, sshKeyRepo, clusterMgr).
 		WithQuotas(quotaRepo) // OPS-021：购买前 quota 强制
-	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr).WithPersistence(clusterRepo).WithNodeCredentials(nodeCredRepo)
+	// PLAN-038 / OPS-041 Phase B/C：AI provider —— anthropic / disabled 二选一。
+	// AIConfig.Provider == "disabled"（默认）→ disabledProvider，所有 AI endpoint
+	// 返 503，前端按需隐藏入口。生产没买 API key 也能正常跑。
+	aiProvider := buildAIProvider(cfg.AI)
+
+	clusterMgmtHandler := portal.NewClusterMgmtHandler(clusterMgr).
+		WithPersistence(clusterRepo).
+		WithNodeCredentials(nodeCredRepo).
+		WithTopology(scheduler, vmRepo). // PLAN-037 / OPS-040
+		WithAlerts(alertRepo).            // PLAN-039 / OPS-044
+		WithAIProvider(aiProvider)        // PLAN-038 / OPS-041 Tier 2
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
 		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
@@ -396,7 +413,7 @@ func main() {
 		Firewall:    portal.NewFirewallHandler(firewallRepo, service.NewFirewallService(clusterMgr, vmSvc), vmRepo, clusterMgr).WithQuotas(quotaRepo),
 		FloatingIPs: portal.NewFloatingIPHandler(floatingIPRepo, service.NewFloatingIPService(clusterMgr), vmRepo, clusterRepo, clusterMgr),
 		Rescue:      portal.NewRescueHandler(vmRepo, service.NewRescueService(vmSvc, clusterMgr), clusterMgr),
-		Jobs:        jobsHandlerOrNil(jobsRuntime, jobRepo, vmRepo),
+		Jobs:        jobsHandlerOrNil(jobsRuntime, jobRepo, vmRepo, aiProvider),
 		Auth:        stepUpHandler,
 		Shadow:      shadowHandler,
 	})
@@ -509,6 +526,24 @@ func (a defaultFirewallApplier) Bind(ctx context.Context, vmID, groupID int64) e
 	return a.repo.Bind(ctx, vmID, groupID)
 }
 
+// vmMigratorAdapter 让 service.VMService 满足 jobs.VMMigrator 接口。
+// 字段命名与返回类型由 jobs 决定（避免 jobs → service 反向 import service.MigrateResult）。
+type vmMigratorAdapter struct {
+	svc *service.VMService
+}
+
+func (a vmMigratorAdapter) Migrate(ctx context.Context, clusterName, project, vmName, targetNode, mode string) (*jobs.MigrateOutcome, error) {
+	m := service.MigrateMode(mode)
+	if m == "" {
+		m = service.MigrateAuto
+	}
+	res, err := a.svc.Migrate(ctx, clusterName, project, vmName, targetNode, m)
+	if err != nil {
+		return nil, err
+	}
+	return &jobs.MigrateOutcome{WasRunning: res.WasRunning, Target: res.Target, Mode: string(res.Mode)}, nil
+}
+
 // healingTrackerAdapter lets the worker talk to HealingEventRepo without
 // importing repository types — keeps the worker's interface consumer-side.
 type healingTrackerAdapter struct {
@@ -549,11 +584,33 @@ func (a auditAdapter) Log(ctx context.Context, userID *int64, action, targetType
 
 // jobsHandlerOrNil 在 jobs runtime 缺失时返回 nil（让 server.go 跳过路由注册），
 // 避免空 handler 把 /portal/jobs/* 拉成 5xx。
-func jobsHandlerOrNil(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo, vmRepo *repository.VMRepo) *portal.JobsHandler {
+func jobsHandlerOrNil(rt *jobs.Runtime, jobRepo *repository.ProvisioningJobRepo, vmRepo *repository.VMRepo, ai aiassist.Provider) *portal.JobsHandler {
 	if rt == nil {
 		return nil
 	}
-	return portal.NewJobsHandler(jobRepo, vmRepo, rt)
+	return portal.NewJobsHandler(jobRepo, vmRepo, rt).WithAIProvider(ai)
+}
+
+// buildAIProvider 按 AIConfig.Provider 返回 LLM provider；anthropic key 缺失 / 任意
+// 配置错误 → 退化 disabled，启动不阻塞。
+//
+// PLAN-038 / OPS-041。
+func buildAIProvider(cfg config.AIConfig) aiassist.Provider {
+	switch strings.ToLower(cfg.Provider) {
+	case "anthropic":
+		p, err := aiassist.NewAnthropicProvider(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.RequestTimeoutSec)
+		if err != nil {
+			slog.Warn("ai provider anthropic init failed; disabling", "error", err)
+			return aiassist.NewDisabledProvider()
+		}
+		slog.Info("ai provider initialized", "provider", "anthropic", "model", cfg.Model)
+		return p
+	case "", "disabled":
+		return aiassist.NewDisabledProvider()
+	default:
+		slog.Warn("unknown ai provider; disabling", "provider", cfg.Provider)
+		return aiassist.NewDisabledProvider()
+	}
 }
 
 // PLAN-027 / INFRA-003：DB 行 → config.ClusterConfig 转换。

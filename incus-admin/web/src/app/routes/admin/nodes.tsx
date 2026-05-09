@@ -1,9 +1,10 @@
 import type {ClusterNode} from "@/features/nodes/api";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useJobQuery } from "@/features/jobs/api";
+import { AIDiagnosePanel } from "@/features/jobs/components/ai-diagnose-panel";
 import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
@@ -17,6 +18,9 @@ import {
   useNodeRestoreMutation,
   useRemoveNodeMutation
 } from "@/features/nodes/api";
+import { AlertBanner } from "@/features/nodes/components/alert-banner";
+import { NodeTopologyStrip } from "@/features/nodes/components/node-topology-strip";
+import { RebalancePanel } from "@/features/nodes/components/rebalance-panel";
 import {
   PageContent,
   PageHeader,
@@ -36,12 +40,21 @@ export const Route = createFileRoute("/admin/nodes")({
 
 function NodesPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [selectedCluster, setSelectedCluster] = useState<string>("");
 
   const { data, isLoading } = useAdminNodesQuery();
 
-  const nodes = data?.nodes ?? [];
+  // PLAN-037 / OPS-040：稳定 nodes 引用，避免 useMemo 依赖每渲染都新建。
+  const nodes = useMemo(() => data?.nodes ?? [], [data]);
+
+  // PLAN-037 / OPS-040：每集群一个 strip + RebalancePanel
+  const clustersInPage = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of nodes) set.add(n.cluster);
+    return Array.from(set).sort();
+  }, [nodes]);
 
   return (
     <PageShell>
@@ -102,6 +115,22 @@ function NodesPage() {
           />
         ) : (
           <div className="space-y-3">
+            {/* PLAN-039 / OPS-044：watchdog 持续不均衡告警 banner */}
+            <AlertBanner />
+            {/* PLAN-037 / OPS-040：每集群一个分布概览 strip。
+                点击 chip 跳到 admin/vms?node=X，借用 admin/vms 的过滤+批量迁移。 */}
+            {clustersInPage.map((c) => (
+              <NodeTopologyStrip
+                key={`topo-${c}`}
+                clusterName={c}
+                onNodeClick={(n) =>
+                  navigate({ to: "/admin/vms", search: { node: n } })
+                }
+              />
+            ))}
+            {clustersInPage.map((c) => (
+              <RebalancePanel key={`rebalance-${c}`} clusterName={c} />
+            ))}
             {nodes.map((node) => (
               <NodeCard
                 key={`${node.cluster}-${node.server_name}`}
@@ -400,6 +429,10 @@ function NodeDetail({
                 {t("admin.nodes.remove.progressTitle", "移除节点进度")}
               </h4>
               <JobProgress steps={removeStream.steps} />
+              {/* PLAN-038 / OPS-041 Phase C Tier 3：失败时挂诊断面板 */}
+              {(removeStream.terminal === "failed" || removeStream.terminal === "partial") && (
+                <AIDiagnosePanel jobID={removeJobId} />
+              )}
             </div>
           )}
 

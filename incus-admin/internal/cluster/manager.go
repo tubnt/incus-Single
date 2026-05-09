@@ -235,7 +235,10 @@ func buildHTTPClient(cc config.ClusterConfig, store FingerprintStore) (*http.Cli
 		return nil, err
 	}
 	return &http.Client{
-		Timeout: 10 * time.Second,
+		// 30s 而非 10s：跨 wg 隧道（主控 → cluster mgmt）时 TLS 握手 + Incus
+		// 子请求（如 POST /1.0/instances 内部还要写 DB）偶尔 >10s。10s 会
+		// 错杀正常请求 → vm.create job 在 submit_instance 步直接失败 + 退款。
+		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig:     tlsConfig,
 			MaxIdleConnsPerHost: 10,

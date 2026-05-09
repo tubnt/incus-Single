@@ -61,18 +61,28 @@ const FAMILY_DISPLAY: Record<string, string> = {
   archlinux: "Arch Linux",
   alpine: "Alpine",
   oracle: "Oracle Linux",
+  windows: "Windows",
 };
 
 const FAMILY_ORDER = [
   "Ubuntu", "Debian", "Rocky Linux", "AlmaLinux", "Fedora", "CentOS",
-  "openSUSE", "Arch Linux", "Alpine", "Oracle Linux", "Other",
+  "openSUSE", "Arch Linux", "Alpine", "Oracle Linux", "Windows", "Other",
 ];
+
+// Windows alias 通常是单段（如 windows-server-2022 / windows-11），无 "windows/<ver>/cloud"
+// 形式，所以单独识别再回退到首段拆分。
+function familyFor(source: string): string {
+  const lower = source.toLowerCase();
+  if (lower.startsWith("windows")) return "Windows";
+  const head = (source.split("/")[0] ?? "").toLowerCase();
+  return FAMILY_DISPLAY[head] ?? "Other";
+}
 
 function normalize(t: Pick<OSTemplate, "name" | "source">): NormalizedOption {
   const value = `images:${t.source}`;
-  const head = (t.source.split("/")[0] ?? "").toLowerCase();
-  const family = FAMILY_DISPLAY[head] ?? "Other";
-  const version = t.source.split("/").slice(1).join(" / ");
+  const family = familyFor(t.source);
+  const parts = t.source.split("/");
+  const version = parts.length > 1 ? parts.slice(1).join(" / ") : "";
   return { value, label: t.name, family, version, source: t.source };
 }
 
