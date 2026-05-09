@@ -147,7 +147,36 @@
     "maxSnapshots": "最大快照",
     "maxVcpus": "最大vCPU",
     "maxVms": "最大VM数",
-    "migrate": "迁移",
+    "migrate": {
+      "batchTitle": "批量迁移",
+      "batchCount": "{{n}} 台",
+      "batchDesc": "冷迁移：每台 VM 会先停机再迁移到目标节点。每台耗时约 30s-2min。",
+      "batchAction": "迁移到...",
+      "sources": "来自节点：",
+      "unknownSources": "(未知，将探测)",
+      "target": "目标节点",
+      "sourceTargetSame": "目标节点在来源集合中，将跳过同节点 VM。",
+      "coldNotice": "迁移期间 VM 会停机；并发上限：每个源节点 ≤ 2，全局 ≤ 4。",
+      "confirm": "迁移 {{n}} 台到 {{node}}",
+      "jobLabel": "Job #{{id}}",
+      "jobOK": "已完成",
+      "jobPartial": "部分成功",
+      "jobFailed": "失败",
+      "modeLabel": "迁移模式",
+      "modeAuto": "Auto",
+      "modeAutoHint": "按 VM 配置自选",
+      "modeLive": "Live",
+      "modeLiveHint": "不停机",
+      "modeCold": "Cold",
+      "modeColdHint": "停 30s+",
+      "nonStatefulTitle": "{{n}} 台 VM 未启用 stateful",
+      "nonStatefulLive": "live 模式将对这些 VM 失败；先启用 stateful（每台重启 30s）。",
+      "nonStatefulAuto": "auto 模式将对这些 VM 退化为 cold 迁移（停机 30s+）。",
+      "enableStateful": "为 {{n}} 台启用 stateful（重启）",
+      "statefulEnabledAll": "已为 {{n}} 台 VM 启用 stateful（已重启）",
+      "statefulEnabledPartial": "{{ok}}/{{total}} 启用成功，{{fail}} 失败",
+      "liveNotice": "Live 迁移：VM 不停机；需要 stateful + 共享存储；并发上限同冷迁移。"
+    },
     "migrateFailed": "迁移失败",
     "migrateRun": "迁移",
     "migrateTitle": "迁移到目标节点",
@@ -320,7 +349,29 @@
           "nicCollapse": "折叠",
           "nicExpand": "展开调整",
           "newCredential": "新建凭据",
-          "manageCredentialsFull": "去凭据管理页（删除/查看指纹）"
+          "manageCredentialsFull": "去凭据管理页（删除/查看指纹）",
+          "nicSpeed": "速率"
+        },
+        "ai": {
+          "title": "AI 角色推荐（可选）",
+          "lowConfHint": "Tier 1 置信度低，建议核对",
+          "highConfHint": "Tier 1 置信度高；AI 仅做交叉验证",
+          "button": "AI 解释这台节点",
+          "disabledHint": "AI 服务未启用",
+          "providerLine": "provider={{p}} · model={{m}}",
+          "colRole": "角色",
+          "colNIC": "AI 推荐",
+          "colTier1": "Tier 1 推荐",
+          "colConf": "置信",
+          "colReason": "理由",
+          "colAction": "操作",
+          "adopt": "采纳",
+          "diff": "Tier 1 与 LLM 不同",
+          "same": "与 Tier 1 一致",
+          "errorTimeout": "AI 响应超时，请稍后再试",
+          "errorRateLimit": "调用过快，请稍后再试",
+          "errorSchema": "AI 输出格式异常，请重试",
+          "errorGeneric": "AI 调用失败：{{msg}}"
         }
       },
       "remove": {
@@ -341,7 +392,35 @@
         "enterMessage": "把 {{name}} 设为维护模式：新建 VM 不再放置到此节点，但已有 VM 保留。要 evacuate 现有 VM 请用上方按钮。",
         "exitMessage": "恢复 {{name}} 的常规调度（新建 VM 可放置到本节点）。"
       },
-      "downloadEnvScript": "下载 cluster-env.sh"
+      "downloadEnvScript": "下载 cluster-env.sh",
+      "topology": {
+        "title": "集群分布",
+        "summary": "{{nodes}} 节点 · {{vms}} 台 VM",
+        "maint": "维护",
+        "evacuated": "已疏散",
+        "chipAria": "{{node}}：{{vms}} VM，内存使用 {{util}}%",
+        "vmCount": "{{n}} VM",
+        "runningCount": "{{n}} 运行",
+        "memUtil": "内存 {{pct}}%",
+        "load": "load {{v}}",
+        "loadHint": "5min 平均负载 / CPU 核心数 = {{load}}/{{cpu}}",
+        "score": "score {{v}}",
+        "scoreHint": "调度得分（mem 0.5 + cpu 0.4 + disk 0.1）"
+      },
+      "rebalance": {
+        "title": "不均衡分析",
+        "expand": "展开（按需计算）",
+        "balanced": "集群当前分布均衡，没有迁移建议。",
+        "applyAll": "应用全部 ({{n}})",
+        "confirmTitle": "应用所有建议？",
+        "confirmMessage": "将批量冷迁移 {{count}} 台 VM。每台迁移期间会停机 30s-2min（取决于内存大小）。",
+        "enqueued": "已入队 job #{{id}}（{{count}} 台）",
+        "statsLabel": "节点 mem 利用率：",
+        "stats": "均值 {{mean}}% · 标准差 {{stddev}}% · 最大差 {{diff}}%",
+        "hotCold": "热点 {{hot}} ↔ 冷点 {{cold}}",
+        "move": "迁移方向",
+        "reason": "原因"
+      }
     },
     "nodeCredentials": {
       "title": "节点凭据",
@@ -539,7 +618,17 @@
       "expire": "作废",
       "expireTitle": "作废订单",
       "expireMessage": "确认将订单 #{{orderId}} 标为已过期？"
-    }
+    },
+    "alerts": {
+      "imbalanceTitle": "集群 {{cluster}} 持续不均衡",
+      "imbalanceStats": "mem stddev {{stddev}}% · 持续 {{ticks}} 次",
+      "hotCold": "热点 {{hot}} ↔ 冷点 {{cold}}",
+      "howTo": "在下方“不均衡分析”卡片中查看建议并应用迁移。",
+      "dismiss": "忽略",
+      "dismissed": "告警 #{{id}} 已忽略"
+    },
+    "vmStatefulHint": "已启用 live migration（migration.stateful=true）",
+    "migrateBtn": "迁移"
   },
   "adminOverview": {
     "apiStatus": "API 状态",
@@ -1311,7 +1400,11 @@
     "trashedOneToast": "{{name}} 已移入回收站 · 30 秒内可撤销",
     "trashedToast": "{{n}} 台已移入回收站 · 30 秒内可撤销",
     "undo": "撤销",
-    "undoAll": "全部撤销"
+    "undoAll": "全部撤销",
+    "filterByNode": "按节点筛选",
+    "allNodes": "所有节点",
+    "viewSiblingsOnNode": "查看 {{node}} 上的其他 VM",
+    "locatedOnNode": "运行在节点 {{node}}"
   },
   "jobs": {
     "queued": "已排队，等待 worker 拾取...",
@@ -1328,6 +1421,22 @@
       "recreate": "重建实例",
       "waitRecreate": "等待镜像与磁盘就绪",
       "startAfterReinstall": "启动新实例"
+    },
+    "ai": {
+      "diagnoseTitle": "AI 诊断（失败原因 + 修复建议）",
+      "expand": "展开/收起",
+      "disabled": "AI 服务未启用",
+      "runAnalysis": "点击运行",
+      "category": "分类",
+      "rootCause": "根因",
+      "fixSteps": "修复建议（运维参考，不会自动执行）",
+      "manual": "需运维手工操作",
+      "safeRetry": "可安全自动重试：{{v}}",
+      "rerun": "重新分析",
+      "errorTimeout": "AI 响应超时，请稍后再试",
+      "errorRateLimit": "调用过快，请稍后再试",
+      "errorSchema": "AI 输出格式异常，请重试",
+      "errorGeneric": "AI 调用失败：{{msg}}"
     }
   },
   "firewall": {

@@ -25,8 +25,27 @@ type Deps struct {
 	// PLAN-036：vm.create finalize 软失败应用用户默认 firewall_groups。
 	// 任一为 nil 时跳过（保持向后兼容 + 测试环境无 firewall service）。
 	Firewall    DefaultFirewallApplier
+	// PLAN-037：cluster.vm.migrate-batch executor 调用 service.VMService.Migrate；
+	// nil 时跳过该 kind（测试可注入 stub）。
+	Migrator    VMMigrator
 	// PoolSize 是 worker 池容量；建议 4–8。0 取默认 4。
 	PoolSize int
+}
+
+// VMMigrator 由 service.VMService 实现。jobs 包通过此接口避免反向 import service
+// （service 依赖 jobs 不成立但应保持单向）。
+//
+// PLAN-039 / OPS-043：mode 透传 auto / live / cold；空字符串 = auto。
+type VMMigrator interface {
+	Migrate(ctx context.Context, clusterName, project, vmName, targetNode, mode string) (*MigrateOutcome, error)
+}
+
+// MigrateOutcome 是 jobs 视角的迁移结果（与 service.MigrateResult 同形），
+// 复制一份字段避免 jobs → service 的依赖。
+type MigrateOutcome struct {
+	WasRunning bool
+	Target     string
+	Mode       string // 实际走的模式 live/cold
 }
 
 // DefaultFirewallApplier 拓窄到 jobs 所需：列出用户默认组 + attach 到 VM。
@@ -243,6 +262,8 @@ func auditActionByKind(kind, suffix string) string {
 	switch kind {
 	case model.JobKindClusterNodeAdd, model.JobKindClusterNodeRemove:
 		return "node.provisioning." + suffix
+	case model.JobKindClusterVMMigrateBatch:
+		return "vm.migrate-batch." + suffix
 	default:
 		return "vm.provisioning." + suffix
 	}
@@ -261,6 +282,8 @@ func (r *Runtime) dispatch(job *model.ProvisioningJob) (Executor, error) {
 		return &clusterNodeAddExecutor{}, nil
 	case model.JobKindClusterNodeRemove:
 		return &clusterNodeRemoveExecutor{}, nil
+	case model.JobKindClusterVMMigrateBatch:
+		return &vmMigrateBatchExecutor{}, nil
 	default:
 		return nil, fmt.Errorf("unknown job kind %q", job.Kind)
 	}

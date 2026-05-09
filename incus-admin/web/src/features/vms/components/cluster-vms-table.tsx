@@ -1,8 +1,8 @@
-import type {ColumnDef, RowSelectionState} from "@tanstack/react-table";
+import type {ColumnDef, RowSelectionState, SortingState} from "@tanstack/react-table";
 import type {IncusInstance} from "@/features/vms/api";
 import type {VMSheetKind} from "@/features/vms/components/vm-action-sheets";
 import { Link } from "@tanstack/react-router";
-import { Play, RefreshCw, Square, Trash2 } from "lucide-react";
+import { ArrowRight, Play, RefreshCw, Square, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   useBatchVMMutation,
   useClusterVMsQuery,
 } from "@/features/vms/api";
+import { MigrateBatchSheet } from "@/features/vms/components/migrate-batch-sheet";
 import { VMActionSheets } from "@/features/vms/components/vm-action-sheets";
 import { VMPeekPanel } from "@/features/vms/components/vm-peek-panel";
 import { VMRowActions } from "@/features/vms/components/vm-row-actions";
@@ -28,19 +29,49 @@ import { cn, formatTime } from "@/shared/lib/utils";
 interface ClusterVMsTableProps {
   clusterName: string;
   displayName: string;
+  /**
+   * PLAN-037 / OPS-040：当前 location 过滤值（来自 admin/vms?node= URL）。
+   * 空字符串 → 不过滤。父组件负责 URL 同步；本组件只负责把过滤值消费 + 暴露
+   * 当前可见 node 列表给 Select。
+   */
+  nodeFilter?: string;
+  onNodeFilterChange?: (node: string) => void;
 }
 
-export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTableProps) {
+export function ClusterVMsTable({
+  clusterName,
+  displayName,
+  nodeFilter = "",
+  onNodeFilterChange,
+}: ClusterVMsTableProps) {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const { data, isLoading, isError, error } = useClusterVMsQuery(clusterName, 15_000);
-  const vms = useMemo(() => data?.vms ?? [], [data]);
+  const allVMs = useMemo(() => data?.vms ?? [], [data]);
 
   const [sheetKind, setSheetKind] = useState<VMSheetKind | null>(null);
   const [sheetVM, setSheetVM] = useState<IncusInstance | null>(null);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  // PLAN-037 / OPS-040：批量迁移抽屉
+  const [migrateOpen, setMigrateOpen] = useState(false);
   /** PLAN-024.C: 行点击的 inline detail peek，不打断列表浏览。 */
   const [peekVM, setPeekVM] = useState<IncusInstance | null>(null);
+
+  // node filter 应用到行数据；列表 + 排序由 DataTable 内部处理
+  const vms = useMemo(() => {
+    if (!nodeFilter) return allVMs;
+    return allVMs.filter((v) => v.location === nodeFilter);
+  }, [allVMs, nodeFilter]);
+
+  // 全部节点（不过滤），供 Select 选项使用
+  const allNodes = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of allVMs) {
+      if (v.location) set.add(v.location);
+    }
+    return Array.from(set).sort();
+  }, [allVMs]);
 
   const batchMutation = useBatchVMMutation();
 
@@ -180,9 +211,30 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
       {
         accessorKey: "location",
         header: t("vm.node"),
-        cell: ({ row }) => (
-          <span className="text-text-secondary">{row.original.location}</span>
-        ),
+        enableSorting: true,
+        cell: ({ row }) => {
+          const stateful = row.original.config?.["migration.stateful"];
+          const live = stateful === "true" || stateful === "1";
+          return (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-mono text-caption text-text-secondary">
+                {row.original.location || "—"}
+              </span>
+              {/* PLAN-039 / OPS-043: live migration 就绪标识。仅运行 / 停止 VM 显示；
+                  历史 VM (无 stateful) 默认隐藏 badge，运维一眼能识别哪些待回填。 */}
+              {live ? (
+                <span
+                  className="inline-flex items-center px-1 rounded-pill border border-status-success/30 bg-status-success/8 text-status-success text-tiny font-emphasis"
+                  title={t("admin.vmStatefulHint", {
+                    defaultValue: "已启用 live migration（migration.stateful=true）",
+                  })}
+                >
+                  live
+                </span>
+              ) : null}
+            </span>
+          );
+        },
       },
       {
         id: "config",
@@ -220,6 +272,12 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
     [clusterName, t],
   );
 
+  // 选中 VM 的 IncusInstance 集合（migrate-batch 需要 location/project 字段）
+  const selectedVMs = useMemo(
+    () => allVMs.filter((v) => selectedNames.includes(v.name)),
+    [allVMs, selectedNames],
+  );
+
   return (
     <section className="flex flex-col gap-3">
       <header className="flex flex-wrap items-center gap-2">
@@ -241,6 +299,25 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
             {data?.error || data?.warning}
           </Badge>
         ) : null}
+        {/* PLAN-037 / OPS-040：按节点筛选。空 = 全部 */}
+        {allNodes.length > 1 && (
+          <select
+            className={cn(
+              "ml-auto rounded-md border border-border bg-surface-1 px-2 py-1",
+              "text-caption text-text-secondary",
+            )}
+            value={nodeFilter}
+            onChange={(e) => onNodeFilterChange?.(e.target.value)}
+            aria-label={t("vm.filterByNode", { defaultValue: "按节点筛选" })}
+          >
+            <option value="">
+              {t("vm.allNodes", { defaultValue: "所有节点" })}
+            </option>
+            {allNodes.map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        )}
       </header>
 
       {isError ? (
@@ -258,6 +335,8 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
           enableRowSelection
           rowSelection={rowSelection}
           onRowSelectionChange={setRowSelection}
+          sorting={sorting}
+          onSortingChange={setSorting}
           onRowClick={(vm) => setPeekVM(vm)}
           toolbar={
             <BatchToolbar count={selectedNames.length} onClear={clearSelection}>
@@ -287,6 +366,15 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
               >
                 <RefreshCw size={12} aria-hidden="true" />
                 {t("vm.restart")}
+              </Button>
+              {/* PLAN-037 / OPS-040：批量迁移按钮 */}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setMigrateOpen(true)}
+              >
+                <ArrowRight size={12} aria-hidden="true" />
+                {t("admin.migrate.batchAction", { defaultValue: "迁移到..." })}
               </Button>
               <Button
                 size="sm"
@@ -332,6 +420,14 @@ export function ClusterVMsTable({ clusterName, displayName }: ClusterVMsTablePro
               }
             : undefined
         }
+      />
+
+      {/* PLAN-037 / OPS-040：批量冷迁移抽屉 */}
+      <MigrateBatchSheet
+        open={migrateOpen}
+        onOpenChange={setMigrateOpen}
+        clusterName={clusterName}
+        selectedVMs={selectedVMs}
       />
     </section>
   );

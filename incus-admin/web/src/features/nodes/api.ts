@@ -53,7 +53,190 @@ export const nodeKeys = {
   list: () => [...nodeKeys.all, "list"] as const,
   detail: (cluster: string, name: string) => [...nodeKeys.all, "detail", cluster, name] as const,
   ha: (cluster: string) => [...nodeKeys.all, "ha", cluster] as const,
+  topology: (cluster: string) => [...nodeKeys.all, "topology", cluster] as const,
+  imbalance: (cluster: string) => [...nodeKeys.all, "imbalance", cluster] as const,
 };
+
+// PLAN-037 / OPS-040 节点拓扑（admin/nodes 顶部 strip + RebalancePanel 共用）。
+// PLAN-039 / OPS-042 扩字段：load_5min / cpu_free_ratio / disk_free_ratio / score
+export interface NodeTopologyEntry {
+  server_name: string;
+  status: string;
+  message?: string;
+  cpu_total: number;
+  mem_total: number;
+  mem_used: number;
+  mem_free: number;
+  free_ratio: number;
+  load_5min: number;       // 5min load average
+  cpu_free_ratio: number;  // 1 - min(load/cpu_total, 1)
+  disk_free_ratio: number; // cluster-wide（Ceph 共享存储）
+  score: number;           // 综合调度得分 0..1
+  vm_count: number;
+  vm_running: number;
+  vm_stopped: number;
+  vm_other: number;
+  maintenance: boolean;
+  evacuated: boolean;
+}
+
+export function useNodeTopologyQuery(clusterName: string) {
+  return useQuery({
+    queryKey: nodeKeys.topology(clusterName),
+    queryFn: () => http.get<{ cluster: string; nodes: NodeTopologyEntry[] }>(
+      `/admin/clusters/${clusterName}/nodes/topology`,
+    ),
+    enabled: !!clusterName,
+    refetchInterval: 30_000,
+  });
+}
+
+// PLAN-037 不均衡建议（按需点开 RebalancePanel 时拉，不轮询）。
+export interface ImbalanceSuggestion {
+  vm_name: string;
+  project: string;
+  source_node: string;
+  target_node: string;
+  reason: string;
+  score: number;
+}
+
+export interface ImbalancePlan {
+  stats: {
+    mean_util: number;
+    stddev: number;
+    max_diff: number;
+    hot_node?: string;
+    cold_node?: string;
+    imbalanced: boolean;
+  };
+  suggestions: ImbalanceSuggestion[];
+}
+
+export function useImbalanceSuggestionsQuery(clusterName: string, enabled: boolean) {
+  return useQuery({
+    queryKey: nodeKeys.imbalance(clusterName),
+    queryFn: () => http.get<ImbalancePlan>(
+      `/admin/clusters/${clusterName}/imbalance-suggestions`,
+    ),
+    enabled: enabled && !!clusterName,
+    staleTime: 30_000,
+  });
+}
+
+// PLAN-039 / OPS-044：watchdog 告警拉取 + dismiss
+export interface SystemAlert {
+  id: number;
+  kind: string;
+  cluster: string;
+  severity: "info" | "warning" | "error";
+  payload: { stats?: { mean_util: number; stddev: number; max_diff: number; hot_node?: string; cold_node?: string }; suggestion_count?: number; persistent_ticks?: number };
+  created_at: string;
+  updated_at: string;
+}
+
+export const alertKeys = {
+  all: ["system-alerts"] as const,
+  active: () => [...alertKeys.all, "active"] as const,
+};
+
+export function useSystemAlertsQuery() {
+  return useQuery({
+    queryKey: alertKeys.active(),
+    queryFn: () => http.get<{ alerts: SystemAlert[] }>("/admin/system-alerts"),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useDismissAlertMutation() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      http.post<{ status: string }>(
+        `/admin/system-alerts/${id}/dismiss`,
+        undefined,
+        {
+          intent: {
+            action: "system_alert.dismiss",
+            args: { id },
+            description: `忽略告警 #${id}`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: alertKeys.all }),
+  });
+}
+
+// PLAN-037 批量冷迁移；PLAN-039 / OPS-043 加 mode 字段。
+export type MigrateMode = "auto" | "live" | "cold";
+
+export interface MigrateBatchItem {
+  vm_name: string;
+  project?: string;
+  source_node?: string;
+  target_node: string;
+  mode?: MigrateMode;
+}
+
+export function useMigrateBatchMutation(clusterName: string) {
+  return useMutation({
+    mutationFn: (body: {
+      items: MigrateBatchItem[];
+      mode?: MigrateMode;
+      concurrency_per_source?: number;
+      global_concurrency?: number;
+    }) =>
+      http.post<{ job_id: number }>(
+        "/admin/vms:migrate-batch",
+        { cluster: clusterName, ...body },
+        {
+          intent: {
+            action: "vm.migrate-batch",
+            args: { cluster: clusterName, count: body.items.length, mode: body.mode ?? "auto" },
+            description: `批量迁移 ${body.items.length} 台 VM 到指定节点（${body.mode ?? "auto"}）`,
+          },
+        },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: nodeKeys.topology(clusterName) });
+      queryClient.invalidateQueries({ queryKey: nodeKeys.imbalance(clusterName) });
+    },
+  });
+}
+
+// PLAN-039 / OPS-043 启用 stateful（live migration 前置；会重启 VM）
+export function useEnableStatefulMutation() {
+  return useMutation({
+    mutationFn: (params: { name: string; cluster: string; project?: string }) =>
+      http.post<{ status: string }>(
+        `/admin/vms/${params.name}/enable-stateful`,
+        { cluster: params.cluster, project: params.project ?? "customers" },
+        {
+          intent: {
+            action: "vm.enable_stateful",
+            args: params,
+            description: `启用 ${params.name} 的 live migration（需重启）`,
+          },
+        },
+      ),
+  });
+}
+
+export function useEnableStatefulBatchMutation() {
+  return useMutation({
+    mutationFn: (params: { cluster: string; project?: string; names: string[] }) =>
+      http.post<{ total: number; succeeded: number; results: Array<{ name: string; ok: boolean; error?: string }> }>(
+        "/admin/vms:enable-stateful-batch",
+        { cluster: params.cluster, project: params.project ?? "customers", names: params.names },
+        {
+          intent: {
+            action: "vm.enable_stateful_batch",
+            args: { count: params.names.length, cluster: params.cluster },
+            description: `批量启用 ${params.names.length} 台 VM 的 live migration（每台重启 30s）`,
+          },
+        },
+      ),
+  });
+}
 
 export function useAdminNodesQuery() {
   return useQuery({
@@ -282,18 +465,139 @@ export interface NodeInfo {
     master?: string;
     addresses?: string[];
     is_default_route?: boolean;
+    // PLAN-038 / OPS-041 Phase A 增字段
+    driver?: string;
+    pci_bus_id?: string;
+    link_up?: boolean;
+    duplex?: string;
   }>;
   default_route?: { interface: string; gateway?: string; source?: string };
   public_ip_observed?: string;
   disks: Array<{ name: string; size_bytes?: number; rotational?: boolean; model?: string }>;
   incus_installed: boolean;
   ceph_installed: boolean;
+  // PLAN-038 / OPS-041 Phase A
+  pci_devices?: Array<{ slot: string; class?: string; vendor?: string; device?: string }>;
+  numa?: { sockets?: number; numa_nodes?: number };
+}
+
+// PLAN-038 / OPS-041 Phase A：Tier 1 ranked 候选（4 角色 × top-3）。
+export type NICRole = "bridge_source" | "mgmt" | "ceph_public" | "ceph_cluster";
+
+export interface RankedCandidate {
+  nic: string;
+  score: number;
+  confidence: number;
+  reasons: string[];
+}
+
+export interface RankedRole {
+  role: NICRole;
+  candidates: RankedCandidate[];
+}
+
+export interface RankedResult {
+  roles: RankedRole[];
+  overall_confidence: number;
 }
 
 export interface ProbeNodeResult {
   probe_id: string;
   node: NodeInfo;
   fingerprint: string;
+  ranked?: RankedResult;
+}
+
+// PLAN-038 / OPS-041 Phase B Tier 2: AI 角色推荐
+export interface AIRoleRecommendation {
+  role: NICRole;
+  nic: string;
+  confidence: number;
+  rationale: string;
+}
+
+export interface AISuggestResult {
+  recommendations: AIRoleRecommendation[];
+  warnings: string[];
+  tier1: RankedResult;
+  provider: string;
+  model: string;
+}
+
+// PLAN-038 / OPS-041 + pma-cr F2：用 useQuery 缓存（key=probeID）避免重复付费。
+// `enabled: false` + 手动 `refetch()` 触发；query cache 让 5min 内重复展开 panel
+// 不会再次打 LLM。
+export const aiKeys = {
+  all: ["ai"] as const,
+  suggestRoles: (cluster: string, probeID: string) =>
+    [...aiKeys.all, "suggest", cluster, probeID] as const,
+  diagnose: (jobID: number) =>
+    [...aiKeys.all, "diagnose", jobID] as const,
+};
+
+export function useAISuggestRolesQuery(
+  clusterName: string,
+  probeID: string,
+  expectedRole: "osd" | "mon-mgr-osd" = "osd",
+) {
+  return useQuery({
+    queryKey: aiKeys.suggestRoles(clusterName, probeID),
+    queryFn: () =>
+      http.post<AISuggestResult>(
+        `/admin/clusters/${clusterName}/nodes/ai-suggest`,
+        { probe_id: probeID, expected_role: expectedRole },
+        {
+          intent: {
+            action: "ai.role_mapping",
+            args: { cluster: clusterName, role: expectedRole },
+            description: `AI 推荐网卡角色（cluster=${clusterName}）`,
+          },
+        },
+      ),
+    enabled: false,           // 手动 refetch() 触发
+    staleTime: 5 * 60 * 1000, // 5min 内不重新付费
+    gcTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}
+
+// PLAN-038 / OPS-041 Phase C Tier 3: AI 失败诊断
+export interface AIDiagnosis {
+  category: string;
+  root_cause: string;
+  suggested_fix_steps: Array<{ step: string; command_template?: string }>;
+  safe_to_auto_retry: boolean;
+  requires_manual: string;
+}
+
+export interface AIDiagnoseResult {
+  diagnosis: AIDiagnosis;
+  provider: string;
+  model: string;
+}
+
+// PLAN-038 / OPS-041 + pma-cr F2：诊断结果按 jobID 缓存。
+// 折叠 / 展开 / 翻页 / 重渲染都不再付费；用户主动点"重新分析"才 invalidate。
+export function useAIDiagnoseQuery(jobID: number | null) {
+  return useQuery({
+    queryKey: jobID ? aiKeys.diagnose(jobID) : ["ai", "diagnose", "noop"],
+    queryFn: () =>
+      http.post<AIDiagnoseResult>(
+        `/admin/jobs/${jobID}/ai-diagnose`,
+        undefined,
+        {
+          intent: {
+            action: "ai.diagnose",
+            args: { job_id: jobID },
+            description: `AI 诊断 job #${jobID} 失败原因`,
+          },
+        },
+      ),
+    enabled: false,           // 手动 refetch() 触发
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: false,
+  });
 }
 
 export function useProbeNodeMutation(clusterName: string) {

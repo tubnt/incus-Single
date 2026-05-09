@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/incuscloud/incus-admin/internal/middleware"
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
+	"github.com/incuscloud/incus-admin/internal/service/aiassist"
 	"github.com/incuscloud/incus-admin/internal/service/jobs"
 )
 
@@ -32,6 +34,13 @@ type JobsHandler struct {
 
 	connMu sync.Mutex
 	conns  map[int64]int // userID → 当前活跃 SSE 连接数
+
+	// PLAN-038 / OPS-041 Phase C：失败诊断 LLM provider；nil 时 endpoint
+	// 返 ErrAIDisabled，前端隐藏诊断按钮。
+	aiProvider aiassist.Provider
+	// per-user 简单内存限流（10 req/h），key = user_id。
+	aiRateMu sync.Mutex
+	aiRate   map[int64][]time.Time
 }
 
 func NewJobsHandler(jobRepo *repository.ProvisioningJobRepo, vms *repository.VMRepo, rt *jobs.Runtime) *JobsHandler {
@@ -40,12 +49,24 @@ func NewJobsHandler(jobRepo *repository.ProvisioningJobRepo, vms *repository.VMR
 		vms:     vms,
 		runtime: rt,
 		conns:   make(map[int64]int),
+		aiRate:  make(map[int64][]time.Time),
 	}
+}
+
+// WithAIProvider 注入 LLM provider；nil 等同未设（disabled 占位）。
+func (h *JobsHandler) WithAIProvider(p aiassist.Provider) *JobsHandler {
+	h.aiProvider = p
+	return h
 }
 
 func (h *JobsHandler) PortalRoutes(r chi.Router) {
 	r.Get("/jobs/{id}", h.GetJob)
 	r.Get("/jobs/{id}/stream", h.StreamJob)
+}
+
+// AdminRoutes 注册仅 admin 的路由（PLAN-038 / OPS-041 Tier 3）。
+func (h *JobsHandler) AdminRoutes(r chi.Router) {
+	r.Post("/jobs/{id}/ai-diagnose", h.AIDiagnose)
 }
 
 // GetJob 返回单 job 详情：状态 + 全部 step + 完成时的 result（含密码 / IP）。
@@ -269,5 +290,143 @@ func isTerminalStatus(s string) bool {
 		return true
 	}
 	return false
+}
+
+// AIDiagnose 仅 failed/partial job 可调；admin only；step-up gated。
+//
+// PLAN-038 / OPS-041 Phase C：把 job stderr（最后 ~200 行）+ 失败 step + 节点
+// OS 信息送给 LLM，拿回结构化诊断。stderr 在送 LLM 前必经 RedactString 脱敏。
+//
+// 返回 (provider 不可用 → 503 + ErrAIDisabled / hallucination → 422 / 校验失败 → 502)。
+//
+// 路由：POST /api/admin/jobs/{id}/ai-diagnose
+func (h *JobsHandler) AIDiagnose(w http.ResponseWriter, r *http.Request) {
+	if h.aiProvider == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ai diagnostics disabled"})
+		return
+	}
+	jobID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || jobID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid job id"})
+		return
+	}
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	if !h.allowAIRequest(userID) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "ai rate limit (10/h) exceeded"})
+		return
+	}
+
+	job, err := h.jobs.GetByID(r.Context(), jobID)
+	if err != nil || job == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "job not found"})
+		return
+	}
+	if job.Status != model.JobStatusFailed && job.Status != model.JobStatusPartial {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ai-diagnose only available for failed/partial jobs"})
+		return
+	}
+
+	// 拼接最后几个 step 的 detail（即 stderr 摘要）+ failed step name
+	steps, err := h.jobs.ListSteps(r.Context(), jobID, -1)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	failedStep := ""
+	var stderrBuf []string
+	for _, s := range steps {
+		if s.Status == model.StepStatusFailed && failedStep == "" {
+			failedStep = s.Name
+		}
+		if s.Detail != nil && *s.Detail != "" {
+			stderrBuf = append(stderrBuf, "["+s.Name+"] "+*s.Detail)
+		}
+	}
+	stderr := aiassist.RedactString(joinLines(stderrBuf, 200))
+
+	input := aiassist.DiagnoseInput{
+		StepFailed:      failedStep,
+		LastStderrLines: stderr,
+		// OS / Incus 版本不在 job 表里；先空，prompt 会按"未知"处理
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	resp, sug, err := aiassist.Diagnose(ctx, h.aiProvider, input)
+	provider, model := "", ""
+	if sug != nil {
+		provider, model = sug.Provider, sug.Model
+	}
+	auditDetails := map[string]any{
+		"job_id":   jobID,
+		"provider": provider,
+		"model":    model,
+	}
+	if sug != nil {
+		auditDetails["input_tokens"] = sug.UsageInputTokens
+		auditDetails["output_tokens"] = sug.UsageOutputTokens
+	}
+
+	if err != nil {
+		auditDetails["error"] = err.Error()
+		audit(r.Context(), r, "ai.diagnose.failed", "job", jobID, auditDetails)
+		slog.Warn("ai diagnose failed", "job_id", jobID, "error", err)
+		switch {
+		case err == aiassist.ErrAIDisabled:
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ai disabled"})
+		case err == aiassist.ErrAITimeout:
+			writeJSON(w, http.StatusGatewayTimeout, map[string]any{"error": "ai timeout"})
+		default:
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		}
+		return
+	}
+
+	audit(r.Context(), r, "ai.diagnose.ok", "job", jobID, auditDetails)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"diagnosis": resp,
+		"provider":  provider,
+		"model":     model,
+	})
+}
+
+// allowAIRequest 简单内存限流（10/h/user）。
+func (h *JobsHandler) allowAIRequest(userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	now := time.Now()
+	cutoff := now.Add(-time.Hour)
+	h.aiRateMu.Lock()
+	defer h.aiRateMu.Unlock()
+	hist := h.aiRate[userID]
+	// drop expired
+	keep := hist[:0]
+	for _, t := range hist {
+		if t.After(cutoff) {
+			keep = append(keep, t)
+		}
+	}
+	if len(keep) >= 10 {
+		h.aiRate[userID] = keep
+		return false
+	}
+	keep = append(keep, now)
+	h.aiRate[userID] = keep
+	return true
+}
+
+func joinLines(lines []string, max int) string {
+	if len(lines) > max {
+		lines = lines[len(lines)-max:]
+	}
+	out := ""
+	for i, l := range lines {
+		if i > 0 {
+			out += "\n"
+		}
+		out += l
+	}
+	return out
 }
 

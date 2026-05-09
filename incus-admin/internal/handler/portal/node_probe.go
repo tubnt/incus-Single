@@ -12,6 +12,7 @@ import (
 
 	"github.com/incuscloud/incus-admin/internal/auth"
 	"github.com/incuscloud/incus-admin/internal/middleware"
+	"github.com/incuscloud/incus-admin/internal/service/aiassist"
 	"github.com/incuscloud/incus-admin/internal/service/nodeprobe"
 	"github.com/incuscloud/incus-admin/internal/sshexec"
 )
@@ -280,10 +281,15 @@ func (h *ClusterMgmtHandler) ProbeNode(w http.ResponseWriter, r *http.Request) {
 		"incus_present": info.IncusInstalled,
 	})
 
+	// PLAN-038 / OPS-041 Phase A：附 Tier 1 ranked 候选（4 角色 × top-3）。
+	// 前端 wizard step 2 直接渲染，不必再走 computeHeuristics 旧路径。
+	ranked := aiassist.RankNICRoles(info)
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"probe_id":    probeID,
 		"node":        info,
 		"fingerprint": hk.SHA256,
+		"ranked":      ranked,
 	})
 }
 

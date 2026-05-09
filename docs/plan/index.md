@@ -1,6 +1,6 @@
 # Incus Cloud Platform - Plan Index
 
-> Updated: 2026-05-03
+> Updated: 2026-05-06
 
 ## Usage
 
@@ -62,3 +62,6 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-031 EN 语言包系统化补全（OPS-029）**](PLAN-031.md) `2026-04-30`
 - [x] [**PLAN-032 DESIGN.md 严格合规清零（OPS-030）**](PLAN-032.md) `2026-05-01`
 - [x] [**PLAN-033 添加节点自动化 —— 凭据多形态 + 自动探测向导（OPS-039）**](PLAN-033.md) `2026-05-03`
+- [x] [**PLAN-037 VM 部署位置可观测 + 后台批量迁移（OPS-040）**](PLAN-037.md) `2026-05-06`
+- [x] [**PLAN-038 节点加入 + 集群部署 AI 辅助（OPS-041）**](PLAN-038.md) `2026-05-06`
+- [x] [**PLAN-039 调度三件套：多维 PickNode + Live Migration + 不均衡 Watchdog（OPS-042/043/044）**](PLAN-039.md) `2026-05-06`

@@ -1,5 +1,180 @@
 # IncusAdmin Changelog
 
+## 2026-05-09 13:00 [progress]
+
+OPS-046 落地 —— Windows VM 端到端打通 + cluster 公网 VLAN 376 绑桥修复（影响所有 VM）：
+
+- **镜像**：用 `antifob/incus-windows` 社区工具从 MS Win Server 2022 评估 ISO 一键构建（`build.sh -i isos/2022.iso 2022`）→ `import.sh` → alias `windows-server-2022`（fp `23307dcbb3ba`）→ 复制到 customers project。`tools/pack.sh` 改 2 行适配生产 default profile 没 root device 的现状（`-s ceph-pool` + `device set` 替代 device override）。
+- **Backend OS-aware** (`internal/service/jobs/vm_create.go`)：
+  - `isWindowsAlias` 检测；Windows 路径预生成 MAC（OUI `10:66:6a:`，Incus 自带 OUI，QEMU 标准 `52:54:00:` 上游交换机不识别）+ network-config v1+MAC 匹配
+  - 必加 `cloud-init:config` (cidata) + `agent:config` (incus-agent ISO，无此 image start 直接报 "requires agent:config disk")
+  - alias→fingerprint 预解析（受限 cert 兼容）
+  - finalize 加 `applyWindowsCloudInit` 兜底：`waitWindowsAgent` 轮询 `state.processes>0` 最长 5min + 60s NetSetup buffer → incus exec PowerShell 配静态 IP/网关/DNS/RDP/Administrator 密码
+  - Windows VM 跳 `applyUserDefaultFirewallGroups`（用户默认 fwg 通常 ssh-only 会挡 3389）
+- **Backend HTTP timeout** (`internal/cluster/manager.go`)：短 client 10s → 30s（跨 wg 隧道 TLS + Incus 内 DB 写偶尔超 10s 误杀 vm.create）
+- **Reinstall 路径同步**：`reinstall_resolve.go::defaultUserForSource` + `service/vm.go::Reinstall` alias 启发式（`/` 区分 simplestreams vs 本地）
+- **UI**：`os-image-picker.tsx` Windows 分组 + `default-user.ts` Windows → Administrator
+- **DB**：`db/migrations/023_windows_os_template.sql` seed `windows-server-2022` / `windows-11` 占位
+- **VLAN 376 绑桥修复（关键，影响所有 VM）**：
+  - 现网 5 节点全跑：`ip link set pub.376 master br-pub` + `incus network set br-pub --target <node> bridge.external_interfaces=pub.376` 持久化（OPS-002 半截遗漏：建了 pub.376 但从未绑桥；所有 VM 公网从未真正工作过）
+  - `cluster-env.sh` 加 `VLAN_PUB=376` / `VM_PUBLIC_NETWORK="202.151.179.0/26"` / `BRIDGE_EXTERNAL_IFACE`
+  - `join-node.sh` netplan 模板加 `pub.${VLAN_PUB}` 子接口；br-pub interfaces 改用 VLAN 子接口；join 后自动 `incus network set --target` 注册；最终验证步加 VLAN 子接口存在 + 已绑桥两条
+  - `apply-network.sh` 自检加"检查 6"：`pub.${VLAN_PUB}` 必须是 br-pub slave，否则触发 5min 自动回滚
+- **验收**：ai@5ok.co 通过 /launch → 选 Windows → Job succeeded → VM Running on cluster；主控公网 (139.162.24.177) → VM 公网 IP TCP 3389 **Connected ✅**；Linux VM (vm-4609c0, IP `.20`) ping gateway/1.1.1.1 全 0% loss（顺带验证）。Plan `Basic VPS` disk 从 25GB 调到 40GB 让 Windows 镜像（30GB virtual size）放得下。
+- **质量门**：`go vet ./...` clean / `go test ./...` 全绿 / `bash -n` 三个脚本全过
+
+## 2026-05-06 19:10 [progress]
+
+PLAN-038 / OPS-041 pma-cr F1-F7 全修 —— UI 交互完整性补完：
+
+- **F1**：`adoptRecommendation` 加 `ceph_public` case（与 `ceph_cluster` 共用 cephNIC，对齐 join-node.sh 单 nic_cluster 字段）；AIExplainSection 表格按 LLM 推荐展示 4 角色全部
+- **F2**：`useAIDiagnoseMutation` / `useAISuggestRolesMutation` 全部改为 `useQuery + enabled:false + manual refetch + staleTime 5min`，按 jobID/probeID 缓存；折叠/展开/翻页不重复付费；`rerun` 显式 `removeQueries` 后再 refetch
+- **F3**：i18n keys 补齐（zh+en 各 ~50 个）覆盖 `admin.nodes.add.ai.* / admin.migrate.* / jobs.ai.*`；EN 不再 fallback 中文
+- **F4**：AIDiagnosePanel 挂全 7 处 JobProgress：
+  - ✅ `node-join.tsx` (cluster.node.add)
+  - ✅ `admin/nodes.tsx` (cluster.node.remove)
+  - ✅ `vm-action-sheets.tsx` (vm.reinstall portal)
+  - ✅ `migrate-batch-sheet.tsx` (cluster.vm.migrate-batch)
+  - ✅ `failed-panel.tsx` (vm.create user 路径，via launch.tsx)
+  - ✅ `vm-detail.tsx` (vm.reinstall admin)
+- **F5**：AIExplainSection 默认展开态改为 `useState(lowConfidence)` —— 低置信度时主动展开（注释与实际一致）
+- **F6**：抽 `shared/lib/ai-error.ts::classifyAIError`（disabled / timeout / rate_limit / schema / other）+ 7 单测；AIExplainSection / AIDiagnosePanel 错误信息走 i18n 文案而非 raw `Error.message`
+- **F7**：AIExplainSection 表加"Tier 1 推荐"列；与 LLM 推荐对比时显示 ✓ Same / ⚠ Differs 标记
+- **质量门**：tsc 0 / lint 0 errors（12 pre-existing warnings）/ vitest 6 files 45 tests / build OK
+- **部署**（vmc.5ok.co）：dist_hash `33edb271d434...` 与本地一致，AI 端点 401 鉴权 gate 正常，watchdog/scheduler 启动 log 全在
+- **范围**：UI 交互流程完整性现在通过 pma-cr 二审（F1-F7 全修）
+
+## 2026-05-06 17:50 [progress]
+
+PLAN-038 / OPS-041 Phase B + C 落地 —— Tier 2 LLM 角色推荐 + Tier 3 失败诊断：
+
+- **后端**：
+  - `internal/service/aiassist/redact.go`：脱敏层（IPv4 /24 截断 / MAC SHA-256 / hostname 首段 / JWT / 长 token）+ 8 单测
+  - `internal/service/aiassist/provider.go`：Provider interface + 标准错误（ErrAIDisabled / ErrAITimeout / ErrAISchemaInvalid）
+  - `internal/service/aiassist/anthropic.go`：bare-metal HTTP（无新依赖），用 tool_use forcing 拿 schema 化 JSON
+  - `internal/service/aiassist/disabled.go`：noop provider（默认）
+  - `internal/service/aiassist/role_mapping.go`：Tier 2 prompt + JSON schema + hallucination 防护（推荐 nic 必须在 NodeInfo.Interfaces）
+  - `internal/service/aiassist/diagnose.go`：Tier 3 prompt + JSON schema（10 类 category + 修复步骤 + safe_to_auto_retry）
+  - `config.AIConfig` + env: `AI_PROVIDER` / `AI_API_KEY` / `AI_MODEL` / `AI_BASE_URL` / `AI_REQUEST_TIMEOUT_SEC` / `AI_MONTHLY_TOKEN_BUDGET`
+  - 新端点：`POST /admin/clusters/{}/nodes/ai-suggest`（Tier 2，10/h 限流 + step-up）+ `POST /admin/jobs/{id}/ai-diagnose`（Tier 3，10/h 限流 + step-up，仅 failed/partial 可调）
+  - 全链路 fallback：provider 失败 / schema 失败 / hallucination → 上层 503/502/422，前端隐藏入口或显示原始错误，**不阻塞主业务**
+- **前端**：
+  - `features/nodes/api.ts` 加 `useAISuggestRolesMutation` + `useAIDiagnoseMutation` + 类型
+  - `features/jobs/components/ai-diagnose-panel.tsx` 新组件：折叠默认（不自动调），点击触发；展开后显示 category / 根因 / 修复步骤 + command_template / 是否安全自动重试
+  - `app/routes/admin/node-join.tsx` wizard step 2 加 `AIExplainSection`：低置信度时主动凸显，展示 LLM 推荐 + 一键采纳到表单
+  - `app/routes/admin/node-join.tsx` wizard step 4 + `app/routes/admin/nodes.tsx` remove job：失败时挂 `AIDiagnosePanel`
+- **安全约束**：
+  - LLM 永不直接执行命令（只输出 schema 化建议）
+  - 所有 LLM 输入必经 redact（IP/MAC/hostname/JWT/token）
+  - JSON schema 强制（Anthropic tool_use forcing）+ hallucination 检测（推荐 nic 必须在探测列表）
+  - per-user 内存限流 10/h（Tier 2 + Tier 3 各算）+ step-up gated
+  - audit log：每次调用记录 provider/model/tokens/error
+- **质量门**：go vet/test 全绿（含 redact 8 单测）/ tsc 0 / lint 0 errors（12 pre-existing warnings）/ build OK
+- **部署**（vmc.5ok.co）：dist_hash `b4113efa7f3b...`，AI 端点全 401（路由注册）。AI_PROVIDER 默认 disabled → 503 路径仍可走（前端隐藏入口）；启用需 set `AI_PROVIDER=anthropic` + `AI_API_KEY` 后 systemctl restart
+
+## 2026-05-06 13:35 [progress]
+
+PLAN-038 / OPS-041 Phase A 落地 —— 节点加入 Tier 1 ranked 候选（无 LLM 依赖）：
+
+- **probe-node.sh** 加 3 个 sections：
+  - `lspci-eth`：列出 ethernet/network PCI 设备（vendor + model）
+  - `ethtool`：每非 lo 网卡的 speed/duplex/link/driver/bus-info（按 `===<ifname>===` 分块）
+  - `numa`：lscpu 的 socket / NUMA 数
+- **`internal/service/nodeprobe`** 扩 NodeInfo：`Interface.{Driver,PCIBusID,LinkUp,Duplex}` + `PCIDevice[]` + `NUMAInfo`；新解析器 `mergeEthtool / parseLspciEth / parseNUMA`
+- **新包 `internal/service/aiassist/`**：纯函数 `RankNICRoles(info) → RankResult`，4 角色（bridge_source / mgmt / ceph_public / ceph_cluster）每角色 top-3 候选
+  - 评分启发式：默认路由 → bridge；10.0.10.x + 1G/2.5G → mgmt；≥10G + 非默认路由 → ceph_cluster；10.0.20.x → ceph_public
+  - 排除：bond slave / 容器虚拟网卡（lo/docker/cni/veth/virbr/br-）/ 已采到 ethtool 数据但 link down
+  - 8 个单测覆盖：标准 5 节点拓扑 / bond 排除 / link down 排除 / 虚拟网卡排除 / 缺数据中性 / 空输入安全 / 默认路由不被推 ceph_cluster
+- **probe endpoint** `POST /admin/clusters/{}/nodes/probe` 响应增加 `ranked` 字段
+- **node-join.tsx wizard step 2** 改造：
+  - 新 NIC 表加 "速率" 列（`10 G` / `1 G`，缺数据 `?`）
+  - 替换原 `RoleChip` 为 `RankedChip`：top1 候选自动加 ★ + status-success 边框 + hover 显示推荐理由（`title=` 属性）
+  - `applyRankedPicks` 把 ranked top1 score>0.3 的 NIC 自动预填表单字段（覆盖旧 CIDR heuristics）
+  - 旧 `computeHeuristics` 保留作 fallback（无 ranked 数据时仍可用）
+- **质量门**：go vet / go test 14 pkg + 8 新单测 / tsc 0 / lint 0 errors / vitest 5 files 37 tests / build OK
+- **部署**（vmc.5ok.co）：dist_hash `4b82afdf6fa5b1...`，probe endpoint 仍 401（无认证 gate 正常）；ethtool/lspci/numa 段在新 binary 跑节点探测时会自动出现
+- **范围**：Tier 1 完成；Tier 2（LLM 角色推荐）+ Tier 3（LLM 失败诊断）等用户决策 D1-D4
+
+## 2026-05-06 15:40 [progress]
+
+PLAN-039 / OPS-042+OPS-043+OPS-044 落地 —— 调度三件套：
+
+- **Phase A 多维度 PickNode**（OPS-042）：
+  - `internal/cluster/scheduler.go` 重写：NodeInfo 加 `LoadAverage5Min / CPUFreeRatio / DiskFreeRatio / Maintenance / Evacuated / Score`
+  - `scoreNode` 纯函数 + env `SCHEDULER_WEIGHTS` 可调（默认 0.5 mem / 0.4 cpu / 0.1 disk，归一化）
+  - PickNode 显式过滤 maintenance/evacuated/non-Online；tie-break 按 mem-free 绝对值降序
+  - `/1.0/resources?target=X` 拉 `load.Average5Min`；ceph-pool 共享存储用 cluster-wide free ratio
+  - `internal/cluster/scheduler_test.go` 11 case（healthy / maint / evacuated / offline / disk-missing 中性 / clamp 异常值 / weights override / normalize / pick orders / 无候选）
+  - NodeTopology endpoint 增 4 个字段；前端 NodeTopologyStrip chip 加"load 0.31 · score 0.78"副信息（hover tooltip 解释权重）
+- **Phase B Live Migration**（OPS-043）：
+  - `service.VMService.Migrate(ctx, ..., mode)` 新签名：`auto`/`live`/`cold`；auto 检查 instance.config["migration.stateful"]，true→live，否则 cold
+  - 新 `VMService.EnableStateful(stop → set config → start)` + `POST /admin/vms/{name}/enable-stateful` + 批量 `POST /admin/vms:enable-stateful-batch`（step-up gated）
+  - `MigrateBatchItem` + jobs.VMMigrator 接口透传 mode；vm_migrate_batch executor 同步
+  - 单台 + 批量迁移 sheet 都加 mode 三选 toggle（auto / live / cold）+ 非 stateful banner（点击即可批量启用）
+  - admin/vms 列表 location 列加 `live` 绿色 badge（已启用 stateful 的 VM）
+  - **vmc.5ok.co 真机灰度通过**：vm-cdc154 启用 stateful 后 live migrate node1→node2，1.08GB 内存传输 14.97s @ 141MB/s，**uptime 跨节点保留**（没重启）
+  - **生产 4 台 customers VM 全部回填 stateful**：vm-cdc154/vm-35762f/vm-784367/vm-73a439 重启 6-13s/台，全部 Running
+  - 二次验证：vm-35762f node2→node4 live migrate 7s 完成，0B remaining
+- **Phase C Imbalance Watchdog**（OPS-044）：
+  - `db/migrations/023_system_alerts.sql` + `repository.SystemAlertRepo`：partial unique (cluster, kind) where resolved_at IS NULL
+  - `internal/worker/imbalance_watchdog.go`：5min tick × 3 ticks 持续不均衡才告警（防抖）；balanced 翻转立即 resolve
+  - `GET /admin/system-alerts` + `POST /admin/system-alerts/{id}/dismiss`（step-up）
+  - 前端 `AlertBanner` 挂在 admin/nodes 顶（在 NodeTopologyStrip 上方）：60s 轮询拉，severity warning/error 着色，可点击 dismiss
+- **质量门**：`go vet` clean / `go test ./...` 全绿（含 11 新 cluster + scheduler_test 单测）/ `tsc 0` / `bun lint 0 errors` / `bun build OK`
+- **部署**（vmc.5ok.co）：
+  - migration 023 应用（system_alerts 表 + partial unique 索引）
+  - stripped binary 24MB 部署 + sha256 校验通过 + `dist_hash=a64a7bf578b9...` 与本地一致
+  - `imbalance watchdog started tick=5m persist_ticks=3` 启动 log 出现
+  - 新端点 smoke 全 401（无认证）：topology / system-alerts / enable-stateful / vms:migrate-batch
+- **不在范围**（已显式记录）：DRS-style 自动 rebalance；live migration 跨集群；CPU pinning / NUMA aware；prom 集成
+
+## 2026-05-06 16:00 [progress]
+
+OPS-045 落地 —— OS 模板目录补 Windows 占位与默认用户映射：
+
+- `db/migrations/023_windows_os_template.sql` 新 seed `windows-server-2022` / `windows-11` 两条 `enabled=false` 占位；source 用单段 alias、protocol=`incus`、default_user=`Administrator`，管理员上传 ISO 后从 admin/os-templates 改 source 即启用。
+- `web/src/features/vms/os-image-picker.tsx` `FAMILY_DISPLAY` 加 windows、`FAMILY_ORDER` 把 Windows 插在 Other 前；`familyFor()` 兜底识别单段 `windows*` alias，避免分到 Other 组。
+- `web/src/features/vms/default-user.ts` 新增 `windows` → `Administrator` 规则，放在 ubuntu 兜底前。
+- `internal/handler/portal/reinstall_resolve.go::defaultUserForSource` 加 `windows` 分支回 `Administrator`，覆盖 legacy os_image 路径。
+- 测试：`reinstall_resolve_test.go` + `default-user.test.ts` 各加两条 Windows case。
+- 不改 cloud-init 构造（cloudbase-init 能消费 `password` 字段）；不预置 Windows 镜像 / 不动 admin 表单。
+
+## 2026-05-06 14:00 [progress]
+
+PLAN-037 / OPS-040 落地 —— VM 部署位置可观测 + 后台批量冷迁移：
+
+- **后端**：
+  - `db/migrations/022_vm_migrate_batch_kind.sql` 扩 `provisioning_jobs.kind` CHECK 加 `cluster.vm.migrate-batch`
+  - `internal/service/vm.go` 抽取 `VMService.Migrate(ctx, cluster, project, vm, target)`，单台冷迁移 + 批量共用；handler `MigrateVM` 改为薄壳调用
+  - `internal/service/jobs/vm_migrate_batch.go`（新 executor）：每 source-node 并发 ≤ 2 / 全局 ≤ 4，单台失败不阻塞；step 1 实时滚动 `ok=N fail=M` detail
+  - `internal/service/rebalance/`（新纯函数包 + 单测覆盖 7 case）：贪心算法选 hot 节点，按 mem 降序迁出至 cold，maintenance 节点不接收
+  - `clustermgmt.go` 新端点 `GET /admin/clusters/{name}/nodes/topology`（每节点 mem/cpu/VM 计数 + 维护 / 疏散态）+ `GET /admin/clusters/{name}/imbalance-suggestions`
+  - `vm.go` 新端点 `POST /admin/vms:migrate-batch`（异步 job，202 + job_id）+ step-up + audit `vm.migrate-batch`
+  - `repository/vm.go::CountVMsByNode` group-by 聚合 (status, node)
+  - `cmd/server/main.go` 注入 `vmMigratorAdapter` 让 service.VMService 满足 jobs.VMMigrator 接口
+- **前端**（DESIGN.md 严格合规：无 hex / 无 arbitrary value，全 @theme token）：
+  - `features/nodes/components/node-topology-strip.tsx` 新组件：节点 chip 含 VM 数 / mem util bar / 维护态徽章；点击跳 admin/vms?node=X
+  - `features/nodes/components/rebalance-panel.tsx` 新组件：折叠态默认（按需拉建议）+ stats banner + 一键应用全部
+  - `features/vms/components/migrate-batch-sheet.tsx` 新组件：NodePicker 选目标 + SSE JobProgress
+  - `features/vms/components/cluster-vms-table.tsx` location 列加排序 + 节点 Select 筛选 + BatchToolbar"迁移到..." 按钮 + 抽屉
+  - `app/routes/admin/vms.tsx` 增 `validateSearch` 同步 `?node=` 到 URL
+  - `app/routes/admin/nodes.tsx` 顶部加 NodeTopologyStrip + RebalancePanel
+  - `app/routes/admin/vm-detail.tsx` header 把 currentNode 提到 chip（点击跳 admin/vms?node=X）
+  - `app/routes/vms.tsx` portal VMCard 主行加 NodeBadge（用户清晰看到自己 VM 在哪台物理机）
+  - `features/nodes/api.ts` 加 `useNodeTopologyQuery / useImbalanceSuggestionsQuery / useMigrateBatchMutation`
+  - i18n：zh+en 各加 ~30 个键到 admin.nodes.topology / admin.nodes.rebalance / admin.migrate / vm.* 命名空间
+- **测试**：
+  - `internal/service/rebalance/rebalance_test.go` 7 cases（balanced no-op / imbalanced / maintenance 不接收 / offline source 仍建议 / max suggestions / empty cluster / target capacity 限制）
+  - `internal/service/jobs/vm_migrate_batch_test.go` 4 cases（params missing / migrator nil / empty items / audit label 契约）
+- **质量门**：`go vet ./...` clean / `go test ./...` 全绿 / `tsc --noEmit` 0 / `bun run lint` 0 errors（10 pre-existing warnings 不动）/ `vitest` 5 files 37 tests 全绿 / `bun run build` OK
+- **部署**（vmc.5ok.co）：
+  - 手工应用 migration 022（`provisioning_jobs_kind_check` 已扩）
+  - `task build` 走 web-sync + go build；改用 `-trimpath -ldflags='-s -w'` stripped binary（24MB，避免 SFTP 上传 31MB 时被 50s timeout 截断）
+  - `file_deploy` → `/tmp/incus-admin.new` → 校验 sha256 → 备份原 binary → mv → `systemctl restart`
+  - `/api/health` `dist_hash=f2e6c491217bb11f82e8c687176d16f1e63614c9b3b7e7455585c5db17e09fea` 与本地一致；`provisioning jobs runtime started pool_size=4`
+  - 新端点 smoke：topology / imbalance-suggestions / vms:migrate-batch 全部返 401（无认证），路由已注册
+  - 浏览器人工 UI 验证由用户后续在 SSO 登录态下执行（vmc.5ok.co/admin/nodes 顶部 strip + RebalancePanel 折叠 / vmc.5ok.co/admin/vms 选 VM → "迁移到..." → SSE 进度卡）
+
 ## 2026-05-03 [progress]
 
 PLAN-033 / OPS-039 — 添加节点自动化（凭据多形态 + 自动探测 + TOFU 主机指纹）落地：

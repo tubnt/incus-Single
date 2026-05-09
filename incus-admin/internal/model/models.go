@@ -319,6 +319,9 @@ const (
 	JobKindClusterNodeAdd    = "cluster.node.add"
 	JobKindClusterNodeRemove = "cluster.node.remove"
 
+	// PLAN-037 / OPS-040 批量冷迁移（复用 jobs runtime + SSE）
+	JobKindClusterVMMigrateBatch = "cluster.vm.migrate-batch"
+
 	// PLAN-027 / INFRA-003 cluster topology kind
 	ClusterKindCluster    = "cluster"
 	ClusterKindStandalone = "standalone"

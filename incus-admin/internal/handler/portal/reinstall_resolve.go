@@ -53,6 +53,8 @@ func resolveReinstallTemplate(ctx context.Context, templateSlug, osImage string)
 func defaultUserForSource(source string) string {
 	s := strings.ToLower(source)
 	switch {
+	case strings.Contains(s, "windows"):
+		return "Administrator"
 	case strings.Contains(s, "debian"):
 		return "debian"
 	case strings.Contains(s, "rocky"):

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useJobQuery } from "@/features/jobs/api";
+import { AIDiagnosePanel } from "@/features/jobs/components/ai-diagnose-panel";
 import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import { VMMetricsPanel } from "@/features/monitoring/vm-metrics-panel";
@@ -385,6 +386,10 @@ function UserVMDetailPage() {
                       </AlertDescription>
                     </Alert>
                     <JobProgress steps={reinstallStream.steps} />
+                    {/* PLAN-038 / OPS-041 Phase C + pma-cr F4：reinstall 失败挂 AI 诊断 */}
+                    {(reinstallStream.terminal === "failed" || reinstallStream.terminal === "partial") && (
+                      <AIDiagnosePanel jobID={reinstallJobId} />
+                    )}
                   </>
                 )
               : (

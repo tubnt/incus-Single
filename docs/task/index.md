@@ -1,6 +1,6 @@
 # IncusAdmin - Task List
 
-> Updated: 2026-05-03
+> Updated: 2026-05-06
 
 ## Usage
 
@@ -93,5 +93,12 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-035 字号 / 间距 / 密度全局回调一档（方案乙）**](OPS-035.md) `P2`
 - [x] [**OPS-036 IA 简化（方案丙的安全子集）**](OPS-036.md) `P2`
 - [x] [**OPS-037 修复 BUG-06 size token min()/calc() 静默失效**](OPS-037.md) `P1`
-- [-] [**OPS-038 收尾包：5 项剩余优化全做**](OPS-038.md) `P2`
+- [x] [**OPS-038 收尾包：5 项剩余优化全做**](OPS-038.md) `P2`
 - [x] [**OPS-039 添加节点自动化（凭据多形态 + 自动探测）**](OPS-039.md) `P1`
+- [x] [**OPS-040 VM 部署位置可观测 + 后台批量迁移**](OPS-040.md) `P2`
+- [x] [**OPS-041 节点加入 + 集群部署 AI 辅助（探测增强 + 角色推荐 + 失败诊断）**](OPS-041.md) `P2`
+- [x] [**OPS-042 多维度 PickNode 调度（mem + cpu + disk + maintenance 过滤）**](OPS-042.md) `P2`
+- [x] [**OPS-043 Live Migration 启用 + 现存 VM stateful 回填**](OPS-043.md) `P2`
+- [x] [**OPS-044 不均衡持续监控 watchdog（仅告警，不自动迁移）**](OPS-044.md) `P2`
+- [x] [**OPS-045 OS 模板目录补充 Windows（占位 + 默认用户映射）**](OPS-045.md) `P3`
+- [x] [**OPS-046 Windows VM 端到端打通（OS-aware vm_create + 公网 VLAN 376 绑桥修复）**](OPS-046.md) `P1`

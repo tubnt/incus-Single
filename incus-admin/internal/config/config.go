@@ -17,6 +17,20 @@ type Config struct {
 	Clusters []ClusterConfig `json:"clusters"`
 	Billing  BillingConfig   `json:"billing"`
 	Monitor  MonitorConfig   `json:"monitor"`
+	AI       AIConfig        `json:"ai"`
+}
+
+// AIConfig 控制 PLAN-038 / OPS-041 Tier 2 (LLM 角色推荐) + Tier 3 (LLM 失败诊断)。
+//
+// Provider 留空或 "disabled" → 整条 LLM 路径短路（Phase A Tier 1 仍工作），
+// 部署没买 API key 也能正常跑。
+type AIConfig struct {
+	Provider          string `json:"provider"`           // "anthropic" | "openai" | "disabled"
+	APIKey            string `json:"-"`                  // env-only；不序列化避免日志泄漏
+	Model             string `json:"model"`              // 默认 "claude-haiku-4-5"
+	BaseURL           string `json:"base_url"`           // 自托管 OpenAI 兼容用
+	RequestTimeoutSec int    `json:"request_timeout_sec"`
+	MonthlyTokenBudget int64 `json:"monthly_token_budget"` // 0 = 不限
 }
 
 type ServerConfig struct {
@@ -147,6 +161,14 @@ func Load() (*Config, error) {
 			CephSSHUser:       envOr("CEPH_SSH_USER", "root"),
 			CephSSHKey:        envOr("CEPH_SSH_KEY", "/etc/incus-admin/certs/ssh_key"),
 			SSHKnownHostsFile: envOr("SSH_KNOWN_HOSTS_FILE", ""),
+		},
+		AI: AIConfig{
+			Provider:           strings.ToLower(envOr("AI_PROVIDER", "disabled")),
+			APIKey:             os.Getenv("AI_API_KEY"),
+			Model:              envOr("AI_MODEL", "claude-haiku-4-5"),
+			BaseURL:            envOr("AI_BASE_URL", ""),
+			RequestTimeoutSec:  parseIntOr("AI_REQUEST_TIMEOUT_SEC", 30),
+			MonthlyTokenBudget: int64(parseIntOr("AI_MONTHLY_TOKEN_BUDGET", 0)),
 		},
 	}
 

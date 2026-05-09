@@ -11,6 +11,7 @@ const DEFAULT_USER_BY_DISTRO: Array<[RegExp, string]> = [
   [/(^|[/:_-])arch/i, "arch"],
   [/(^|[/:_-])alpine/i, "alpine"],
   [/(^|[/:_-])freebsd/i, "freebsd"],
+  [/(^|[/:_-])windows/i, "Administrator"],
   [/(^|[/:_-])ubuntu/i, "ubuntu"],
 ];
 

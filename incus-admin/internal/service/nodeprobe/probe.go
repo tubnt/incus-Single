@@ -31,6 +31,10 @@ type NodeInfo struct {
 	Disks            []Disk      `json:"disks"`
 	IncusInstalled   bool        `json:"incus_installed"`
 	CephInstalled    bool        `json:"ceph_installed"`
+
+	// PLAN-038 / OPS-041 Phase A 增字段
+	PCIDevices []PCIDevice `json:"pci_devices,omitempty"`
+	NUMA       *NUMAInfo   `json:"numa,omitempty"`
 }
 
 type OSInfo struct {
@@ -54,6 +58,14 @@ type Interface struct {
 	Master         string   `json:"master,omitempty"`
 	Addresses      []string `json:"addresses,omitempty"`
 	IsDefaultRoute bool     `json:"is_default_route,omitempty"`
+
+	// PLAN-038 / OPS-041 Phase A 增字段：来自 ethtool 的 link 状态 + 驱动 +
+	// PCI bus；ranker 用于评分（高速链路 → ceph_cluster 优选）。缺失时全 0
+	// 值，ranker 会自动退化（不强求该数据存在）。
+	Driver    string `json:"driver,omitempty"`     // ethtool -i: driver 名（ixgbe/i40e/...）
+	PCIBusID  string `json:"pci_bus_id,omitempty"` // ethtool -i: bus-info（0000:01:00.0）
+	LinkUp    bool   `json:"link_up,omitempty"`    // ethtool: Link detected: yes
+	Duplex    string `json:"duplex,omitempty"`     // ethtool: full / half / unknown
 }
 
 type Route struct {
@@ -68,6 +80,21 @@ type Disk struct {
 	Rotational bool   `json:"rotational"`
 	Model      string `json:"model,omitempty"`
 	Type       string `json:"type,omitempty"`
+}
+
+// PCIDevice 来自 lspci -mm 的单条 ethernet/network 设备（PLAN-038 Phase A）。
+// admin 端用 SHA-256 截断后才送 LLM；本结构是原始解析。
+type PCIDevice struct {
+	Slot   string `json:"slot"`             // 0000:01:00.0
+	Class  string `json:"class,omitempty"`  // Ethernet controller
+	Vendor string `json:"vendor,omitempty"` // Intel Corporation
+	Device string `json:"device,omitempty"` // 82599ES 10-Gigabit ...
+}
+
+// NUMAInfo 节点 socket / NUMA 拓扑（PLAN-038 Phase A）。
+type NUMAInfo struct {
+	Sockets    int `json:"sockets,omitempty"`     // physical CPU sockets
+	NUMANodes  int `json:"numa_nodes,omitempty"`  // NUMA domains
 }
 
 // Probe uploads the embedded probe-node.sh, runs it via `bash -s` over the
@@ -141,6 +168,13 @@ func parse(raw string) *NodeInfo {
 	info.Disks = parseDisks(sections["disks"])
 	info.IncusInstalled = !strings.Contains(strings.TrimSpace(sections["incus-version"]), "MISSING")
 	info.CephInstalled = !strings.Contains(strings.TrimSpace(sections["ceph-version"]), "MISSING")
+
+	// PLAN-038 / OPS-041 Phase A：merge ethtool 数据到 interfaces；解析 lspci/numa
+	if eth := sections["ethtool"]; eth != "" {
+		mergeEthtool(info.Interfaces, eth)
+	}
+	info.PCIDevices = parseLspciEth(sections["lspci-eth"])
+	info.NUMA = parseNUMA(sections["numa"])
 	return info
 }
 
@@ -482,5 +516,150 @@ func stripCIDR(addr string) string {
 		return addr[:i]
 	}
 	return addr
+}
+
+// PLAN-038 / OPS-041 Phase A 解析器组：
+//
+//   - parseLspciEth: lspci -mm | grep ethernet —— 取每条 ethernet 设备的 vendor/model
+//   - mergeEthtool:  把 ethtool 输出的 speed/driver/link/duplex 合并到 Interface
+//   - parseNUMA:     lscpu 的 NUMA / Socket 数
+
+// parseLspciEth 解析 `lspci -mm` 的 ethernet/network 行。每行形如：
+//
+//	0000:01:00.0 "Ethernet controller" "Intel Corporation" "82599ES 10-Gigabit ..." -r01 ...
+//
+// 关注 5 个字段：slot / class / vendor / device。-r 等 hex 修饰忽略。
+func parseLspciEth(raw string) []PCIDevice {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []PCIDevice
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 第一段是 slot（直到第一个 space），后续是若干 "..." 引号字段
+		spIdx := strings.IndexByte(line, ' ')
+		if spIdx < 0 {
+			continue
+		}
+		dev := PCIDevice{Slot: line[:spIdx]}
+		rest := line[spIdx+1:]
+		// 抽取连续 "..." 字段
+		quoted := pciQuoted.FindAllStringSubmatch(rest, -1)
+		if len(quoted) >= 1 {
+			dev.Class = quoted[0][1]
+		}
+		if len(quoted) >= 2 {
+			dev.Vendor = quoted[1][1]
+		}
+		if len(quoted) >= 3 {
+			dev.Device = quoted[2][1]
+		}
+		out = append(out, dev)
+	}
+	return out
+}
+
+var pciQuoted = regexp.MustCompile(`"([^"]*)"`)
+
+// mergeEthtool 把 ethtool 段（按 ===<ifname>=== 分块）解析到 ifaces 同名条目上。
+//
+// ethtool 输出片段示例：
+//
+//	===enp1s0===
+//	Settings for enp1s0:
+//	  Speed: 10000Mb/s
+//	  Duplex: Full
+//	  Link detected: yes
+//	---driver---
+//	driver: ixgbe
+//	bus-info: 0000:01:00.0
+//
+// 缺失字段保留零值（ranker 会按零值退化）。
+func mergeEthtool(ifaces []Interface, raw string) {
+	idx := make(map[string]int, len(ifaces))
+	for i := range ifaces {
+		idx[ifaces[i].Name] = i
+	}
+	current := ""
+	for _, line := range strings.Split(raw, "\n") {
+		if m := ethtoolBlockRe.FindStringSubmatch(line); m != nil {
+			current = m[1]
+			continue
+		}
+		i, ok := idx[current]
+		if !ok {
+			continue
+		}
+		// Speed: 10000Mb/s
+		if m := ethtoolSpeedRe.FindStringSubmatch(line); m != nil {
+			if v, err := strconv.Atoi(m[1]); err == nil {
+				ifaces[i].SpeedMbps = v
+			}
+			continue
+		}
+		// Duplex: Full
+		if m := ethtoolDuplexRe.FindStringSubmatch(line); m != nil {
+			ifaces[i].Duplex = strings.ToLower(strings.TrimSpace(m[1]))
+			continue
+		}
+		// Link detected: yes
+		if m := ethtoolLinkRe.FindStringSubmatch(line); m != nil {
+			ifaces[i].LinkUp = strings.EqualFold(strings.TrimSpace(m[1]), "yes")
+			continue
+		}
+		// driver: ixgbe
+		if m := ethtoolDriverRe.FindStringSubmatch(line); m != nil {
+			ifaces[i].Driver = strings.TrimSpace(m[1])
+			continue
+		}
+		// bus-info: 0000:01:00.0
+		if m := ethtoolBusRe.FindStringSubmatch(line); m != nil {
+			ifaces[i].PCIBusID = strings.TrimSpace(m[1])
+			continue
+		}
+	}
+}
+
+var (
+	ethtoolBlockRe  = regexp.MustCompile(`^===([^=]+)===$`)
+	ethtoolSpeedRe  = regexp.MustCompile(`(?i)^\s*Speed:\s*(\d+)Mb/s`)
+	ethtoolDuplexRe = regexp.MustCompile(`(?i)^\s*Duplex:\s*(\S+)`)
+	ethtoolLinkRe   = regexp.MustCompile(`(?i)^\s*Link detected:\s*(\S+)`)
+	ethtoolDriverRe = regexp.MustCompile(`(?i)^driver:\s*(.+)$`)
+	ethtoolBusRe    = regexp.MustCompile(`(?i)^bus-info:\s*(.+)$`)
+)
+
+// parseNUMA 解析 lscpu 输出里的 NUMA / Socket 字段。
+func parseNUMA(raw string) *NUMAInfo {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	out := &NUMAInfo{}
+	for _, line := range strings.Split(raw, "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		switch {
+		case strings.EqualFold(k, "Socket(s)"):
+			if n, err := strconv.Atoi(v); err == nil {
+				out.Sockets = n
+			}
+		case strings.EqualFold(k, "NUMA node(s)"):
+			if n, err := strconv.Atoi(v); err == nil {
+				out.NUMANodes = n
+			}
+		}
+	}
+	if out.Sockets == 0 && out.NUMANodes == 0 {
+		return nil
+	}
+	return out
 }
 

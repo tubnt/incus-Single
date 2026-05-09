@@ -97,6 +97,8 @@ func TestDefaultUserForSource(t *testing.T) {
 		"archlinux/current/cloud":  "arch",
 		"alpine/3.19/cloud":        "alpine",
 		"freebsd/14/cloud":         "freebsd",
+		"windows-server-2022":      "Administrator",
+		"windows-11":               "Administrator",
 		"unknown/something":        "ubuntu",
 	}
 	for src, wantUser := range cases {

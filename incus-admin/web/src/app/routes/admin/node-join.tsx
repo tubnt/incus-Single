@@ -1,14 +1,16 @@
-import type {NodeInfo, ProbeNodeResult} from "@/features/nodes/api";
+import type {AIRoleRecommendation, NICRole, NodeInfo, ProbeNodeResult, RankedResult} from "@/features/nodes/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, ChevronDown, Plus, ShieldCheck } from "lucide-react";
 import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useJobQuery } from "@/features/jobs/api";
+import { AIDiagnosePanel } from "@/features/jobs/components/ai-diagnose-panel";
 import { JobProgress } from "@/features/jobs/components/job-progress";
 import { useJobStream } from "@/features/jobs/use-job-stream";
 import {
   useAddNodeMutation,
+  useAISuggestRolesQuery,
   useCreateCredentialMutation,
   useNodeCredentialsQuery,
   useProbeHostKeyMutation,
@@ -46,6 +48,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Stepper } from "@/shared/components/ui/stepper";
 import { Switch } from "@/shared/components/ui/switch";
+import { classifyAIError } from "@/shared/lib/ai-error";
 import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
@@ -99,6 +102,8 @@ interface ConfirmState {
   cephPubIP: string;
   cephClusterIP: string;
   skipNetwork: boolean;
+  // PLAN-038 / OPS-041 Phase A：Tier 1 ranked 候选（4 角色 × top-3）
+  ranked?: RankedResult;
 }
 
 interface WizardState {
@@ -161,7 +166,11 @@ function reducer(state: WizardState, action: Action): WizardState {
         : state;
     case "probe/done": {
       const node = action.result.node;
+      // PLAN-038 / OPS-041 Phase A：Tier 1 ranked 候选（后端纯函数）优先于
+      // 旧版 computeHeuristics（前端硬编码 CIDR 模式匹配）。后端 ranker 看到
+      // ethtool/lspci 数据后能识别 ≥10G 网卡作 ceph_cluster，旧 heuristics 不能。
       const heuristics = computeHeuristics(node);
+      const fromRanked = applyRankedPicks(action.result.ranked);
       return {
         ...state,
         stage: "confirm",
@@ -172,6 +181,8 @@ function reducer(state: WizardState, action: Action): WizardState {
           nodeName: node.hostname || "",
           role: "osd",
           ...heuristics,
+          ...fromRanked, // 覆盖 heuristics 命中的字段
+          ranked: action.result.ranked,
         },
         lastError: "",
       };
@@ -391,15 +402,24 @@ function NodeJoinPage() {
               dispatch={dispatch}
               onSubmit={onSubmit}
               onBack={() => dispatch({ type: "stage/back", to: "cred" })}
+              cluster={state.cred.cluster}
             />
           ) : null}
 
           {state.stage === "job" ? (
-            <JobStep
-              steps={stream.steps}
-              terminal={stream.terminal}
-              nodeName={state.confirm?.nodeName ?? ""}
-            />
+            <>
+              <JobStep
+                steps={stream.steps}
+                terminal={stream.terminal}
+                nodeName={state.confirm?.nodeName ?? ""}
+              />
+              {/* PLAN-038 / OPS-041 Phase C Tier 3：失败时挂诊断面板 */}
+              {(stream.terminal === "failed" || stream.terminal === "partial") && state.jobID && (
+                <CardContent>
+                  <AIDiagnosePanel jobID={state.jobID} />
+                </CardContent>
+              )}
+            </>
           ) : null}
         </Card>
       </PageContent>
@@ -658,7 +678,7 @@ function FingerprintStep({
 }
 
 function ConfirmStep({
-  data, busy, error, dispatch, onSubmit, onBack,
+  data, busy, error, dispatch, onSubmit, onBack, cluster,
 }: {
   data: ConfirmState;
   busy: boolean;
@@ -666,6 +686,7 @@ function ConfirmStep({
   dispatch: React.Dispatch<Action>;
   onSubmit: () => void;
   onBack: () => void;
+  cluster: string;
 }) {
   const { t } = useTranslation();
   const node = data.node;
@@ -708,6 +729,11 @@ function ConfirmStep({
       </FormField>
 
       <NICTable interfaces={node.interfaces} data={data} dispatch={dispatch} />
+
+      {/* PLAN-038 / OPS-041 Phase B Tier 2：AI 角色推荐入口。
+          只在 Tier 1 置信度低（<0.3）时主动展示；置信度高时折叠到次要 link。
+          AI 不可用（503）时按钮 disabled + tooltip 解释。 */}
+      <AIExplainSection data={data} cluster={cluster} dispatch={dispatch} />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FormField label={t("admin.nodes.add.mgmtIP", "mgmt IP")}>
@@ -818,45 +844,109 @@ function NICTableInner({
   dispatch: React.Dispatch<Action>;
 }) {
   const { t } = useTranslation();
+  const ranked = rankedByRole(data.ranked);
+  // 角色 → 推荐 NIC（top1 score > 0.3）映射，行内"推荐 ✓"标识 + chip hover 提示
+  const recBy = (role: NICRole) => {
+    const top = ranked[role]?.[0];
+    return top && top.score > 0.3 ? top : null;
+  };
   return (
     <>
       <thead className="bg-surface-1 text-text-tertiary">
         <tr>
           <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicName", "名称")}</th>
           <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicKind", "类型")}</th>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicSpeed", "速率")}</th>
           <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicAddr", "IPv4")}</th>
-          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicRoles", "角色")}</th>
+          <th className="px-3 py-2 text-left">{t("admin.nodes.add.wizard.nicRoles", "角色（推荐 = ★）")}</th>
         </tr>
       </thead>
       <tbody>
-        {interfaces.map((iface) => (
-          <tr key={iface.name} className="border-t border-border">
-            <td className="px-3 py-2 font-mono">{iface.name}</td>
-            <td className="px-3 py-2 text-text-secondary">{iface.kind}{iface.is_default_route ? " · default" : ""}</td>
-            <td className="px-3 py-2 text-text-secondary">{(iface.addresses ?? []).join(", ") || "—"}</td>
-            <td className="px-3 py-2">
-              <div className="flex flex-wrap gap-1">
-                <RoleChip
-                  active={data.mgmtNIC === iface.name}
-                  label={t("admin.nodes.add.wizard.roleMgmt", "mgmt")}
-                  onClick={() => dispatch({ type: "confirm/update", patch: { mgmtNIC: iface.name } })}
-                />
-                <RoleChip
-                  active={data.cephNIC === iface.name}
-                  label={t("admin.nodes.add.wizard.roleCeph", "ceph")}
-                  onClick={() => dispatch({ type: "confirm/update", patch: { cephNIC: iface.name } })}
-                />
-                <RoleChip
-                  active={data.bridgeNIC === iface.name}
-                  label={t("admin.nodes.add.wizard.roleBridge", "bridge")}
-                  onClick={() => dispatch({ type: "confirm/update", patch: { bridgeNIC: iface.name } })}
-                />
-              </div>
-            </td>
-          </tr>
-        ))}
+        {interfaces.map((iface) => {
+          const speed = iface.speed_mbps
+            ? iface.speed_mbps >= 1000
+              ? `${Math.round(iface.speed_mbps / 1000)} G`
+              : `${iface.speed_mbps} M`
+            : iface.driver
+              ? "—"
+              : "?";
+          const recMgmt = recBy("mgmt");
+          const recCeph = recBy("ceph_cluster");
+          const recBridge = recBy("bridge_source");
+          return (
+            <tr key={iface.name} className="border-t border-border">
+              <td className="px-3 py-2 font-mono">{iface.name}</td>
+              <td className="px-3 py-2 text-text-secondary">
+                {iface.kind}{iface.is_default_route ? " · default" : ""}
+                {iface.driver ? <span className="text-text-tertiary"> · {iface.driver}</span> : null}
+              </td>
+              <td className="px-3 py-2 font-mono text-text-secondary">{speed}</td>
+              <td className="px-3 py-2 text-text-secondary">{(iface.addresses ?? []).join(", ") || "—"}</td>
+              <td className="px-3 py-2">
+                <div className="flex flex-wrap gap-1">
+                  <RankedChip
+                    active={data.mgmtNIC === iface.name}
+                    recommended={recMgmt?.nic === iface.name}
+                    reasons={recMgmt?.nic === iface.name ? recMgmt.reasons : undefined}
+                    label={t("admin.nodes.add.wizard.roleMgmt", "mgmt")}
+                    onClick={() => dispatch({ type: "confirm/update", patch: { mgmtNIC: iface.name } })}
+                  />
+                  <RankedChip
+                    active={data.cephNIC === iface.name}
+                    recommended={recCeph?.nic === iface.name}
+                    reasons={recCeph?.nic === iface.name ? recCeph.reasons : undefined}
+                    label={t("admin.nodes.add.wizard.roleCeph", "ceph")}
+                    onClick={() => dispatch({ type: "confirm/update", patch: { cephNIC: iface.name } })}
+                  />
+                  <RankedChip
+                    active={data.bridgeNIC === iface.name}
+                    recommended={recBridge?.nic === iface.name}
+                    reasons={recBridge?.nic === iface.name ? recBridge.reasons : undefined}
+                    label={t("admin.nodes.add.wizard.roleBridge", "bridge")}
+                    onClick={() => dispatch({ type: "confirm/update", patch: { bridgeNIC: iface.name } })}
+                  />
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </>
+  );
+}
+
+// PLAN-038 / OPS-041 Phase A：RankedChip — 在原 RoleChip 基础上加"★ 推荐"
+// 标识与 hover 理由提示。视觉值全部走 @theme：active 用 border-ring；推荐用
+// status-success 边框（不抢主色，只是提示）。
+function RankedChip({
+  label, active, recommended, reasons, onClick,
+}: {
+  label: string;
+  active: boolean;
+  recommended?: boolean;
+  reasons?: string[];
+  onClick: () => void;
+}) {
+  const titleAttr = recommended && reasons && reasons.length > 0
+    ? `推荐：${reasons.join(" · ")}`
+    : undefined;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={titleAttr}
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-pill border text-tiny transition-colors",
+        active
+          ? "bg-surface-2 text-foreground border-ring"
+          : recommended
+            ? "bg-status-success/8 text-foreground border-status-success/40 hover:bg-status-success/15"
+            : "bg-surface-1 text-text-secondary border-border hover:bg-surface-2",
+      )}
+    >
+      {recommended ? <span aria-hidden="true">★</span> : null}
+      {label}
+    </button>
   );
 }
 
@@ -976,22 +1066,8 @@ function InlineCreateCredentialButton({ onCreated }: { onCreated: (id: number) =
   );
 }
 
-function RoleChip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-pill px-2 py-0.5 text-label border transition-colors",
-        active
-          ? "border-primary bg-primary/15 text-text-primary"
-          : "border-border bg-surface-2 text-text-tertiary hover:bg-surface-3",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
+// PLAN-038 / OPS-041 Phase A：RoleChip 已被 RankedChip（带推荐 ★ + reason
+// tooltip）取代，原实现删除。
 
 function JobStep({
   steps, terminal, nodeName,
@@ -1097,4 +1173,184 @@ function computeHeuristics(node: NodeInfo): {
     cephClusterIP,
     skipNetwork: !!mgmtIP && !!node.default_route,
   };
+}
+
+// PLAN-038 / OPS-041 Phase A：把后端 ranked top1 转成表单字段。仅当 ranked
+// 给出明确推荐（非空 candidates）时覆盖 heuristics；否则回退 heuristics。
+function applyRankedPicks(ranked?: RankedResult): {
+  mgmtNIC?: string;
+  cephNIC?: string;
+  bridgeNIC?: string;
+} {
+  if (!ranked?.roles) return {};
+  const out: { mgmtNIC?: string; cephNIC?: string; bridgeNIC?: string } = {};
+  for (const r of ranked.roles) {
+    const top = r.candidates[0];
+    if (!top) continue;
+    if (r.role === "mgmt" && top.score > 0.3) out.mgmtNIC = top.nic;
+    if (r.role === "ceph_cluster" && top.score > 0.3) out.cephNIC = top.nic;
+    if (r.role === "bridge_source" && top.score > 0.3) out.bridgeNIC = top.nic;
+  }
+  return out;
+}
+
+// 把 RankedResult 转成"角色 → 候选数组"映射，前端 step 2 chip 渲染用。
+function rankedByRole(ranked?: RankedResult): Partial<Record<NICRole, RankedResult["roles"][number]["candidates"]>> {
+  const out: Partial<Record<NICRole, RankedResult["roles"][number]["candidates"]>> = {};
+  if (!ranked?.roles) return out;
+  for (const r of ranked.roles) {
+    out[r.role] = r.candidates;
+  }
+  return out;
+}
+
+// PLAN-038 / OPS-041 Phase B Tier 2 — AIExplainSection
+//
+// 触发条件 + 展示策略（pma-cr F5/F7）：
+//   - Tier 1 (data.ranked) overall_confidence < 0.3 → 默认展开 + button=primary
+//   - 高置信度 → 折叠 + button=ghost（仍可点）
+//   - AI 不可用（503）→ button disabled + tooltip
+//   - 重复展开 / 翻页不重复付费（useQuery + probeID 为 key 缓存 5min — pma-cr F2）
+//   - 表格"AI 推荐 / Tier 1 推荐"两列并排，diff 时 Tier 1 列加 / Same/Differs 标识 — pma-cr F7
+//   - ceph_public 推荐 与 ceph_cluster 共用 cephNIC 字段（join-node.sh 单 nic_cluster 参数） — pma-cr F1
+function AIExplainSection({
+  data, cluster, dispatch,
+}: {
+  data: ConfirmState;
+  cluster: string;
+  dispatch: React.Dispatch<Action>;
+}) {
+  const { t } = useTranslation();
+  const tier1Conf = data.ranked?.overall_confidence ?? 0;
+  const lowConfidence = tier1Conf < 0.3;
+  // pma-cr F5：低置信度时默认展开；高置信度折叠
+  const [expanded, setExpanded] = useState(lowConfidence);
+
+  const probeID = data.probeID ?? "";
+  const ai = useAISuggestRolesQuery(cluster, probeID, data.role);
+
+  const errView = ai.isError ? classifyAIError((ai.error as Error)?.message, "admin.nodes.add.ai") : null;
+  const aiDisabled = errView?.category === "disabled";
+  const result = ai.data;
+  const tier1ByRole = rankedByRole(data.ranked);
+
+  const trigger = () => {
+    if (!probeID) return;
+    if (!result) ai.refetch();
+    setExpanded(true);
+  };
+
+  // pma-cr F1：4 角色全覆盖；ceph_public 与 ceph_cluster 共用 cephNIC 字段
+  const adoptRecommendation = (rec: AIRoleRecommendation) => {
+    if (rec.role === "mgmt") dispatch({ type: "confirm/update", patch: { mgmtNIC: rec.nic } });
+    if (rec.role === "bridge_source") dispatch({ type: "confirm/update", patch: { bridgeNIC: rec.nic } });
+    if (rec.role === "ceph_cluster" || rec.role === "ceph_public") {
+      dispatch({ type: "confirm/update", patch: { cephNIC: rec.nic } });
+    }
+  };
+
+  return (
+    <Card className="p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-caption">
+          <span className="font-emphasis text-text-secondary">
+            {t("admin.nodes.add.ai.title")}
+          </span>
+          {lowConfidence
+            ? (
+                <span className="inline-flex items-center px-1.5 rounded-pill border border-status-warning/30 bg-status-warning/8 text-status-warning text-tiny">
+                  {t("admin.nodes.add.ai.lowConfHint")}
+                </span>
+              )
+            : (
+                <span className="text-text-tertiary text-tiny">
+                  {t("admin.nodes.add.ai.highConfHint")}
+                </span>
+              )}
+        </div>
+        <Button
+          size="sm"
+          variant={lowConfidence ? "primary" : "ghost"}
+          onClick={trigger}
+          disabled={ai.isFetching || aiDisabled || !probeID}
+          title={aiDisabled ? t("admin.nodes.add.ai.disabledHint") : undefined}
+        >
+          {ai.isFetching ? t("common.processing") : t("admin.nodes.add.ai.button")}
+        </Button>
+      </div>
+
+      {expanded && result && (
+        <div className="mt-3 space-y-2">
+          <div className="text-tiny text-text-tertiary">
+            {t("admin.nodes.add.ai.providerLine", { p: result.provider, m: result.model })}
+          </div>
+          <div className="border border-border rounded-md overflow-hidden">
+            <table className="w-full text-caption">
+              <thead className="bg-surface-1 text-text-tertiary">
+                <tr>
+                  <th className="px-2 py-1 text-left">{t("admin.nodes.add.ai.colRole")}</th>
+                  <th className="px-2 py-1 text-left">{t("admin.nodes.add.ai.colNIC")}</th>
+                  <th className="px-2 py-1 text-left">{t("admin.nodes.add.ai.colTier1")}</th>
+                  <th className="px-2 py-1 text-left">{t("admin.nodes.add.ai.colConf")}</th>
+                  <th className="px-2 py-1 text-left">{t("admin.nodes.add.ai.colReason")}</th>
+                  <th className="px-2 py-1 text-right">{t("admin.nodes.add.ai.colAction")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.recommendations.map((rec) => {
+                  const tier1Top = tier1ByRole[rec.role]?.[0];
+                  const tier1NIC = tier1Top?.nic ?? "";
+                  const same = tier1NIC === rec.nic;
+                  return (
+                    <tr key={`${rec.role}-${rec.nic}`} className="border-t border-border">
+                      <td className="px-2 py-1 text-text-secondary">{rec.role}</td>
+                      <td className="px-2 py-1 font-mono">{rec.nic}</td>
+                      <td className="px-2 py-1 font-mono text-text-tertiary">
+                        {tier1NIC || "—"}
+                        {tier1NIC && (
+                          <span
+                            className={cn(
+                              "ml-1.5 px-1 rounded-pill border text-tiny font-emphasis",
+                              same
+                                ? "border-status-success/30 bg-status-success/8 text-status-success"
+                                : "border-status-warning/30 bg-status-warning/8 text-status-warning",
+                            )}
+                          >
+                            {same
+                              ? t("admin.nodes.add.ai.same")
+                              : t("admin.nodes.add.ai.diff")}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1 tabular-nums text-text-tertiary">{(rec.confidence * 100).toFixed(0)}%</td>
+                      <td className="px-2 py-1 text-text-secondary">{rec.rationale}</td>
+                      <td className="px-2 py-1 text-right">
+                        <Button size="sm" variant="outline" onClick={() => adoptRecommendation(rec)}>
+                          {t("admin.nodes.add.ai.adopt")}
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {result.warnings.length > 0 && (
+            <ul className="text-tiny text-status-warning space-y-1 list-disc pl-4">
+              {result.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* pma-cr F6：raw error 不再原样暴露；按分类显示 i18n 文案 */}
+      {errView && !aiDisabled && (
+        <div className="mt-2 text-tiny text-status-error">
+          {t(errView.i18nKey, { msg: errView.rawMessage })}
+        </div>
+      )}
+    </Card>
+  );
 }

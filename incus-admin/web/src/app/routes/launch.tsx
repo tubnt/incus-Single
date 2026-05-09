@@ -184,7 +184,7 @@ function LaunchPage() {
         : phase === "provisioning"
           ? <ProvisioningPanel steps={stream.steps} ip={pending?.ip ?? null} />
           : phase === "failed"
-            ? <FailedPanel error={asyncError ?? ""} onRetry={reset} />
+            ? <FailedPanel error={asyncError ?? ""} onRetry={reset} jobID={pending?.job_id ?? undefined} />
             : (
                 <PageContent>
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -2,7 +2,7 @@ import type {MyTrashedVM, VMService} from "@/features/vms/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Camera, ExternalLink, MoreHorizontal, Pause, Play, Plus, RefreshCw,
-  RotateCcw, Square, Terminal as TerminalIcon, Trash2,
+  RotateCcw, Server, Square, Terminal as TerminalIcon, Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -549,6 +549,20 @@ function VMCard({
           <span className="text-caption text-text-tertiary truncate hidden sm:inline">
             {vm.cluster_display_name || vm.cluster}
           </span>
+          {/* PLAN-037 / OPS-040：把节点标签提到主行（之前在 caption 灰字里），让用户
+              一眼就能看到自己的 VM 在哪台物理机。无 location 时回退占位（保持布局稳定）。 */}
+          {vm.node ? (
+            <span
+              className={cn(
+                "hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-pill border border-border",
+                "bg-surface-1 text-caption font-mono text-text-secondary",
+              )}
+              aria-label={t("vm.locatedOnNode", { defaultValue: "运行在节点 {{node}}", node: vm.node })}
+            >
+              <Server size={10} aria-hidden="true" />
+              {vm.node}
+            </span>
+          ) : null}
           <div className="ml-auto flex items-center gap-1.5 shrink-0">
             {isRunning ? (
               <Link

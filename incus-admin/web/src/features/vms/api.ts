@@ -292,21 +292,29 @@ export function useBatchVMMutation() {
   });
 }
 
+// PLAN-039 / OPS-043: 单台 migrate 加 mode 字段，与批量保持一致。
 export function useMigrateVMMutation() {
   return useMutation({
-    mutationFn: (params: { name: string; cluster: string; project: string; target_node: string }) =>
+    mutationFn: (params: {
+      name: string;
+      cluster: string;
+      project: string;
+      target_node: string;
+      mode?: "auto" | "live" | "cold";
+    }) =>
       http.post(
         `/admin/vms/${params.name}/migrate`,
         {
           cluster: params.cluster,
           project: params.project,
           target_node: params.target_node,
+          mode: params.mode ?? "auto",
         },
         {
           intent: {
             action: "vm.migrate",
             args: params as unknown as Record<string, unknown>,
-            description: `迁移 VM ${params.name} → ${params.target_node}`,
+            description: `迁移 VM ${params.name} → ${params.target_node}（${params.mode ?? "auto"}）`,
           },
         },
       ),

@@ -25,6 +25,11 @@ describe("defaultUserForImage", () => {
     expect(defaultUserForImage("images:freebsd/14.0")).toBe("freebsd");
   });
 
+  it("matches Windows aliases (custom local images)", () => {
+    expect(defaultUserForImage("images:windows-server-2022")).toBe("Administrator");
+    expect(defaultUserForImage("images:windows-11")).toBe("Administrator");
+  });
+
   it("falls back to ubuntu for empty / unknown", () => {
     expect(defaultUserForImage("")).toBe("ubuntu");
     expect(defaultUserForImage(null)).toBe("ubuntu");
