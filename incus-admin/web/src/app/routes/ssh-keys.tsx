@@ -1,5 +1,4 @@
 import type {SSHKey} from "@/features/ssh-keys/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { Key, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +28,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { formatDate } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/ssh-keys")({

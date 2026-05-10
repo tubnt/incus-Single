@@ -52,6 +52,7 @@ export function useGlobalShortcut(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // 调用方通过 deps 数组显式声明依赖；handler 闭包由调用方负责保证最新值。
+    // eslint-disable-next-line react/exhaustive-deps
   }, [enabled, key, allowModifier, fireInForms, ...deps]);
 }

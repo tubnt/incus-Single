@@ -1,5 +1,4 @@
 import type {ClusterInfo, NodeInfo} from "@/features/clusters/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,6 +31,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 import { formatNodeMessage, formatNodeStatus } from "@/shared/lib/status-i18n";
 import { fmtBytes } from "@/shared/lib/utils";
 

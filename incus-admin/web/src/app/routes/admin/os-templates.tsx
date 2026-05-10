@@ -1,5 +1,4 @@
 import type { OSTemplate, OSTemplateFormData } from "@/features/templates/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -49,6 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/os-templates")({
   component: OSTemplatesPage,

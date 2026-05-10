@@ -27,7 +27,6 @@ import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Button, buttonVariants } from "@/shared/components/ui/button";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
-import { formatError } from "@/shared/lib/http";
 import {
   Select,
   SelectContent,
@@ -45,6 +44,7 @@ import {
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/vm-detail")({

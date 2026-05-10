@@ -1,5 +1,4 @@
 import type { PayResponse, VMCredentials } from "@/features/billing/api";
-import { formatError } from "@/shared/lib/http";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Rocket } from "lucide-react";
@@ -29,6 +28,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { MobileBottomBar } from "@/shared/components/ui/mobile-bottom-bar";
 import { fetchCurrentUser } from "@/shared/lib/auth";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/launch")({

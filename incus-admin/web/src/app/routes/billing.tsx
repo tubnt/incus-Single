@@ -1,5 +1,4 @@
 import type {Invoice, Order, VMCredentials} from "@/features/billing/api";
-import { formatError } from "@/shared/lib/http";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CreditCard, FileText, Rocket, ShoppingCart } from "lucide-react";
@@ -34,6 +33,7 @@ import {
   TableRow,
 } from "@/shared/components/ui/table";
 import { fetchCurrentUser } from "@/shared/lib/auth";
+import { formatError } from "@/shared/lib/http";
 import { formatInvoiceStatus, formatOrderStatus } from "@/shared/lib/status-i18n";
 import { cn, formatCurrency, formatDate, formatDateTime } from "@/shared/lib/utils";
 

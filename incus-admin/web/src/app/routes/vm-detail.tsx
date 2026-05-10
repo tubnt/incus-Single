@@ -1,5 +1,4 @@
 import type {ResetPasswordMode} from "@/features/vms/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -50,6 +49,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { formatError } from "@/shared/lib/http";
 import { formatVmStatus } from "@/shared/lib/status-i18n";
 import { cn, formatDate } from "@/shared/lib/utils";
 

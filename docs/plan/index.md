@@ -69,4 +69,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 - [x] [**PLAN-041 监控告警闭环 —— Prometheus 端点 + 阈值规则 + Webhook 通道（INFRA-009）**](PLAN-041.md) `2026-05-09`
 - [x] [**PLAN-042 OpenAPI 规范 + Terraform Provider（INFRA-010）**](PLAN-042.md) `2026-05-09`
 - [x] [**PLAN-043 一键 Bootstrap CLI —— 5 分钟出私有云（INFRA-011）**](PLAN-043.md) `2026-05-09`
-- [~] [**PLAN-051 全平台收口包 —— Session-1/2/3 + QA-009 一次性闭环（64/74 项落地，余项→OPS-047）**](PLAN-051.md) `2026-05-09`
+- [~] [**PLAN-051 全平台收口包 —— Session-1/2/3 + QA-009 一次性闭环（71/74 项落地，余项→OPS-047）**](PLAN-051.md) `2026-05-09`

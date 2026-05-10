@@ -1,5 +1,4 @@
 import type {FirewallGroup, FirewallRule} from "@/features/firewall/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
@@ -32,6 +31,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/firewall")({
   component: FirewallPage,

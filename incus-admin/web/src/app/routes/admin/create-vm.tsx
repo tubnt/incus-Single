@@ -1,5 +1,4 @@
 import type { AdminCreateVMResult } from "@/features/vms/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Check, CheckCircle2, Cpu, HardDrive, Layers, MemoryStick, Plus, Tag } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -28,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/create-vm")({

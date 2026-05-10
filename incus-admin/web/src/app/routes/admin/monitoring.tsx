@@ -1,5 +1,4 @@
 import type {VMMetric} from "@/features/monitoring/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +16,7 @@ import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { EmptyState, ErrorState } from "@/shared/components/ui/empty-state";
 import { StatGridSkeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/monitoring")({

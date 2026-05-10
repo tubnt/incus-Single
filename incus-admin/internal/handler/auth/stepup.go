@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/incuscloud/incus-admin/internal/auth"
@@ -28,10 +29,56 @@ const (
 	stateTTL = 10 * time.Minute
 )
 
+// pkceStore Session-1 O3 / PLAN-051 §2-B：state → code_verifier 内存映射。
+// state 已经是签名过的 nonce + expiry；用 state 作 key 取 verifier 安全。
+// 单实例部署假设；多实例部署需要外置 Redis（OPS-047 跟踪）。
+type pkceStore struct {
+	mu    sync.Mutex
+	items map[string]pkceEntry
+}
+
+type pkceEntry struct {
+	verifier  string
+	expiresAt time.Time
+}
+
+func newPKCEStore() *pkceStore {
+	return &pkceStore{items: make(map[string]pkceEntry)}
+}
+
+func (s *pkceStore) put(state, verifier string, ttl time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gcLocked()
+	s.items[state] = pkceEntry{verifier: verifier, expiresAt: time.Now().Add(ttl)}
+}
+
+func (s *pkceStore) take(state string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gcLocked()
+	v, ok := s.items[state]
+	if !ok {
+		return ""
+	}
+	delete(s.items, state)
+	return v.verifier
+}
+
+func (s *pkceStore) gcLocked() {
+	now := time.Now()
+	for k, v := range s.items {
+		if now.After(v.expiresAt) {
+			delete(s.items, k)
+		}
+	}
+}
+
 type Handler struct {
 	oidc        *auth.OIDCClient
 	userRepo    *repository.UserRepo
 	stateSecret []byte
+	pkce        *pkceStore
 }
 
 func NewHandler(oidcClient *auth.OIDCClient, userRepo *repository.UserRepo, stateSecret string) *Handler {
@@ -39,6 +86,7 @@ func NewHandler(oidcClient *auth.OIDCClient, userRepo *repository.UserRepo, stat
 		oidc:        oidcClient,
 		userRepo:    userRepo,
 		stateSecret: []byte(stateSecret),
+		pkce:        newPKCEStore(),
 	}
 }
 
@@ -56,7 +104,15 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, h.oidc.StepUpAuthURL(state), http.StatusFound)
+	// Session-1 O3：生成 PKCE pair，verifier 留在 server-side store（state 作 key）
+	verifier, challenge, perr := auth.GeneratePKCE()
+	if perr != nil {
+		slog.Error("stepup: generate pkce", "error", perr)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	h.pkce.put(state, verifier, stateTTL)
+	http.Redirect(w, r, h.oidc.StepUpAuthURL(state, challenge), http.StatusFound)
 }
 
 // Callback is Logto's redirect target. It completes the step-up by marking
@@ -85,7 +141,9 @@ func (h *Handler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := h.oidc.VerifyCode(ctx, code)
+	// Session-1 O3：取出 verifier；缺失 / 过期视为不合法（攻击者无法伪造 verifier）
+	verifier := h.pkce.take(state)
+	claims, err := h.oidc.VerifyCode(ctx, code, verifier)
 	if err != nil {
 		slog.Warn("stepup: verify code", "error", err)
 		http.Error(w, "authentication failed", http.StatusBadRequest)

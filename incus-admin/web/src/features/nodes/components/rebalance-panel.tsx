@@ -1,5 +1,4 @@
 import type { ImbalanceSuggestion } from "@/features/nodes/api";
-import { formatError } from "@/shared/lib/http";
 import { ArrowRight, Scale, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,6 +10,7 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 /**

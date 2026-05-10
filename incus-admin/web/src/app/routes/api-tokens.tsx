@@ -1,5 +1,4 @@
 import type {APIToken} from "@/features/api-tokens/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -38,6 +37,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { cn, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 // OPS-030: TTL 选项 + 倒计时文案改成 i18n 化（接 t fn）。

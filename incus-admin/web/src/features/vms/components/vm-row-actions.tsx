@@ -1,5 +1,4 @@
 import type {IncusInstance} from "@/features/vms/api";
-import { formatError } from "@/shared/lib/http";
 import { Link } from "@tanstack/react-router";
 import {
   Camera, ExternalLink, MoreHorizontal, Pause,
@@ -23,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 interface VMRowActionsProps {

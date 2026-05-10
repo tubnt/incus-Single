@@ -1,5 +1,4 @@
 import type {GoneVM} from "@/features/vms/api";
-import { formatError } from "@/shared/lib/http";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useForceDeleteGoneVMMutation, useGoneVMsQuery } from "@/features/vms/api";
@@ -9,6 +8,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatDateTime } from "@/shared/lib/utils";
 
 /** Drift（PLAN-020 reconciler 标 status=gone）的 VM 列表 + 强制清理。 */

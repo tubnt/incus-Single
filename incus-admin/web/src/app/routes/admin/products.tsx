@@ -1,5 +1,4 @@
 import type { Product, ProductFormData } from "@/features/products/api";
-import { formatError } from "@/shared/lib/http";
 import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
@@ -43,6 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/products")({

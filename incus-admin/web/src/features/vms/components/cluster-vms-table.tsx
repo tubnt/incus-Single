@@ -1,5 +1,4 @@
 import type {ColumnDef, RowSelectionState, SortingState} from "@tanstack/react-table";
-import { formatError } from "@/shared/lib/http";
 import type {IncusInstance} from "@/features/vms/api";
 import type {VMSheetKind} from "@/features/vms/components/vm-action-sheets";
 import { Link } from "@tanstack/react-router";
@@ -24,6 +23,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { DataTable } from "@/shared/components/ui/data-table";
 import { ErrorState } from "@/shared/components/ui/empty-state";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 import { formatVmStatus } from "@/shared/lib/status-i18n";
 import { cn, formatTime } from "@/shared/lib/utils";
 

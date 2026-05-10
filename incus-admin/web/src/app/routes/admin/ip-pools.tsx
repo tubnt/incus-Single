@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { formatError } from "@/shared/lib/http";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +21,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/shared/components/ui/sheet";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/ip-pools")({
   component: IPPoolsPage,

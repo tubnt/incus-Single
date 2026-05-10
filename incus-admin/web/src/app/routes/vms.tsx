@@ -1,5 +1,4 @@
 import type {MyTrashedVM, VMService} from "@/features/vms/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Camera, ExternalLink, MoreHorizontal, Pause, Play, Plus, RefreshCw,
@@ -48,7 +47,7 @@ import {
 } from "@/shared/components/ui/sheet";
 import { CardSkeleton } from "@/shared/components/ui/skeleton";
 import { StatusDot, vmStatusToKind } from "@/shared/components/ui/status";
-import { http } from "@/shared/lib/http";
+import { formatError, http  } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
 import { cn } from "@/shared/lib/utils";
 

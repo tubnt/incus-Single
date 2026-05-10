@@ -1,5 +1,4 @@
 import type { User } from "@/shared/lib/auth";
-import { formatError } from "@/shared/lib/http";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -14,7 +13,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { http } from "@/shared/lib/http";
+import { formatError, http  } from "@/shared/lib/http";
 
 export function ShadowLoginDialog({
   open,

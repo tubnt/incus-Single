@@ -1,5 +1,4 @@
 import type {Ticket} from "@/features/tickets/api";
-import { formatError } from "@/shared/lib/http";
 import type {StatusKind} from "@/shared/components/ui/status";
 import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, MessageSquare, Plus } from "lucide-react";
@@ -48,6 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatTicketStatus } from "@/shared/lib/status-i18n";
 import { cn, formatDateTime } from "@/shared/lib/utils";
 

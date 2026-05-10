@@ -1,5 +1,4 @@
 import type {ClusterNode} from "@/features/nodes/api";
-import { formatError } from "@/shared/lib/http";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,8 +31,9 @@ import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
-import { formatNodeMessage, formatNodeStatus, formatVmStatus } from "@/shared/lib/status-i18n";
+import { formatNodeMessage, formatNodeStatus, formatVmStatus, isStatus } from "@/shared/lib/status-i18n";
 
 export const Route = createFileRoute("/admin/nodes")({
   component: NodesPage,
@@ -170,12 +170,12 @@ function NodeCard({
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
-  const statusKind =
-    node.status === "Online"
-      ? "success"
-      : node.status === "Evacuated"
-        ? "warning"
-        : "error";
+  // Session-2 N-06 / PLAN-051 §2-I：归一比较，消除大小写敏感
+  const statusKind = isStatus(node.status, "Online")
+    ? "success"
+    : isStatus(node.status, "Evacuated")
+      ? "warning"
+      : "error";
 
   return (
     <Card className="overflow-x-auto">
@@ -305,7 +305,7 @@ function NodeDetail({
 
           {/* 维护模式操作 */}
           <div className="flex items-center gap-3">
-            {nodeStatus === "Online" ? (
+            {isStatus(nodeStatus, "Online") ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -323,7 +323,7 @@ function NodeDetail({
                   ? t("admin.evacuating")
                   : t("admin.enterMaintenance")}
               </Button>
-            ) : nodeStatus === "Evacuated" ? (
+            ) : isStatus(nodeStatus, "Evacuated") ? (
               <Button
                 variant="outline"
                 size="sm"

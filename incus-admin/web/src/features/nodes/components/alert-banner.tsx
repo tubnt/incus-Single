@@ -1,5 +1,4 @@
 import type { SystemAlert } from "@/features/nodes/api";
-import { formatError } from "@/shared/lib/http";
 import { AlertTriangle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -8,6 +7,7 @@ import {
   useSystemAlertsQuery,
 } from "@/features/nodes/api";
 import { Button } from "@/shared/components/ui/button";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 /**
