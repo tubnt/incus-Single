@@ -480,8 +480,10 @@ func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, 
 // checkQuota 在 PayWithBalance 之前对 user+product 做 quota 预检查。
 // 返回 nil 表示通过；返回 err 表示触限，msg 直接对用户展示。
 //
-// 策略：sql.ErrNoRows（用户未设 quota 行）→ 跳过 = 不限制（admin 未配置等价于
-// 不限）。任何其他 DB 错误 → 跳过 + slog.Warn（避免 quota 系统故障阻塞付款）。
+// 策略（Session-2 F-26 / PLAN-051 §2-C 决策 D-04 = B 硬软分离）：
+//   - quota 查询失败：fail-closed（DB 错误 → 503，避免硬上限被绕过）
+//   - quota 行不存在（sql.ErrNoRows / GetByUserID 返 nil + nil error）：放行
+//   - VMs 列表查询失败：fail-closed（用户当前用量未知，无法判定硬上限）
 //
 // 检查 4 个轴：max_vms / max_vcpus / max_ram_mb / max_disk_gb。当前 VMs 用
 // repo.ListByUser 的 active 行（含 creating/running 等非删除态）；新购的
@@ -489,17 +491,19 @@ func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, 
 func (h *OrderHandler) checkQuota(ctx context.Context, userID int64, product *model.Product) error {
 	q, err := h.quotas.GetByUserID(ctx, userID)
 	if err != nil {
-		// no row 或临时 DB 错都放行；前者是设计行为，后者宁可通过也不阻挡付款
-		slog.Debug("quota lookup skipped", "user_id", userID, "error", err)
-		return nil
+		// PLAN-051 §2-C：DB 错误 → fail-closed。GetByUserID 对 sql.ErrNoRows 返
+		// (nil, nil)，这里能进 if 分支说明真有 DB 问题。返 fmt.Errorf 让 caller
+		// 写 503 给用户："暂时无法验证额度，请稍后重试"。
+		slog.Error("quota lookup failed; refusing purchase to protect hard limits", "user_id", userID, "error", err)
+		return fmt.Errorf("quota service unavailable")
 	}
 	if q == nil {
 		return nil
 	}
 	vms, err := h.vmRepo.ListByUser(ctx, userID)
 	if err != nil {
-		slog.Warn("quota usage query failed; allowing purchase", "user_id", userID, "error", err)
-		return nil
+		slog.Error("quota usage query failed; refusing purchase to protect hard limits", "user_id", userID, "error", err)
+		return fmt.Errorf("quota service unavailable")
 	}
 	curVMs := len(vms)
 	curCPU, curRAM, curDisk := 0, 0, 0

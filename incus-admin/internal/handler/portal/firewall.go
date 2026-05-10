@@ -88,12 +88,21 @@ func (h *FirewallHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+	// Session-2 F-20 / PLAN-051 §2-F：N+1 → 单 SQL 取所有 rules，按 group_id 分桶
+	groupIDs := make([]int64, len(groups))
+	for i, g := range groups {
+		groupIDs[i] = g.ID
+	}
+	rulesByGroup, err := h.repo.ListRulesByGroups(r.Context(), groupIDs)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	out := make([]firewallGroupDTO, 0, len(groups))
 	for _, g := range groups {
-		rules, err := h.repo.ListRules(r.Context(), g.ID)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
+		rules := rulesByGroup[g.ID]
+		if rules == nil {
+			rules = []model.FirewallRule{}
 		}
 		out = append(out, firewallGroupDTO{FirewallGroup: g, Rules: rules})
 	}
@@ -480,6 +489,15 @@ func (h *FirewallHandler) AdminBindVM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
 		return
 	}
+	// Session-2 F-23 / PLAN-051 §2-F 决策 D-13 = A：admin 不能把"用户 A 的私有组"
+	// 绑到"用户 B 的 VM"。命名空间约定 fwg-u<owner>-<slug> 假设 owner 与 vm 同人；
+	// 否则后续 detach 找不到正确 ACL 名。共享组 (OwnerID == nil) 不受限。
+	if group.OwnerID != nil && *group.OwnerID != vm.UserID {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": fmt.Sprintf("group #%d is private to user #%d, cannot bind to vm owned by user #%d", group.ID, *group.OwnerID, vm.UserID),
+		})
+		return
+	}
 	clusterName, project := h.resolveVMLocation(vm)
 	if err := h.svc.AttachACLToVM(r.Context(), clusterName, project, vm.Name, group); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "attach ACL: " + err.Error()})
@@ -516,6 +534,13 @@ func (h *FirewallHandler) AdminUnbindVM(w http.ResponseWriter, r *http.Request) 
 	group, err := h.repo.GetGroupByID(r.Context(), groupID)
 	if err != nil || group == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	// Session-2 F-23：与 AdminBindVM 同样的 owner 一致性检查
+	if group.OwnerID != nil && *group.OwnerID != vm.UserID {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": fmt.Sprintf("group #%d is private to user #%d, cannot operate on vm owned by user #%d", group.ID, *group.OwnerID, vm.UserID),
+		})
 		return
 	}
 	clusterName, project := h.resolveVMLocation(vm)
@@ -819,7 +844,9 @@ func (h *FirewallHandler) PortalListDefaults(w http.ResponseWriter, r *http.Requ
 }
 
 type replaceDefaultsReq struct {
-	GroupIDs []int64 `json:"group_ids" validate:"omitempty,dive,gt=0"`
+	// Session-2 F-21 / PLAN-051 §2-F：max=20 防止单请求提交 1000 个 ID 触发
+	// per-id N+1 SELECT。20 个默认组对正常运维场景已足够。
+	GroupIDs []int64 `json:"group_ids" validate:"omitempty,max=20,dive,gt=0"`
 }
 
 // PortalReplaceDefaults 原子替换当前用户的默认组列表。

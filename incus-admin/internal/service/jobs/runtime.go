@@ -133,6 +133,31 @@ func (r *Runtime) Start(ctx context.Context) {
 // Stop 等所有 worker 退出。调用方应先 cancel runtime ctx。
 func (r *Runtime) Stop() { r.wg.Wait() }
 
+// Shutdown 是 graceful 退出 entrypoint：先关闭 queue（拒新工），然后等 in-flight
+// worker 完成；ctx 超时则放弃等待返 ctx.Err()，调用方据此决定 exit code。
+//
+// Session-2 F-04：原版 main.go 在 SIGTERM 时只 cancel workerCtx 让 worker 立刻
+// 退出（worker select 撞到 ctx.Done() 直接 return），但 in-flight job 在 detached
+// 30min ctx 里继续跑——进程随后 os.Exit 把它强杀，DB 留 running 行没人收尾。
+// Shutdown 在 worker ctx cancel 之前调，让正在跑的 job 跑完或者超时（默认运维侧
+// 30s 上限）。runOne 用 background ctx 是有意设计——shutdown 不打断业务正确性，
+// 只决定我们等多久。
+func (r *Runtime) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		slog.Info("provisioning runtime shutdown clean", "in_flight", 0)
+		return nil
+	case <-ctx.Done():
+		slog.Warn("provisioning runtime shutdown timeout; in-flight jobs will be sweeped on next start", "error", ctx.Err())
+		return ctx.Err()
+	}
+}
+
 // Enqueue 把已 INSERT 的 job 推入队列，并暂存 params。queue 满时阻塞等待
 // （避免静默丢任务）。handler 拿到 job_id 后立即返 202。
 func (r *Runtime) Enqueue(ctx context.Context, jobID int64, params Params) error {

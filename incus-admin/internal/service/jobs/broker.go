@@ -18,8 +18,12 @@ type StepEvent struct {
 // Broker 是 job_id → []chan StepEvent 的薄路由。订阅者断连后 Unsubscribe 释放
 // channel。Publish 永远 non-blocking（满 buffer 直接丢，订阅者错过的 step 通过
 // SSE 重连 Last-Event-ID 从 DB 重放补齐）。
+//
+// Session-2 F-40 / PLAN-051 §2-K：用 RWMutex —— Publish 走 RLock 让多 publisher
+// 与读 SubscriberCount 不互锁；Subscribe / Unsubscribe 走 Lock。原版 Mutex 在
+// 多 SSE 订阅者 + 多 publisher 时序列化所有路径。
 type Broker struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex
 	subs map[int64]map[int]chan StepEvent
 	nextID int
 }
@@ -60,10 +64,17 @@ func (b *Broker) Subscribe(jobID int64) (<-chan StepEvent, func()) {
 
 // Publish 把事件推给所有订阅者。Buffer 满时直接丢（non-blocking），由 SSE 端
 // reconnect 时通过 Last-Event-ID 从 DB 拉缺失 step 补齐。
+//
+// Session-2 F-40：先 RLock 拷贝订阅 channel 到本地切片，释锁后再发——避免持
+// 写锁时被慢消费者拖住，多 publisher 不互相阻塞。
 func (b *Broker) Publish(ev StepEvent) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	channels := make([]chan StepEvent, 0, len(b.subs[ev.JobID]))
 	for _, ch := range b.subs[ev.JobID] {
+		channels = append(channels, ch)
+	}
+	b.mu.RUnlock()
+	for _, ch := range channels {
 		select {
 		case ch <- ev:
 		default:
@@ -76,8 +87,8 @@ func (b *Broker) Publish(ev StepEvent) {
 // jobID→userID 映射；这里直接 sum 所有 jobID 的订阅数（Broker 不知道 user）。
 // per-user 限流由 handler 层用独立 map 实现，Broker 只负责按 job 路由。
 func (b *Broker) SubscriberCount() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	total := 0
 	for _, m := range b.subs {
 		total += len(m)

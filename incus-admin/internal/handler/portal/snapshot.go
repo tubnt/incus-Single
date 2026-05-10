@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -68,7 +69,7 @@ func (h *SnapshotHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := fmt.Sprintf("/1.0/instances/%s/snapshots?recursion=1&project=%s", vmName, project)
+	path := fmt.Sprintf("/1.0/instances/%s/snapshots?recursion=1&project=%s", url.PathEscape(vmName), url.QueryEscape(project))
 	resp, err := client.APIGet(r.Context(), path)
 	if err != nil {
 		slog.Error("list snapshots failed", "vm", vmName, "error", err)
@@ -100,7 +101,7 @@ func (h *SnapshotHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"name": req.Name})
-	path := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s", vmName, req.Project)
+	path := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s", url.PathEscape(vmName), url.QueryEscape(req.Project))
 	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("create snapshot failed", "vm", vmName, "error", err)
@@ -142,7 +143,7 @@ func (h *SnapshotHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := fmt.Sprintf("/1.0/instances/%s/snapshots/%s?project=%s", vmName, snapName, project)
+	path := fmt.Sprintf("/1.0/instances/%s/snapshots/%s?project=%s", url.PathEscape(vmName), url.PathEscape(snapName), url.QueryEscape(project))
 	resp, err := client.APIDelete(r.Context(), path)
 	if err != nil {
 		slog.Error("delete snapshot failed", "vm", vmName, "snap", snapName, "error", err)
@@ -190,7 +191,7 @@ func (h *SnapshotHandler) Restore(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"restore": snapName})
-	path := fmt.Sprintf("/1.0/instances/%s?project=%s", vmName, req.Project)
+	path := fmt.Sprintf("/1.0/instances/%s?project=%s", url.PathEscape(vmName), url.QueryEscape(req.Project))
 	resp, err := client.APIPut(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("restore snapshot failed", "vm", vmName, "snap", snapName, "error", err)

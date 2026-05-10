@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -702,7 +703,7 @@ func runChaosCycle(clusterName, nodeName string, duration time.Duration, healing
 
 	// Evacuate
 	evacBody := strings.NewReader(`{"action":"evacuate"}`)
-	resp, err := client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), evacBody)
+	resp, err := client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), evacBody)
 	if err != nil {
 		failHealing("evacuate: " + err.Error())
 		return
@@ -728,7 +729,7 @@ func runChaosCycle(clusterName, nodeName string, duration time.Duration, healing
 
 	// Restore
 	restoreBody := strings.NewReader(`{"action":"restore"}`)
-	resp, err = client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), restoreBody)
+	resp, err = client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), restoreBody)
 	if err != nil {
 		failHealing("restore: " + err.Error())
 		return
@@ -830,7 +831,7 @@ func (h *AdminVMHandler) EvacuateNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"action": "evacuate"})
-	path := fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName)
+	path := fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName))
 	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		if healingID > 0 && healingRepo != nil {
@@ -877,7 +878,7 @@ func (h *AdminVMHandler) RestoreNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"action": "restore"})
-	path := fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName)
+	path := fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName))
 	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("restore node failed", "node", nodeName, "error", err)
@@ -949,18 +950,26 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 		vmListCacheMu.Unlock()
 	}
 
-	// 如果完全失败且有缓存，使用缓存
+	// 如果完全失败且有缓存，使用缓存（Session-2 F-7 / PLAN-051 §2-K：加 5min TTL，
+	// 防止过期 entry 永久驻留 + cluster 卸载后无人清理）。
+	const vmListCacheTTL = 5 * time.Minute
 	if len(allInstances) == 0 && fetchErr != nil {
 		vmListCacheMu.RLock()
 		cached, hasCached := vmListCache[clusterName]
 		vmListCacheMu.RUnlock()
-		if hasCached {
+		if hasCached && time.Since(cached.updated) < vmListCacheTTL {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"vms": cached.vms, "count": len(cached.vms),
 				"stale": true, "cached_at": cached.updated.Format(time.RFC3339),
 				"error": "cluster unreachable, showing cached data",
 			})
 			return
+		}
+		if hasCached {
+			// 过期则主动清，避免内存堆积；同时不再返给用户（要么显示 503）。
+			vmListCacheMu.Lock()
+			delete(vmListCache, clusterName)
+			vmListCacheMu.Unlock()
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "cluster unreachable: " + fetchErr.Error(),
@@ -1018,17 +1027,28 @@ func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMe
 	return out
 }
 
-// redactInstanceMap 原地移除 Incus instance JSON 中的敏感字段。当前覆盖：
-//   - config.user.cloud-init / expanded_config.user.cloud-init 含明文初始
-//     root 密码（cloud-config password: <hex>），即便对 admin 也应过滤以
-//     减少响应体散布到日志 / 屏幕快照 / 浏览器缓存的暴露面（SEC-002 / OPS-028）。
+// redactInstanceMap 原地移除 Incus instance JSON 中的敏感字段。覆盖：
+//   - config.user.cloud-init / expanded_config.user.cloud-init（legacy key）
+//   - config.cloud-init.* / expanded_config.cloud-init.*（Incus 标准 key；
+//     PLAN-025 之后 vm_create 与 reinstall 实际用 cloud-init.user-data /
+//     cloud-init.network-config / cloud-init.vendor-data。Session-2 F-01：
+//     原版只删 legacy key，新 key 里的明文 `password: <hex>` 完整外漏到
+//     admin 的 /admin/vms、/admin/clusters/{name}/vms、vm 详情，从浏览器
+//     缓存与 nginx access log 二次扩散）
 //
+// 用前缀匹配 + 显式 legacy key 兜底，避免后续新增 cloud-init.* 字段再漏。
 // 这是 admin 视角双重防御 —— admin 本身有 reset-password 权限，但响应体
 // 比按需走 reset-password 接口扩散面更大。
 func redactInstanceMap(m map[string]any) {
 	for _, key := range []string{"config", "expanded_config"} {
-		if cfg, ok := m[key].(map[string]any); ok {
-			delete(cfg, "user.cloud-init")
+		cfg, ok := m[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		for k := range cfg {
+			if k == "user.cloud-init" || strings.HasPrefix(k, "cloud-init.") {
+				delete(cfg, k)
+			}
 		}
 	}
 }
@@ -1989,7 +2009,7 @@ func (h *AdminVMHandler) GetClusterVMDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	snapshotsPath := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s&recursion=1", vmName, project)
+	snapshotsPath := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s&recursion=1", url.PathEscape(vmName), url.QueryEscape(project))
 	snapResp, snapErr := client.APIGet(r.Context(), snapshotsPath)
 	var snapshots json.RawMessage
 	if snapErr == nil {
