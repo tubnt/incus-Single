@@ -52,6 +52,8 @@ func (h *VMHandler) Routes(r chi.Router) {
 	r.Post("/services/{id}/actions/{action}", h.VMAction)
 	r.Post("/services/{id}/reinstall", h.Reinstall)
 	r.Post("/services/{id}/reset-password", h.ResetPassword)
+	// UX-007: 重看初始密码（创建瞬间的 root 密码）。step-up gated，audit 全记。
+	r.Post("/services/{id}/initial-credentials", h.GetInitialCredentials)
 	// PLAN-034: 用户自助 trash-with-undo。删除 = 软移入回收站（30s 窗口可撤销），
 	// purge 后 status = 'deleted'。配合 admin 端 worker.RunVMTrashPurger。
 	r.Delete("/services/{id}", h.TrashService)
@@ -334,6 +336,79 @@ func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vms": NewVMServiceDTOList(vms, h.clusters, defaultProjectForMgr(h.clusters))})
+}
+
+// GetInitialCredentials 让 owner 在 VM 创建后任何时刻重看初始 root 密码。
+//
+// UX-007 / PLAN-051 follow-up：DonePanel 仅创建瞬间显示一次，关闭页面后用户
+// 没有路径找回。后端 vms.password 一直存（AES-256-GCM 加密，OPS-022），
+// 这里只是把已有数据通过 step-up gate 重新返给 owner。
+//
+// 与 ResetPassword 的区别：
+//   - GetInitialCredentials：返历史密码，不变更 VM 状态（只读）
+//   - ResetPassword：生成新密码 + 写入 VM（agent-exec 或 cloud-init），破坏旧密码
+//
+// 安全：
+//   - step-up gated（middleware/stepup.go 白名单）
+//   - owner_id 校验（与 GetService 同语义）
+//   - audit user.view_initial_credentials
+//   - 解密失败返 422 + 文案提示走 reset-password
+func (h *VMHandler) GetInitialCredentials(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), id)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	if vm.Password == nil || *vm.Password == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": "no_initial_password",
+			"hint":  "use reset-password instead",
+		})
+		return
+	}
+	// pma-cr Session-2 F-45 sentinel：解密失败返特定标记
+	const decryptFailed = "<DECRYPT_FAILED>"
+	if *vm.Password == decryptFailed {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": "decrypt_failed",
+			"hint":  "use reset-password instead",
+		})
+		return
+	}
+	audit(r.Context(), r, "user.view_initial_credentials", "vm", vm.ID, map[string]any{
+		"vm_name": vm.Name,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"vm_name":    vm.Name,
+		"ip":         vm.IP,
+		"username":   defaultUserForVM(vm),
+		"password":   *vm.Password,
+		"created_at": vm.CreatedAt,
+	})
+}
+
+// defaultUserForVM 推断 VM 默认登录用户。Linux 镜像走 ubuntu / debian / rocky
+// 等约定；Windows 走 Administrator。无信号时回退 ubuntu（与 cloud-init 默认一致）。
+func defaultUserForVM(vm *model.VM) string {
+	img := strings.ToLower(vm.OSImage)
+	switch {
+	case strings.Contains(img, "windows"):
+		return "Administrator"
+	case strings.Contains(img, "debian"):
+		return "debian"
+	case strings.Contains(img, "rocky"), strings.Contains(img, "alma"), strings.Contains(img, "centos"):
+		return "rocky"
+	case strings.Contains(img, "fedora"):
+		return "fedora"
+	default:
+		return "ubuntu"
+	}
 }
 
 func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {

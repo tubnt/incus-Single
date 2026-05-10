@@ -109,3 +109,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**INFRA-010 OpenAPI 规范 + Terraform Provider**](INFRA-010.md) `P1`
 - [x] [**INFRA-011 一键 Bootstrap CLI —— 5 分钟出私有云**](INFRA-011.md) `P2`
 - [x] [**QA-009 前端全面 QA 测试（功能 + 边界 + 异常 + UI 交互 + 兼容性）**](QA-009.md) `P1`
+- [x] [**UX-007 初始凭据可重看入口（Step-up gated）**](UX-007.md) `P1`

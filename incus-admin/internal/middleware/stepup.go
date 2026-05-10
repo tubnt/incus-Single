@@ -37,6 +37,9 @@ var sensitiveRoutes = []sensitiveRoute{
 	// not per-action; even start/stop batch requires recent reauth as it's
 	// admin-only and high blast radius).
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:batch$`)},
+	// UX-007 / PLAN-051 follow-up: portal 用户重看初始密码（创建时生成的 root 密码）。
+	// vms.password 解密后明文外发，按 OWASP 高敏分类强制 step-up；audit 全记。
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/portal/services/\d+/initial-credentials$`)},
 	// PLAN-037: 批量冷迁移；destructive（停机迁移）+ 高 blast radius
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/vms:migrate-batch$`)},
 	// PLAN-039 / OPS-043: enable-stateful 涉及重启 VM（用户感知停机）

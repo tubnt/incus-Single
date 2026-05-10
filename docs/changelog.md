@@ -1,5 +1,53 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 21:44 [done] UX-007 初始凭据可重看入口（Step-up gated）
+
+补 PLAN-051 用户端遗留 UX 缺口：用户在 `/launch` 完成 VM 创建后，关闭页面
+即永久丢失初始 root 密码（DonePanel 之前只"显示一次"）。后端 `vms.password`
+已 OPS-022 AES-256-GCM 加密落库，但 portal UI 无再读入口。
+
+后端：
+- 新端点 `POST /api/portal/services/{id}/initial-credentials`
+  - `internal/handler/portal/vm.go: GetInitialCredentials`
+  - owner_id == userID 强校验；nil/empty password 返 422 `no_initial_password`；
+    decrypt sentinel 返 422 `decrypt_failed`
+  - 返 `{ vm_name, ip, username, password, created_at }`，写 audit
+    `user.view_initial_credentials`
+  - `defaultUserForVM`：OS-aware 默认用户名（Windows → Administrator；
+    debian/rocky/alma/centos/fedora/ubuntu 各自映射）
+- step-up gated（`internal/middleware/stepup.go` 加白名单）—— 与
+  `vms:batch` / `vms/{n}/migrate` 同级，5min freshness 后 401 step_up_required
+
+前端：
+- `app/routes/vm-detail.tsx` 顶部加「初始凭据」按钮（KeyRound icon）
+  - 与「重置密码」并存，tooltip 说明差异
+  - mutation 走 `useViewInitialCredentialsMutation`，自动 replay step-up
+  - 成功 → SecretReveal Sheet（username/password/ip，8s 自动遮蔽密码）
+  - `no_initial_password` / `decrypt_failed` → toast.warning 引导用「重置密码」
+- `features/launch/components/done-panel.tsx`
+  - 加「下载凭据」按钮，生成 `${vm_name}-credentials.txt`（含 SSH 命令兜底）
+  - Info hint：「若关闭页面前未复制，可在 VM 详情页 → 初始凭据 重新查看」
+- i18n zh + en 新增 6 key（`vm.initialCredentials{,Hint,Title,Unavailable}` /
+  `launch.{credentialsDownloaded,credentialsRecoverableHint,downloadCredentials}`），
+  改 `launch.authHint` 表述（去掉"只显示一次"）
+
+视觉：
+- DESIGN.md `--status-info` token 未在 `@theme` 注册（仅 success/pending/error/warning），
+  改用 neutral：`border-border bg-surface-1 text-text-secondary` + 图标 `text-status-pending`（Linear 品牌靛紫）
+- 0 hex 字面量、0 arbitrary value
+
+部署：
+- 本地 `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build`，sha256
+  `1a01a2021a09...`，37MB；gzip → file_deploy
+- 备份 `incus-admin.bak.20260510214426` → install → systemctl restart →
+  PID 1043188，active 状态，/healthz 200
+- 前端 dist hash 同步到 `internal/server/dist`
+
+验证：
+- `go vet ./...` PASS
+- `go test ./internal/handler/portal/... ./internal/middleware/...` PASS
+- `bun run typecheck && bun run lint && bun run build` PASS
+
 ## 2026-05-10 16:28 [done] PLAN-051 部署到 vmc.5ok.co（生产）
 
 - 本地交叉编译 `linux/amd64` binary：`go build -trimpath -buildvcs=false`，

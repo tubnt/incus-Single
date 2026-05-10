@@ -502,6 +502,33 @@ export function useResetVMPasswordMutation(vmId: number) {
   });
 }
 
+// UX-007: 重看初始凭据（创建瞬间生成的 root 密码）。step-up gated by middleware；
+// HttpError step-up 路径已由 shared/lib/http 通用拦截 → 跳 OIDC → 回来 replay。
+export interface InitialCredentialsResult {
+  vm_name: string;
+  ip: string | null;
+  username: string;
+  password: string;
+  created_at: string;
+}
+
+export function useViewInitialCredentialsMutation(vmId: number) {
+  return useMutation({
+    mutationFn: () =>
+      http.post<InitialCredentialsResult>(
+        `/portal/services/${vmId}/initial-credentials`,
+        {},
+        {
+          intent: {
+            action: "vm.view_initial_credentials",
+            args: { vm_id: vmId },
+            description: `查看 VM #${vmId} 的初始凭据`,
+          },
+        },
+      ),
+  });
+}
+
 // Reinstall from the user (portal) side. Uses the same template_slug wire
 // format as the admin path; backend resolves the slug through os_templates.
 //
