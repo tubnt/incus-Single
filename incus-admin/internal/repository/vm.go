@@ -20,8 +20,20 @@ func NewVMRepo(db *sql.DB) *VMRepo {
 	return &VMRepo{db: db}
 }
 
+// productionEnv 由 main.go 在启动时注入（默认空 = test/dev）。Session-1 W3+ /
+// PLAN-051 D-02：production 时加密失败必须 fail-closed（与 UpdatePassword 对称），
+// 不再 silent fallback 明文；非 production 维持 passthrough 兼容老部署。
+var productionEnv string
+
+// SetEnvForTests 仅用于测试 / 启动注入。线程安全只在启动期一次性赋值后生效。
+func SetEnv(env string) { productionEnv = strings.ToLower(strings.TrimSpace(env)) }
+
 // encryptForWrite 把内存里的明文密码加密成 v1:... 形式给 INSERT/UPDATE 用。
-// nil → nil；空 *string → 空 *string；加密失败 → 退回原明文（保证业务不阻塞）+ warn。
+// nil → nil；空 *string → 空 *string。
+//   - production 加密失败 → 返 nil + slog.Error（调用方拿到 NULL；vm row 无密码
+//     比明文落库安全，UI/SecretReveal 已对 nil 有 placeholder）
+//   - 非 production 加密失败 → silent fallback 原明文（旧 dev 行为）
+//
 // OPS-022：encryption disabled 时 passthrough 原样返回。
 func encryptForWrite(p *string) *string {
 	if p == nil {
@@ -32,23 +44,34 @@ func encryptForWrite(p *string) *string {
 	}
 	enc, err := auth.EncryptPassword(*p)
 	if err != nil {
-		slog.Warn("vm password encrypt failed; storing plaintext", "error", err)
+		if productionEnv == "production" {
+			slog.Error("vm password encrypt failed in production; storing NULL to avoid plaintext leak", "error", err)
+			return nil
+		}
+		slog.Warn("vm password encrypt failed; storing plaintext (dev/test mode)", "error", err)
 		return p
 	}
 	cp := enc
 	return &cp
 }
 
-// decryptOnRead 反向：DB 读出的 *string 如果是 v1:... 解密。失败 → 返回 nil
-// （前端 SecretReveal 会显示空，避免泄露错误密文给用户）+ warn。
+// decryptOnRead 反向：DB 读出的 *string 如果是 v1:... 解密。失败 → 返回特殊
+// sentinel "<DECRYPT_FAILED>"，让 admin UI 区分 "未设密码" 与 "密钥轮换/损坏"。
+// portal SecretReveal 看到该 sentinel 时按"未设"展示（不透露给最终用户）。
+//
+// Session-2 F-45 / PLAN-051 §2-E：原版返 nil 时 admin 与 portal 看到同样空，
+// 无法分辨 vm 真没密码 vs 解密失败。
+const PasswordDecryptFailed = "<DECRYPT_FAILED>"
+
 func decryptOnRead(p *string) *string {
 	if p == nil || *p == "" {
 		return p
 	}
 	dec, err := auth.DecryptPassword(*p)
 	if err != nil {
-		slog.Warn("vm password decrypt failed; returning nil", "error", err)
-		return nil
+		slog.Warn("vm password decrypt failed; returning sentinel", "error", err)
+		s := PasswordDecryptFailed
+		return &s
 	}
 	cp := dec
 	return &cp
@@ -107,13 +130,11 @@ func (r *VMRepo) ListAll(ctx context.Context) ([]model.VM, error) {
 
 // ListPaged 返回非删除态 VM 的分页结果与过滤后总数。limit<=0 表示不限制。
 // Trashed 行（PLAN-034）也排除——admin 主表只看 active VM；trash bin 走单独的 ListTrashedBefore。
+//
+// Session-2 F-46 / PLAN-051 §2-F：用 `COUNT(*) OVER ()` 单 SQL 同时拿 row + 总数，
+// 避免 COUNT 与 SELECT 分两步在并发插入时返回不一致总数（race window）。
 func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, int64, error) {
-	var total int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vms WHERE status != 'deleted' AND trashed_at IS NULL`).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count vms: %w", err)
-	}
-
-	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at
+	query := `SELECT id, name, cluster_id, user_id, order_id, host(ip)::text, status, cpu, memory_mb, disk_gb, os_image, node, password, rescue_state, rescue_started_at, rescue_snapshot_name, trashed_at, trashed_prev_status, created_at, updated_at, COUNT(*) OVER ()
 		 FROM vms WHERE status != 'deleted' AND trashed_at IS NULL ORDER BY id DESC`
 	args := []any{}
 	if limit > 0 {
@@ -126,11 +147,34 @@ func (r *VMRepo) ListPaged(ctx context.Context, limit, offset int) ([]model.VM, 
 		return nil, 0, err
 	}
 	defer rows.Close()
-	vms, err := scanVMs(rows)
-	if err != nil {
+
+	var total int64
+	out := make([]model.VM, 0)
+	for rows.Next() {
+		var vm model.VM
+		var rowTotal int64
+		if err := rows.Scan(&vm.ID, &vm.Name, &vm.ClusterID, &vm.UserID, &vm.OrderID, &vm.IP,
+			&vm.Status, &vm.CPU, &vm.MemoryMB, &vm.DiskGB, &vm.OSImage, &vm.Node, &vm.Password,
+			&vm.RescueState, &vm.RescueStartedAt, &vm.RescueSnapshotName,
+			&vm.TrashedAt, &vm.TrashedPrevStatus,
+			&vm.CreatedAt, &vm.UpdatedAt, &rowTotal); err != nil {
+			return nil, 0, err
+		}
+		vm.Password = decryptOnRead(vm.Password) // OPS-022
+		total = rowTotal // 每行 total 都一样，最后一次赋值最稳
+		out = append(out, vm)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
-	return vms, total, nil
+	// 0 行结果时 total 仍为 0；调用方语义不变（ListAll 用 limit=0/offset=0 会扫全表）
+	if total == 0 && len(out) == 0 {
+		// 空结果时单独 COUNT；避免 limit/offset > 总数时漏报 total
+		if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vms WHERE status != 'deleted' AND trashed_at IS NULL`).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count vms: %w", err)
+		}
+	}
+	return out, total, nil
 }
 
 func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) {
@@ -154,11 +198,29 @@ func (r *VMRepo) GetByName(ctx context.Context, name string) (*model.VM, error) 
 
 // IPsByNames returns a name → ip map for the given VM names (non-deleted rows only).
 // Used by admin cluster listings to enrich Incus payloads with DB-recorded IPs.
+//
+// Session-2 F-47 / PLAN-051 §2-F：分批 1000 防 PG 参数表（限 65535）撑爆。pgx
+// stdlib 驱动不自动转 []string → text[]，保留 placeholder 列表写法但加 chunk。
 func (r *VMRepo) IPsByNames(ctx context.Context, names []string) (map[string]string, error) {
 	result := map[string]string{}
 	if len(names) == 0 {
 		return result, nil
 	}
+	const chunkSize = 1000
+	for i := 0; i < len(names); i += chunkSize {
+		end := i + chunkSize
+		if end > len(names) {
+			end = len(names)
+		}
+		batch := names[i:end]
+		if err := r.ipsByNamesChunk(ctx, batch, result); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func (r *VMRepo) ipsByNamesChunk(ctx context.Context, names []string, out map[string]string) error {
 	placeholders := make([]string, len(names))
 	args := make([]any, len(names))
 	for i, n := range names {
@@ -170,19 +232,19 @@ func (r *VMRepo) IPsByNames(ctx context.Context, names []string) (map[string]str
 	        AND status != 'deleted' AND trashed_at IS NULL AND ip IS NOT NULL`
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("ips by names: %w", err)
+		return fmt.Errorf("ips by names: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var name, ip string
 		if err := rows.Scan(&name, &ip); err != nil {
-			return nil, err
+			return err
 		}
 		if ip != "" {
-			result[name] = ip
+			out[name] = ip
 		}
 	}
-	return result, rows.Err()
+	return rows.Err()
 }
 
 func (r *VMRepo) UpdateStatus(ctx context.Context, id int64, status string) error {

@@ -65,6 +65,17 @@ var sensitiveRoutes = []sensitiveRoute{
 	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/node-credentials/\d+$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/probe$`)},
 	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/clusters/[^/]+/nodes/probe-host-key$`)},
+	// PLAN-041 / INFRA-009：通道 CRUD + 测试发送 + 告警规则 CRUD（含 webhook secret /
+	// 钉钉签名 / SMTP 密码等敏感凭据）。删除规则 / 删通道 / 测试发送都要 step-up。
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/notify-channels$`)},
+	{method: http.MethodPut, path: regexp.MustCompile(`^/api/admin/notify-channels/\d+$`)},
+	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/notify-channels/\d+$`)},
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/notify-channels/\d+/test$`)},
+	// CR P1 #11 修复：alert-rules POST/PUT 也加 step-up（改阈值 / 改 channel_ids
+	// 是高敏动作，影响告警发不发出去；PATCH /enabled 启停 toggle 不加，运维高频）。
+	{method: http.MethodPost, path: regexp.MustCompile(`^/api/admin/alert-rules$`)},
+	{method: http.MethodPut, path: regexp.MustCompile(`^/api/admin/alert-rules/\d+$`)},
+	{method: http.MethodDelete, path: regexp.MustCompile(`^/api/admin/alert-rules/\d+$`)},
 }
 
 func isSensitive(method, path string) bool {

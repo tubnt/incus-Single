@@ -60,6 +60,20 @@ func staticHandler() http.Handler {
 
 		// Try to serve the file directly
 		if f, err := fs.Stat(subFS, strings.TrimPrefix(path, "/")); err == nil && !f.IsDir() {
+			// Session-3 §1🔴-2：hashed 静态资源用 immutable 长缓存；HTML 入口
+			// no-cache 保证 deploy 后旧 SPA 立即拿到新 entry hash。woff2 / 图标
+			// 也走 immutable —— vite 输出的产物名都带 8 字符 hash。
+			switch {
+			case strings.HasPrefix(path, "/assets/"),
+				strings.HasSuffix(path, ".woff2"),
+				strings.HasSuffix(path, ".woff"):
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			case strings.HasPrefix(path, "/locales/"):
+				// 翻译文件文件名固定（common.json），不能 immutable；但允许短缓存 + 协商。
+				w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
+			case path == "/" || strings.HasSuffix(path, "/index.html"):
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -74,7 +88,9 @@ func staticHandler() http.Handler {
 			return
 		}
 
-		// SPA fallback: serve index.html for all non-file routes
+		// SPA fallback: serve index.html for all non-file routes.
+		// 同样写 no-cache，避免 SPA 路由跳转后浏览器复用旧 HTML。
+		w.Header().Set("Cache-Control", "no-cache")
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})

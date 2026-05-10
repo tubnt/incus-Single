@@ -7,10 +7,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
-
+	"time"
 )
 
 type ctxKey string
@@ -54,14 +55,59 @@ func SetShadowVerifier(v ShadowVerifier) {
 	shadowVerifier = v
 }
 
-func verifyEmergencyCookie(email, sig string) bool {
-	if emergencySecret == "" || email == "" {
-		return false
+// verifyEmergencyCookie 校验 emergency cookie。两种格式兼容：
+//   - 新格式 (Session-1 W7 / PLAN-051 §2-B 决策 D-07)：email|expires_unix|hmac
+//     带 10 分钟 TTL，过期自动失效；email 与 expires 一同进 HMAC，防止单独篡改
+//   - 旧格式：email|hmac（仅签 email，永久有效，仅在 EMERGENCY_TOKEN 轮换前生效）
+//     OPS 升级期间 cookie 同存才不至于把现网应急通道一刀切死。下次 token 轮换后
+//     旧格式自然失效；本函数读到旧格式打 warn 但仍接受，便于运维一次切换。
+//
+// 调用方传 cookie.Value（含完整 a|b|c），自身 SplitN 不再适用。
+func verifyEmergencyCookie(cookieValue string) (email string, ok bool) {
+	if emergencySecret == "" || cookieValue == "" {
+		return "", false
 	}
-	h := hmac.New(sha256.New, []byte(emergencySecret))
-	h.Write([]byte(email))
-	expected := hex.EncodeToString(h.Sum(nil))
-	return subtle.ConstantTimeCompare([]byte(sig), []byte(expected)) == 1
+	parts := strings.Split(cookieValue, "|")
+	switch len(parts) {
+	case 3:
+		// 新格式 email|expires_unix|hmac
+		emailV, expS, sig := parts[0], parts[1], parts[2]
+		if emailV == "" || expS == "" || sig == "" {
+			return "", false
+		}
+		// 解析过期时间
+		var exp int64
+		if _, err := fmt.Sscanf(expS, "%d", &exp); err != nil {
+			return "", false
+		}
+		if time.Now().Unix() > exp {
+			slog.Warn("emergency cookie expired", "email", emailV, "exp", exp)
+			return "", false
+		}
+		// HMAC over email|expires
+		h := hmac.New(sha256.New, []byte(emergencySecret))
+		h.Write([]byte(emailV + "|" + expS))
+		expected := hex.EncodeToString(h.Sum(nil))
+		if subtle.ConstantTimeCompare([]byte(sig), []byte(expected)) != 1 {
+			return "", false
+		}
+		return emailV, true
+	case 2:
+		// 旧格式（向后兼容；下次 EMERGENCY_TOKEN 轮换即失效）
+		emailV, sig := parts[0], parts[1]
+		if emailV == "" {
+			return "", false
+		}
+		h := hmac.New(sha256.New, []byte(emergencySecret))
+		h.Write([]byte(emailV))
+		expected := hex.EncodeToString(h.Sum(nil))
+		if subtle.ConstantTimeCompare([]byte(sig), []byte(expected)) != 1 {
+			return "", false
+		}
+		slog.Warn("emergency cookie using legacy format (no TTL); rotate EMERGENCY_TOKEN to invalidate", "email", emailV)
+		return emailV, true
+	}
+	return "", false
 }
 
 func ProxyAuth(next http.Handler) http.Handler {
@@ -109,12 +155,11 @@ func ProxyAuth(next http.Handler) http.Handler {
 			}
 		}
 
-		// emergency cookie 认证（HMAC 签名验证）
+		// emergency cookie 认证（HMAC 签名 + TTL 校验）
 		if cookie, err := r.Cookie("emergency_auth"); err == nil {
-			parts := strings.SplitN(cookie.Value, "|", 2)
-			if len(parts) == 2 && verifyEmergencyCookie(parts[0], parts[1]) {
+			if email, ok := verifyEmergencyCookie(cookie.Value); ok {
 				ctx := r.Context()
-				ctx = context.WithValue(ctx, CtxUserEmail, parts[0])
+				ctx = context.WithValue(ctx, CtxUserEmail, email)
 				ctx = context.WithValue(ctx, CtxAuthMethod, "emergency")
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return

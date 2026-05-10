@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,8 +20,17 @@ import (
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
+		// Session-1 W8 / PLAN-051 §2-B 决策 D-08：空 Origin + 非 cookie 路径放行；
+		// 浏览器走 cookie 路径时一定带 Origin，空 Origin 仅 API token 场景合法。
 		if origin == "" {
-			return true
+			// API token 走 Authorization: Bearer，浏览器 ws 不会带这个 header；
+			// 老 NSURLSession / 个别移动 SDK 不送 Origin 但走 token，仍允许。
+			// 浏览器 cookie 路径无 Origin 视为 CSRF 攻击拒绝。
+			if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+				return true
+			}
+			slog.Warn("ws upgrade: rejected blank Origin without bearer token", "path", r.URL.Path, "ua", r.Header.Get("User-Agent"))
+			return false
 		}
 		host := r.Host
 		return origin == "https://"+host || origin == "http://"+host
