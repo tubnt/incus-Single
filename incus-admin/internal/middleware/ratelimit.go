@@ -65,6 +65,12 @@ var (
 	//   /api/auth/stepup/        OIDC 重认证（攻击者可借此撞 Logto 限流）
 	//   /api/admin/users:batch   批量改角色 / 充值
 	//   /shadow/                 admin 影子登录
+	//
+	// pma-cr L-i4 注释假设：sensitive 列表与 /api/portal 不重叠，所以
+	// RateLimitSensitive (Group 顶层) 与 RateLimit (/api/portal sub-router)
+	// 串联不会对同一请求双重计数。新增 sensitive 路由前先核对——若把
+	// /api/portal/* 加入 sensitive list，需要在 RateLimit 顶部 short-circuit
+	// "已被 sensitive 处理过" 避免双扣。
 	sensitiveLimiter = newRateLimiter(5, time.Minute)
 	rateLimitSensitiveRoutes  = []string{"/api/auth/stepup/", "/api/admin/users:batch", "/shadow/"}
 )

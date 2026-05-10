@@ -1,5 +1,36 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 [progress] pma-cr 二轮复审收尾 —— env.example 文档 + 注释清理
+
+针对 pma-cr 二轮复审的 2 个 MEDIUM-info + 4 个 LOW（设计取舍 / 部署文档类）做收尾：
+
+部署文档（`incus-admin/deploy/incus-admin.env.example`）：
+- **EMERGENCY_LISTEN** 注释强化：明示必须 bind 127.0.0.1（loopback）+ SSH tunnel
+  接入示例 + 警告任何 0.0.0.0 / 公网网卡都属于配置错误
+- **DEPLOYMENT_TOPOLOGY** 新 env：single-instance（默认）/ multi-instance；
+  与 main.go 启动 warn 配套，多实例部署时 pkceStore + emergency rate buckets
+  不跨实例
+- **EMERGENCY_LEGACY_DEADLINE** 用法示例：建议初次部署 +30 天，过期后强制只接受
+  新 3-part 格式
+- **TRUSTED_PROXIES** 加部署示例：Cloudflare CIDR / nginx 内网
+- **JOBS_GRACEFUL_TIMEOUT** 默认 30s + image-pull 场景调 120s 提示
+- **PASSWORD_ENCRYPTION_KEY** 必配警告 + 生成命令
+
+代码注释（pma-cr L-i 系列）：
+- L-i3 `default-groups-manager.tsx` onClick 用 `void remove(g.id)` 显式标
+  fire-and-forget，避免阅读时疑惑 onClick 接 async 函数的语义
+- L-i4 `ratelimit.go` 注释假设：sensitive list 与 /api/portal 不重叠，
+  RateLimitSensitive + RateLimit 串联不双重计数；新增路由前需核对
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun run lint` 0 errors / `go build -trimpath ./cmd/server` PASS。
+
+至此 PLAN-051 + pma-cr 两轮复审全部闭环。74 项中 71 项落地（96%），剩 3 项
+（F-06 Pay saga / F-41+42 firewall apply_ops / 性能 Phase 3 余项）按"不过度
+修复"原则推迟到独立 RFC，OPS-047 backlog 跟踪。
+
+---
+
 ## 2026-05-10 [progress] pma-cr 复审反馈修复 —— C-1/H-1/H-2/H-3/M-1/M-2/M-4/L-1/L-2
 
 针对前一轮 /pma-cr 报告的 1 critical + 3 high + 5 medium + 4 low 中已确认问题

@@ -170,7 +170,7 @@ export function DefaultGroupsManager() {
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  onClick={() => remove(g.id)}
+                  onClick={() => { void remove(g.id); }}
                   disabled={mutation.isPending}
                   aria-label={t("firewall.defaultsRemove", { defaultValue: "移除" })}
                   className="text-status-error"
