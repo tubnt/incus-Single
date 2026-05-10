@@ -1,5 +1,32 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 [progress] pma-cr 三轮 H3-1 修复 —— env.example 补全 + 限流测试
+
+针对 pma-cr 三轮 H3-1（env.example 缺 14 个 production-required env）+ M3-1 +
+L3-3 收尾：
+
+HIGH (H3-1) 部署文档完整化：
+- env.example 头部明示 production 必填三件套
+- 新增 INCUS_ADMIN_ENV（默认 production 触发 fail-fast）
+- 新增 CLUSTER_* 12 个（含 IP 池）+ OIDC_* + STEPUP_* 7 个 + AI_* 6 个 +
+  AUDIT_RETENTION_DAYS / METRICS_BEARER_TOKEN / SCHEDULER_WEIGHTS
+- 全 45 个 code-side env 现已全部在 example
+- 新部署直接 cp env.example 跑通，不会卡在 fail-fast 看不懂应填什么
+
+不修 (M3-1)：
+- ESLint no-misused-promises 需要 typed-linting parser，引入代价（lint 时间
+  秒→分级 + 配置复杂）超过收益。现有防线：code review + 显式 void asyncFn()。
+  OPS-047 跟踪长期方案
+
+LOW (L3-3) 限流回归测试（internal/middleware/ratelimit_test.go）：
+- TestSensitiveRoutesNotInPortal：sensitive list 不与 /api/portal 重叠
+- TestSensitiveRoutesNonEmpty：列表非空（防误清空）
+- TestIsSensitiveRoute：prefix 匹配语义 + stepup-callback 边界
+
+至此 PLAN-051 + 三轮 pma-cr 全部闭环。
+
+---
+
 ## 2026-05-10 [progress] pma-cr 二轮复审收尾 —— env.example 文档 + 注释清理
 
 针对 pma-cr 二轮复审的 2 个 MEDIUM-info + 4 个 LOW（设计取舍 / 部署文档类）做收尾：
