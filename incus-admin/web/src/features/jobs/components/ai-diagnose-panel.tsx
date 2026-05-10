@@ -20,6 +20,13 @@ import { cn } from "@/shared/lib/utils";
  *   - F6: 错误按 disabled/timeout/rate_limit/schema/other 分类，i18n 文案
  *
  * 视觉值全部 @theme：bg-status-error/4 border-status-error/30（DESIGN.md token）。
+ *
+ * 安全约束（QA-009 N-17 / PLAN-051 §2-K）：本组件渲染来自 LLM 的 free-form
+ * 文本（root_cause / step / command_template）。**禁止**改用 dangerouslySetInnerHTML
+ * 或 markdown-to-jsx 等会执行 HTML 的渲染方式——LLM 输出本身就可能含
+ * `<script>` / `<img onerror>` 等 payload，那一刻立刻引入 XSS。如需展示 markdown，
+ * 用 markdown-to-jsx + 显式 allow-list（仅允许 <p><ul><li><code><strong><em>），
+ * 并加单测覆盖 attacker payload。React JSX 文本节点自动 escape，已是当前安全姿态。
  */
 export function AIDiagnosePanel({
   jobID,

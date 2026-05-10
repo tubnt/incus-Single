@@ -75,9 +75,15 @@ export function useJobStream(jobID: number | null): JobStreamHookResult {
         qc.invalidateQueries({ queryKey: jobKeys.detail(jobID) });
         connectedRef.current = false;
       },
-      onError: () => {
+      onError: (e) => {
         connectedRef.current = false;
-        // 默认行为：返回 undefined → 自动重连
+        // PLAN-051 §2-H：sse-client 在累计 maxReconnects 次后会主动调一次 onError
+        // 然后停止，错误信息含 "SSE max reconnects reached"。这里识别后把 stream
+        // 翻 terminal=failed，让 UI 不再卡 loading。
+        if (typeof e?.message === "string" && e.message.includes("SSE max reconnects reached")) {
+          dispatch({ type: "done", status: "failed" });
+        }
+        // 否则维持自动重连（返回 undefined）
       },
     });
 

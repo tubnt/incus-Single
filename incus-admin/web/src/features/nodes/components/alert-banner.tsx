@@ -1,4 +1,5 @@
 import type { SystemAlert } from "@/features/nodes/api";
+import { formatError } from "@/shared/lib/http";
 import { AlertTriangle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -40,7 +41,7 @@ export function AlertBanner() {
                     id: a.id,
                   }),
                 ),
-              onError: (e) => toast.error((e as Error).message),
+              onError: (e) => toast.error(formatError(e)),
             })
           }
         />

@@ -25,6 +25,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/shared/components/ui/sheet";
+import { formatError } from "@/shared/lib/http";
 
 export type VMSheetKind = "snapshots" | "metrics" | "reinstall";
 
@@ -167,7 +168,7 @@ function ReinstallForm({
             toast.success(t("vm.reinstallDone", { defaultValue: "重装完成" }));
           }
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };

@@ -1,4 +1,5 @@
 import type { User } from "@/shared/lib/auth";
+import { formatError } from "@/shared/lib/http";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -50,7 +51,7 @@ export function ShadowLoginDialog({
       // 服务端 OIDC 跳转，必须用 window.location.href
       window.location.href = resp.redirect_url;
     } catch (e) {
-      toast.error(String((e as Error).message ?? e));
+      toast.error(String(formatError(e) ?? e));
       setSubmitting(false);
     }
   };

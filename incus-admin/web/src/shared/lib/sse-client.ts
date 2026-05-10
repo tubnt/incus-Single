@@ -24,8 +24,13 @@ export interface SSEOptions {
   onDone?: (msg: SSEMessage) => void;
   /** 普通事件回调（含 message / step / 等） */
   onMessage: (msg: SSEMessage) => void;
-  /** 网络错误回调；返回 false 阻止自动重连 */
+  /** 网络错误回调；返回 false 阻止自动重连。
+   *  PLAN-051 §2-H / Session-2 F-04 + QA-009 N-01：消费者用此回调累计失败次数
+   *  并在阈值后返 false，避免后端永久挂掉时 UI 无限旋转。 */
   onError?: (err: Error) => boolean | void;
+  /** 最大连续重连次数；超过后停止并视为终态。默认 5。
+   *  与 reconnectMs 联动：5 × 3s = 15s 网络抖动容忍窗口；超过即放弃。 */
+  maxReconnects?: number;
 }
 
 export interface SSESubscription {
@@ -33,12 +38,14 @@ export interface SSESubscription {
   close: () => void;
 }
 
-/** 启动一个 SSE 订阅，自动重连到 done 或主动 close 为止 */
+/** 启动一个 SSE 订阅，自动重连到 done / 主动 close / 达到 maxReconnects 为止 */
 export function startSSE(url: string, opts: SSEOptions): SSESubscription {
   let aborter: AbortController | null = null;
   let lastEventID: string | null = null;
   let stopped = false;
   const reconnectMs = opts.reconnectMs ?? 3000;
+  const maxReconnects = opts.maxReconnects ?? 5;
+  let consecutiveFailures = 0;
 
   const close = () => {
     stopped = true;
@@ -90,9 +97,19 @@ export function startSSE(url: string, opts: SSEOptions): SSESubscription {
             return;
           }
         }
+        // 一次成功的读取（无论是否拿到 done）→ 重置失败计数，避免间歇性短连接
+        // 把累计计数累成"假性"熔断。
+        consecutiveFailures = 0;
       } catch (err) {
         if (stopped) return;
         const e = err instanceof Error ? err : new Error(String(err));
+        consecutiveFailures++;
+        // PLAN-051 §2-H：超过 maxReconnects 之后熔断；调用 onError 给消费者机会
+        // 把 UI 翻成 terminal=failed，然后退出循环。
+        if (consecutiveFailures >= maxReconnects) {
+          opts.onError?.(new Error(`SSE max reconnects reached (${consecutiveFailures}); last error: ${e.message}`));
+          return;
+        }
         if (opts.onError?.(e) === false) return;
       }
       if (stopped) return;

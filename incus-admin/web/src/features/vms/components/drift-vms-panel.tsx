@@ -1,4 +1,5 @@
 import type {GoneVM} from "@/features/vms/api";
+import { formatError } from "@/shared/lib/http";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useForceDeleteGoneVMMutation, useGoneVMsQuery } from "@/features/vms/api";
@@ -39,7 +40,7 @@ export function DriftVMsPanel() {
     forceDelete.mutate(vm.id, {
       onSuccess: () =>
         toast.success(`${t("vm.forceDeleted", { defaultValue: "已清理" })} ${vm.name}`),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 

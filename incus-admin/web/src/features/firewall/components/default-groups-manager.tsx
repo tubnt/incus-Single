@@ -61,6 +61,17 @@ export function DefaultGroupsManager() {
   };
 
   const remove = (id: number) => {
+    // QA-009 N-14 / PLAN-051 §2-G：删最后一条时强提示——后续新建 VM 将无任何
+    // firewall 组绑定（除非后端兜底 default-deny ACL）。
+    const isLast = defaults.length === 1;
+    if (isLast) {
+      const ok = window.confirm(
+        t("firewall.defaultsRemoveLastWarn", {
+          defaultValue: "确认删除最后一个默认组？\n\n之后新建的 VM 不会自动绑定任何 firewall 组，需要手动 attach。",
+        }),
+      );
+      if (!ok) return;
+    }
     persist(defaults.filter((g) => g.id !== id));
   };
   const moveUp = (idx: number) => {

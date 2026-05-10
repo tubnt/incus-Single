@@ -1,4 +1,5 @@
 import type { ImbalanceSuggestion } from "@/features/nodes/api";
+import { formatError } from "@/shared/lib/http";
 import { ArrowRight, Scale, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -65,7 +66,7 @@ export function RebalancePanel({ clusterName }: { clusterName: string }) {
           );
           refetch();
         },
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => toast.error(formatError(e)),
       },
     );
   };

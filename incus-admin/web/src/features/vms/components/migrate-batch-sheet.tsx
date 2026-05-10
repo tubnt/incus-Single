@@ -22,6 +22,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/shared/components/ui/sheet";
+import { formatError } from "@/shared/lib/http";
 
 /**
  * MigrateBatchSheet — admin/vms 批量迁移右侧抽屉（PLAN-037 / OPS-040）。
@@ -106,13 +107,18 @@ export function MigrateBatchSheet({
       },
       {
         onSuccess: (res) => setJobID(res.job_id),
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => toast.error(formatError(e)),
       },
     );
   };
 
+  // QA-009 N-11 / PLAN-051 §2-G：跟踪上次启用 stateful 的失败状态。失败时
+  // banner 显式提示"上次失败，请重试"，避免用户认为按钮没响应。
+  const [statefulLastError, setStatefulLastError] = useState<string>("");
+
   const enableStateful = () => {
     if (nonStateful.length === 0) return;
+    setStatefulLastError("");
     enableStatefulBatch.mutate(
       {
         cluster: clusterName,
@@ -136,9 +142,18 @@ export function MigrateBatchSheet({
                 fail: res.total - res.succeeded,
               }),
             );
+            setStatefulLastError(
+              t("admin.migrate.statefulPartialHint", {
+                defaultValue: "部分失败，请检查日志后重试",
+              }),
+            );
           }
         },
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => {
+          const msg = formatError(e);
+          toast.error(msg);
+          setStatefulLastError(msg);
+        },
       },
     );
   };
@@ -162,6 +177,16 @@ export function MigrateBatchSheet({
               defaultValue:
                 "冷迁移：每台 VM 会先停机再迁移到目标节点。每台耗时约 30s-2min。",
             })}
+            {/* QA-009 N-21 / PLAN-051 §2-G：批量预估总耗时 */}
+            {selectedVMs.length > 1 && (
+              <span className="block mt-1 text-text-tertiary">
+                {t("admin.migrate.batchEta", {
+                  defaultValue: "预计总耗时 {{lo}}-{{hi}} 分钟",
+                  lo: Math.ceil(selectedVMs.length * 30 / 60),
+                  hi: Math.ceil(selectedVMs.length * 120 / 60),
+                })}
+              </span>
+            )}
           </SheetDescription>
         </SheetHeader>
 
@@ -275,6 +300,12 @@ export function MigrateBatchSheet({
                           n: nonStateful.length,
                         })}
                   </Button>
+                  {/* QA-009 N-11：失败时显式提示 */}
+                  {statefulLastError && !enableStatefulBatch.isPending && (
+                    <div className="mt-2 text-tiny text-status-error">
+                      {statefulLastError}
+                    </div>
+                  )}
                 </div>
               )}
 

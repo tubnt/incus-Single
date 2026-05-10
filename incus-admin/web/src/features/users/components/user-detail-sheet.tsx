@@ -71,7 +71,11 @@ export function UserDetailSheet({ user, open, onOpenChange }: UserDetailSheetPro
   if (!display) return null;
 
   const customNum = Number.parseFloat(customAmount);
-  const customExceeds = !!quota && customNum > 0 && customNum > quota.remaining;
+  // QA-009 N-10 / PLAN-051 §2-D 决策 D-15：单次充值硬上限（默认 $100k），
+  // 兜底防止管理员误输 1e10。若需要给某用户更高，由 admin 改全局常量或拆多次。
+  const SINGLE_TOPUP_MAX = 100000;
+  const customExceedsHard = customNum > 0 && customNum > SINGLE_TOPUP_MAX;
+  const customExceeds = customExceedsHard || (!!quota && customNum > 0 && customNum > quota.remaining);
 
   const performTopUp = async (amount: number) => {
     if (!(amount > 0)) return;
@@ -184,6 +188,7 @@ export function UserDetailSheet({ user, open, onOpenChange }: UserDetailSheetPro
                   inputMode="decimal"
                   step="0.01"
                   min="0"
+                  max={SINGLE_TOPUP_MAX}
                   value={customAmount}
                   onChange={(e) => setCustomAmount(e.target.value)}
                   placeholder={t("admin.amount", { defaultValue: "自定义金额" })}
