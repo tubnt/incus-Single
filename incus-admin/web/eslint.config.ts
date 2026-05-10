@@ -21,6 +21,9 @@ export default antfu({
         message: "禁止 <AlertDescription>{(err as Error).message}</AlertDescription>；用 {formatError(err)} 取代",
       },
     ],
+    // pma-cr M3-1 评估：no-misused-promises 需要 typed-linting parser，
+    // 引入 typed-lint 让 lint 时间从秒级到分钟级 + 配置复杂度，收益（防回退）
+    // 与代价不成比例。留 OPS-047 跟踪；当前防线靠 review + 显式 `void`。
   },
   ignores: ["src/app/routeTree.gen.ts", "dist/**"],
 });
