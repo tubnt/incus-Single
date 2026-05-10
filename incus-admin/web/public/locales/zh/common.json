@@ -1,5 +1,9 @@
 {
   "admin": {
+    "notFound": {
+      "title": "管理页面不存在",
+      "cta": "返回监控总览"
+    },
     "amount": "金额",
     "auditAction": "操作",
     "auditActionPlaceholder": "如 vm. / node. / http.",
@@ -994,6 +998,7 @@
     "admin": "管理员",
     "adminRoot": "管理员",
     "adminTickets": "工单管理",
+    "alertRules": "告警规则",
     "allVms": "所有云主机",
     "apiTokens": "API",
     "auditLogs": "审计",
@@ -1012,6 +1017,7 @@
     "nodeCredentials": "节点凭据",
     "nodeOps": "节点操作",
     "nodes": "节点",
+    "notifyChannels": "通知通道",
     "observability": "可观测性",
     "orders": "订单",
     "osTemplates": "OS 镜像",

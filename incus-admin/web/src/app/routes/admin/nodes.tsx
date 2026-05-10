@@ -1,4 +1,5 @@
 import type {ClusterNode} from "@/features/nodes/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -364,7 +365,7 @@ function NodeDetail({
                 });
                 if (!ok) return;
                 maintenanceMutation.mutate(!isMaint, {
-                  onError: (err) => toast.error((err as Error).message),
+                  onError: (err) => toast.error(formatError(err)),
                 });
               }}
             >
@@ -409,7 +410,7 @@ function NodeDetail({
                           );
                         }
                       },
-                      onError: (err) => toast.error((err as Error).message),
+                      onError: (err) => toast.error(formatError(err)),
                     },
                   );
                 }}

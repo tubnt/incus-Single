@@ -1,4 +1,5 @@
 import type {Invoice, Order, VMCredentials} from "@/features/billing/api";
+import { formatError } from "@/shared/lib/http";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CreditCard, FileText, Rocket, ShoppingCart } from "lucide-react";
@@ -322,7 +323,7 @@ function OrderRow({
         ) : null}
         {payMutation.isError && o.status === "pending" ? (
           <span className="ml-2 text-caption text-status-error">
-            {(payMutation.error as Error).message}
+            {formatError(payMutation.error)}
           </span>
         ) : null}
       </TableCell>

@@ -1,4 +1,5 @@
 import type {VMMetric} from "@/features/monitoring/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -81,9 +82,9 @@ function MonitoringPage() {
           <ErrorState
             title={t("monitoring.fetchFailed", {
               defaultValue: "拉取失败",
-              error: (error as Error).message,
+              error: formatError(error),
             })}
-            description={(error as Error).message}
+            description={formatError(error)}
             retry={() => refetch()}
           />
         ) : allVMs.length === 0 ? (

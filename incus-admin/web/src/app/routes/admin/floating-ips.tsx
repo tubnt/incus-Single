@@ -1,4 +1,5 @@
 import type {FloatingIP} from "@/features/floating-ips/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { Link2Off, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -74,6 +75,12 @@ function FloatingIPsPage() {
   const runBatch = async (action: "release" | "detach") => {
     if (selected.length === 0) return;
     if (action === "release") {
+      // QA-009 N-15 / PLAN-051 §2-D：N>1 时 typed-confirm 含数量，避免 admin 误
+      // 勾多个 IP 输 "RELEASE" 一键全删。N=1 时输入 IP 自身（更精确）；N>1 时
+      // 要求输入"释放 N 个"。
+      const single = selected.length === 1;
+      const single_ip = single ? ips.find((ip) => ip.id === selected[0])?.ip : undefined;
+      const phrase = single && single_ip ? single_ip : `RELEASE ${selected.length}`;
       const ok = await confirm({
         title: t("admin.floatingIPs.batchReleaseTitle", { defaultValue: "批量释放 Floating IP？" }),
         message: t("admin.floatingIPs.batchReleaseMessage", {
@@ -81,8 +88,10 @@ function FloatingIPsPage() {
           count: selected.length,
         }),
         destructive: true,
-        typeToConfirm: "RELEASE",
-        typeToConfirmLabel: t("confirmDialog.typeRelease", { defaultValue: "请输入 RELEASE 以确认" }),
+        typeToConfirm: phrase,
+        typeToConfirmLabel: single && single_ip
+          ? t("confirmDialog.typeIPAddress", { defaultValue: "请输入 IP 地址 \"{{ip}}\" 以确认", ip: phrase })
+          : t("confirmDialog.typeReleaseN", { defaultValue: "请输入 \"{{phrase}}\" 以确认", phrase }),
       });
       if (!ok) return;
     } else {
@@ -123,7 +132,7 @@ function FloatingIPsPage() {
           }
           clearSelection();
         },
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => toast.error(formatError(e)),
       },
     );
   };
@@ -271,7 +280,7 @@ function Row({
         );
         toast.info(res.runbook_hint, { duration: 30000 });
       },
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -292,7 +301,7 @@ function Row({
           toast.info(res.runbook_hint, { duration: 30000 });
         }
       },
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -309,7 +318,7 @@ function Row({
     if (!ok) return;
     releaseMutation.mutate(undefined, {
       onSuccess: () => toast.success(t("admin.floatingIPs.released", "已释放")),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -430,7 +439,7 @@ function AllocatePanel({ onDone }: { onDone: () => void }) {
           toast.success(t("admin.floatingIPs.allocated", "已分配"));
           onDone();
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -480,7 +489,7 @@ function AllocatePanel({ onDone }: { onDone: () => void }) {
         </div>
         {mutation.isError && (
           <div className="text-status-error text-sm mt-3">
-            {(mutation.error as Error).message}
+            {formatError(mutation.error)}
           </div>
         )}
       </SheetBody>

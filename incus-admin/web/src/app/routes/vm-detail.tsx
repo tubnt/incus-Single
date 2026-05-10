@@ -1,4 +1,5 @@
 import type {ResetPasswordMode} from "@/features/vms/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -189,7 +190,7 @@ function UserVMDetailPage() {
             setReinstallOpen(false);
           }
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -214,7 +215,7 @@ function UserVMDetailPage() {
           }),
           { duration: 15_000 },
         ),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -243,7 +244,7 @@ function UserVMDetailPage() {
               ? t("vm.rescueExitedRestored", { defaultValue: "已恢复快照并启动" })
               : t("vm.rescueExited", { defaultValue: "已退出 Rescue" }),
           ),
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };

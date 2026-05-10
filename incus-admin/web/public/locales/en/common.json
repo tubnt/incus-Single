@@ -1,5 +1,9 @@
 {
   "admin": {
+    "notFound": {
+      "title": "Admin page not found",
+      "cta": "Back to monitoring"
+    },
     "amount": "Amount",
     "auditAction": "Action",
     "auditActionPlaceholder": "e.g. vm. / node. / http.",
@@ -992,6 +996,7 @@
     "admin": "Admin",
     "adminRoot": "Admin",
     "adminTickets": "Ticket Mgmt",
+    "alertRules": "Alert Rules",
     "allVms": "All VMs",
     "apiTokens": "API",
     "auditLogs": "Audit",
@@ -1010,6 +1015,7 @@
     "nodeCredentials": "Node Credentials",
     "nodeOps": "Node Ops",
     "nodes": "Nodes",
+    "notifyChannels": "Notify Channels",
     "observability": "Observability",
     "orders": "Orders",
     "osTemplates": "OS Images",

@@ -1,9 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createRootRoute, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Toaster } from "sonner";
-import { CommandPalette } from "@/shared/components/command-palette/command-palette";
 import { useCommandActions } from "@/shared/components/command-palette/use-command-actions";
 import { useGoToNavigation } from "@/shared/components/command-palette/use-go-to-navigation";
 import { ErrorBoundary } from "@/shared/components/error-boundary";
@@ -12,9 +10,44 @@ import { buttonVariants } from "@/shared/components/ui/button";
 import { fetchCurrentUser, isAdmin } from "@/shared/lib/auth";
 import { cn } from "@/shared/lib/utils";
 
+// Session-3 🔴-3 / PLAN-051 §2-J：CommandPalette 与 Sonner Toaster 都在 root
+// layout 常驻 → 进 entry chunk。两者都是用户交互后才需要：⌘K 触发 / 第一次
+// toast 触发。lazy + Suspense 让首屏少 ~50KB（cmdk + 27 lucide icons + base-ui
+// Dialog）。
+const CommandPalette = lazy(() =>
+  import("@/shared/components/command-palette/command-palette").then((m) => ({
+    default: m.CommandPalette,
+  })),
+);
+const Toaster = lazy(() =>
+  import("sonner").then((m) => ({ default: m.Toaster })),
+);
+
+// QA-009 N-03 / PLAN-051 §2-I 决策 D-25 = C：root layer 加 errorComponent，
+// route loader / action 抛错时显示 fallback 而非白屏。子路由不下沉（覆盖 80%）。
+function RouterError({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4 text-center">
+      <div className="text-display font-emphasis text-status-error">!</div>
+      <p className="text-h2 font-emphasis">页面加载失败</p>
+      <pre className="max-w-prose whitespace-pre-wrap text-caption text-text-tertiary">
+        {error?.message ?? "未知错误"}
+      </pre>
+      <button
+        type="button"
+        onClick={reset}
+        className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-emphasis hover:opacity-90"
+      >
+        重试
+      </button>
+    </div>
+  );
+}
+
 export const Route = createRootRoute({
   component: RootLayout,
   notFoundComponent: NotFound,
+  errorComponent: RouterError,
 });
 
 /** 全屏 workspace 模式的路由前缀（C1）。命中后不嵌入 AppShell。 */
@@ -130,17 +163,19 @@ function RootLayout() {
 
   return (
     <>
-      <Toaster
-        position="top-right"
-        richColors
-        closeButton
-        theme="system"
-        toastOptions={{
-          classNames: {
-            toast: "border border-border bg-surface-elevated text-foreground shadow-dialog",
-          },
-        }}
-      />
+      <Suspense fallback={null}>
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          theme="system"
+          toastOptions={{
+            classNames: {
+              toast: "border border-border bg-surface-elevated text-foreground shadow-dialog",
+            },
+          }}
+        />
+      </Suspense>
       {isWorkspace ? (
         <WorkspaceShell>
           <ErrorBoundary>
@@ -155,7 +190,11 @@ function RootLayout() {
         </AppShell>
       )}
       {/* 命令面板：workspace mode 也注册（C2 在 /console 内部禁用全局热键，按钮触发仍可） */}
-      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} user={user} />
+      {commandOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} user={user} />
+        </Suspense>
+      )}
     </>
   );
 }

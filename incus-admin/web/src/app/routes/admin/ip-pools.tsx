@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { formatError } from "@/shared/lib/http";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -173,7 +174,7 @@ function AddPoolForm({ onDone }: { onDone: () => void }) {
         </div>
         {mutation.isError && (
           <div className="text-status-error text-sm mt-3">
-            {(mutation.error as Error).message}
+            {formatError(mutation.error)}
           </div>
         )}
       </SheetBody>

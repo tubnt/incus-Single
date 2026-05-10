@@ -166,10 +166,9 @@ function reducer(state: WizardState, action: Action): WizardState {
         : state;
     case "probe/done": {
       const node = action.result.node;
-      // PLAN-038 / OPS-041 Phase A：Tier 1 ranked 候选（后端纯函数）优先于
-      // 旧版 computeHeuristics（前端硬编码 CIDR 模式匹配）。后端 ranker 看到
-      // ethtool/lspci 数据后能识别 ≥10G 网卡作 ceph_cluster，旧 heuristics 不能。
-      const heuristics = computeHeuristics(node);
+      // Session-2 F-63 / PLAN-051 §2-G：删除前端 computeHeuristics 启发式（旧
+      // 版硬编码 10.0.10/20/30 网段）—— 与后端 ranker 漂移会让 NIC 表自动折叠
+      // 隐藏错误的默认值。完全交由后端 ranker；ranked 缺失时让用户自己选。
       const fromRanked = applyRankedPicks(action.result.ranked);
       return {
         ...state,
@@ -180,8 +179,14 @@ function reducer(state: WizardState, action: Action): WizardState {
           node,
           nodeName: node.hostname || "",
           role: "osd",
-          ...heuristics,
-          ...fromRanked, // 覆盖 heuristics 命中的字段
+          // F-63：所有字段默认空 / false 让用户自己选；ranked 命中字段覆盖。
+          mgmtNIC: fromRanked.mgmtNIC ?? "",
+          cephNIC: fromRanked.cephNIC ?? "",
+          bridgeNIC: fromRanked.bridgeNIC ?? "",
+          mgmtIP: "",
+          cephPubIP: "",
+          cephClusterIP: "",
+          skipNetwork: false,
           ranked: action.result.ranked,
         },
         lastError: "",
@@ -192,7 +197,17 @@ function reducer(state: WizardState, action: Action): WizardState {
         ? { ...state, confirm: { ...state.confirm, ...action.patch } }
         : state;
     case "stage/back":
-      return { ...state, stage: action.to };
+      // QA-009 N-13 / PLAN-051 §2-G：跨 stage 回退时清掉关联子状态，避免污染
+      // （从 confirm 退回 cred 改 host 后，旧 fingerprint / confirm 仍在 → 用户
+      // 误以为已确认指纹，再前进会撞错）。
+      switch (action.to) {
+        case "cred":
+          return { ...state, stage: "cred", fingerprint: undefined, confirm: undefined, lastError: "" };
+        case "fingerprint":
+          return { ...state, stage: "fingerprint", confirm: undefined, lastError: "" };
+        default:
+          return { ...state, stage: action.to, lastError: "" };
+      }
     case "submit/started":
       return { ...state, stage: "job", jobID: action.jobID };
     case "error":
@@ -230,11 +245,17 @@ function NodeJoinPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Session-2 F-62 / PLAN-051 §2-G：debounce 300ms。原版每次 dispatch（每键入
+    // 一字符）都全量 stringify+setItem，confirm 步骤的 NodeInfo 含 disks/pci 数百
+    // 字段 → 主线程同步阻塞。300ms 内连续输入合并为一次写。
     const safe: WizardState = {
       ...state,
       cred: { ...state.cred, password: "", keyData: "" },
     };
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    const handle = window.setTimeout(() => {
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
+    }, 300);
+    return () => window.clearTimeout(handle);
   }, [state]);
 
   const probeHostKey = useProbeHostKeyMutation(state.cred.cluster);
@@ -1130,50 +1151,9 @@ function formatMemory(kb: number): string {
   return `${gb.toFixed(1)} GB`;
 }
 
-function computeHeuristics(node: NodeInfo): {
-  mgmtNIC: string;
-  cephNIC: string;
-  bridgeNIC: string;
-  mgmtIP: string;
-  cephPubIP: string;
-  cephClusterIP: string;
-  skipNetwork: boolean;
-} {
-  let mgmtNIC = "";
-  let cephNIC = "";
-  let bridgeNIC = "";
-  let mgmtIP = "";
-  let cephPubIP = "";
-  let cephClusterIP = "";
-  for (const iface of node.interfaces) {
-    for (const a of iface.addresses ?? []) {
-      const ip = a.split("/")[0] ?? "";
-      if (ip.startsWith("10.0.10.") && !mgmtIP) {
-        mgmtIP = ip;
-        mgmtNIC = iface.name;
-      }
-      if (ip.startsWith("10.0.20.") && !cephPubIP) {
-        cephPubIP = ip;
-        cephNIC = iface.name;
-      }
-      if (ip.startsWith("10.0.30.") && !cephClusterIP) {
-        cephClusterIP = ip;
-      }
-    }
-    if (iface.is_default_route && !bridgeNIC) {
-      bridgeNIC = iface.name;
-    }
-  }
-  return {
-    mgmtNIC,
-    cephNIC,
-    bridgeNIC,
-    mgmtIP,
-    cephPubIP,
-    cephClusterIP,
-    skipNetwork: !!mgmtIP && !!node.default_route,
-  };
-}
+// Session-2 F-63 / PLAN-051 §2-G：computeHeuristics 已删除。原版前端硬编码
+// 10.0.10/20/30 CIDR 模式与后端 ranker 漂移；现完全交由后端 ranker（看 ethtool
+// + lspci 能识别 ≥10G 网卡）。ranked 为空时让用户在 NIC 表手动选择。
 
 // PLAN-038 / OPS-041 Phase A：把后端 ranked top1 转成表单字段。仅当 ranked
 // 给出明确推荐（非空 candidates）时覆盖 heuristics；否则回退 heuristics。

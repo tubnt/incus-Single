@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { formatError } from "@/shared/lib/http";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -78,7 +79,7 @@ function NodeCredentialsPage() {
           setPassword("");
           setKeyData("");
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -208,7 +209,7 @@ function NodeCredentialsPage() {
                             if (!ok) return;
                             del.mutate(c.id, {
                               onSuccess: () => toast.success(t("admin.nodeCredentials.deleted", "已删除")),
-                              onError: (err) => toast.error((err as Error).message),
+                              onError: (err) => toast.error(formatError(err)),
                             });
                           }}
                         >

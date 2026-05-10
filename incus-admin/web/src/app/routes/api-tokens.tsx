@@ -1,4 +1,5 @@
 import type {APIToken} from "@/features/api-tokens/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -219,7 +220,7 @@ function CreateTokenSheet({
           </div>
           {mutation.isError ? (
             <div className="text-status-error text-sm">
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </div>
           ) : null}
         </SheetBody>

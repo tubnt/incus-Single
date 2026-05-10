@@ -27,6 +27,7 @@ import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Button, buttonVariants } from "@/shared/components/ui/button";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
+import { formatError } from "@/shared/lib/http";
 import {
   Select,
   SelectContent,
@@ -142,7 +143,7 @@ function VMDetailPage() {
           }),
           { duration: 15_000 },
         ),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -161,7 +162,7 @@ function VMDetailPage() {
       {
         onSuccess: () =>
           toast.success(t("vm.rescueExitedRestored", { defaultValue: "已恢复快照并启动" })),
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -192,12 +193,28 @@ function VMDetailPage() {
           );
           setReinstallOpen(false);
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
 
-  const runResetPwd = () =>
+  const runResetPwd = async () => {
+    // Session-2 F-58 / PLAN-051 §2-D：reset password 是高危且无法回滚的操作
+    // （新密码只显示 20s），需 typed-confirm，与 reinstall/delete 对齐。
+    const ok = await confirm({
+      destructive: true,
+      title: t("vm.resetPwdConfirmTitle", { defaultValue: "重置 root 密码？" }),
+      message: t("vm.resetPwdConfirmMessage", {
+        name,
+        defaultValue: "将为 {{name}} 生成新密码并写入 cloud-init / agent-exec。新密码只显示 20s，请准备好记下。",
+      }),
+      typeToConfirm: name,
+      typeToConfirmLabel: t("confirmDialog.typeVmName", {
+        defaultValue: "请输入 VM 名称 \"{{name}}\" 以确认",
+        name,
+      }),
+    });
+    if (!ok) return;
     resetPwdMutation.mutate(
       { cluster, project, username: "ubuntu", mode: resetPwdMode },
       {
@@ -215,9 +232,10 @@ function VMDetailPage() {
           );
           setResetPwdOpen(false);
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
+  };
 
   const runMigrateConfirm = async () => {
     if (!migrateTarget) return;
@@ -395,6 +413,10 @@ function VMDetailPage() {
                 src={`/console?vm=${name}&cluster=${cluster}&project=${project}`}
                 className="w-full h-iframe-console bg-black"
                 title="VM Console"
+                // Session-1 O7 / Session-2 F-72 / PLAN-051 §2-D：iframe 加 sandbox。
+                // xterm 历史有 ANSI 注入 / 链接劫持 CVE，限制最小权限：脚本可跑（xterm 必需），
+                // 同源（拿 cookie 鉴权），但禁止 popups / forms / top-navigation。
+                sandbox="allow-scripts allow-same-origin"
               />
             </div>
           </TabsContent>

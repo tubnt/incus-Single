@@ -1,4 +1,5 @@
 import type { PayResponse, VMCredentials } from "@/features/billing/api";
+import { formatError } from "@/shared/lib/http";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Rocket } from "lucide-react";
@@ -281,7 +282,7 @@ function LaunchPage() {
                         {error ? (
                           <Alert variant="error">
                             <AlertDescription>
-                              {typeof error === "string" ? error : (error as Error).message}
+                              {typeof error === "string" ? error : formatError(error)}
                             </AlertDescription>
                           </Alert>
                         ) : null}

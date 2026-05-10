@@ -1,4 +1,5 @@
 import type {Ticket} from "@/features/tickets/api";
+import { formatError } from "@/shared/lib/http";
 import type {StatusKind} from "@/shared/components/ui/status";
 import type { PageParams } from "@/shared/lib/pagination";
 import { createFileRoute } from "@tanstack/react-router";
@@ -208,9 +209,10 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
             variant="primary"
             size="sm"
             onClick={() =>
-              replyMutation.mutate(reply, {
+              // QA-009 N-08：trim 后再发，避免空白前后缀触发后端拒绝
+              replyMutation.mutate(reply.trim(), {
                 onSuccess: () => setReply(""),
-                onError: (err) => toast.error((err as Error).message),
+                onError: (err) => toast.error(formatError(err)),
               })
             }
             disabled={replyMutation.isPending || !reply.trim()}
@@ -223,7 +225,7 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
               size="sm"
               onClick={() =>
                 statusMutation.mutate("closed", {
-                  onError: (err) => toast.error((err as Error).message),
+                  onError: (err) => toast.error(formatError(err)),
                 })
               }
             >
@@ -236,7 +238,7 @@ function TicketDetail({ ticketId, status }: { ticketId: number; status: string }
               size="sm"
               onClick={() =>
                 statusMutation.mutate("open", {
-                  onError: (err) => toast.error((err as Error).message),
+                  onError: (err) => toast.error(formatError(err)),
                 })
               }
               className="text-status-success"

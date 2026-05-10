@@ -1,4 +1,5 @@
 import type {ClusterInfo, NodeInfo} from "@/features/clusters/api";
+import { formatError } from "@/shared/lib/http";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -164,7 +165,7 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
                   destructive: true,
                 });
                 if (ok) evacuateMutation.mutate(n.server_name, {
-                  onError: (err) => toast.error((err as Error).message),
+                  onError: (err) => toast.error(formatError(err)),
                 });
               }}
               disabled={acting}
@@ -219,7 +220,7 @@ function AddClusterForm({ onDone }: { onDone: () => void }) {
     if (!isValid) return;
     mutation.mutate(form, {
       onSuccess: onDone,
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
