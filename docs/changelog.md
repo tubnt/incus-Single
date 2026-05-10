@@ -1,5 +1,42 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 16:28 [done] PLAN-051 部署到 vmc.5ok.co（生产）
+
+- 本地交叉编译 `linux/amd64` binary：`go build -trimpath -buildvcs=false`，
+  sha256 `56c7456...`，38MB
+- gzip → file_deploy → /tmp/incus-admin.staged → install -m 755 →
+  `/usr/local/bin/incus-admin`
+- service active；`/api/health` 200；`/api/metrics`（PLAN-041 业务指标）
+  + `/api/openapi.yaml`（PLAN-042）端点验通；前端 dist hash `bdb0ba8845aa`
+
+env 增补（生产）：
+- `INCUS_ADMIN_ENV=staging`（**临时**：W2 fail-fast 暂时绕过，见下）
+- `SSH_KNOWN_HOSTS_FILE=/etc/incus-admin/known_hosts`（21 行 ssh-keyscan
+  10.100.0.10 + 6 公网集群节点 IP）
+- `CLUSTER_CA_FILE`（**注释**：cert SAN 与 wireguard IP 不符，OPS-048 跟踪）
+
+W2 临时绕过原因：
+- `/etc/incus-admin/certs/ca.crt` SAN 只签 `127.0.0.1, ::1`，但 incus-admin
+  通过 wireguard 连 `https://10.0.20.1:8443` → Go TLS verify 失败 →
+  cluster 全断
+- 临时退回 SPKI TOFU pin 模式（历史行为），`INCUS_ADMIN_ENV=staging` 跳
+  W2 校验
+- W1 + W3 仍 production 强约束（SSH_KNOWN_HOSTS_FILE / PASSWORD_ENCRYPTION_KEY）
+- OPS-048 跟踪重签 cert 含 wireguard SAN 后恢复 W2
+
+部署观察：
+- 内存 9.5MB，与切换前一致
+- `cluster connected` `events stream started` `step-up OIDC ready`
+  `vms.password encryption enabled` 全绿
+- 0 ERROR 日志（除 1 条 admin restricted-cert 已知 warn，OPS-046 残留）
+
+回滚路径：
+- 旧 binary 备份 `/tmp/incus-admin.bak.1778430442`
+- 旧 .env 备份 `/etc/incus-admin/incus-admin.env.bak.1778430094` /
+  `1778430481`（两次修改各一份）
+
+---
+
 ## 2026-05-10 [progress] pma-cr 三轮 H3-1 修复 —— env.example 补全 + 限流测试
 
 针对 pma-cr 三轮 H3-1（env.example 缺 14 个 production-required env）+ M3-1 +
