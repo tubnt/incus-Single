@@ -10,6 +10,7 @@ import {
 } from "@/features/firewall/api";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
+import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ import { formatError } from "@/shared/lib/http";
  */
 export function DefaultGroupsManager() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const defaultsQuery = usePortalFirewallDefaultsQuery();
   const groupsQuery = usePortalFirewallGroupsQuery();
   const mutation = usePortalReplaceFirewallDefaultsMutation();
@@ -60,19 +62,20 @@ export function DefaultGroupsManager() {
     );
   };
 
-  const remove = (id: number) => {
+  const remove = async (id: number) => {
     // QA-009 N-14 / PLAN-051 §2-G：删最后一条时强提示——后续新建 VM 将无任何
     // firewall 组绑定（除非后端兜底 default-deny ACL）。
+    // pma-cr L-2：providers.tsx 已挂 ConfirmDialogProvider，复用 useConfirm
+    // 与项目其它 destructive 操作保持视觉一致。
     const isLast = defaults.length === 1;
     if (isLast) {
-      // 单行二次确认；上层 useConfirm 在 DefaultGroupsManager 这种共用 component
-      // 里没接 ConfirmDialogProvider 上下文，window.confirm 是当前最简等价方案。
-      // eslint-disable-next-line no-alert
-      const ok = window.confirm(
-        t("firewall.defaultsRemoveLastWarn", {
-          defaultValue: "确认删除最后一个默认组？\n\n之后新建的 VM 不会自动绑定任何 firewall 组，需要手动 attach。",
+      const ok = await confirm({
+        title: t("firewall.defaultsRemoveLastTitle", { defaultValue: "删除最后一个默认组？" }),
+        message: t("firewall.defaultsRemoveLastWarn", {
+          defaultValue: "之后新建的 VM 不会自动绑定任何 firewall 组，需要手动 attach。",
         }),
-      );
+        destructive: true,
+      });
       if (!ok) return;
     }
     persist(defaults.filter((g) => g.id !== id));

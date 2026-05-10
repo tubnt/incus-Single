@@ -1,5 +1,54 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 [progress] pma-cr 复审反馈修复 —— C-1/H-1/H-2/H-3/M-1/M-2/M-4/L-1/L-2
+
+针对前一轮 /pma-cr 报告的 1 critical + 3 high + 5 medium + 4 low 中已确认问题
+做修复，剩余作为信息项保留：
+
+CRITICAL：
+- **C-1** 删除 24MB binary `terraform-provider-incusadmin/terraform-provider-incusadmin`
+  + 加 `terraform-provider-incusadmin/.gitignore`（compiled binary / .terraform/ /
+  *.tfstate）；后续 build 产物不再进 git tree
+
+HIGH：
+- **H-1** emergency cookie `Secure: true` 改 `r.TLS != nil` 条件化。emergency
+  监听 :8081 通过 SSH tunnel 接 HTTP，硬编码 Secure 会让浏览器拒绝 set-cookie，
+  emergency 通道默默失效；条件化后本地 HTTP 也能正常 set
+- **H-2** 新建 `RateLimitSensitive` middleware 挂在 ProxyAuth 之后的 Group 顶层，
+  覆盖 /api/auth/stepup/* + /api/admin/users:batch + /shadow/*。原版仅挂
+  /api/portal，sensitiveLimiter 永远不 fire；现在 W4 5/min 真正生效
+- **H-3** vm_reinstall.go (success + Rollback) + vm_create.go (success + Rollback)
+  加显式 `cred.Wipe()`。F-39 runtime defer 兜底仅对 executor 不 take 的情况
+  生效；这两个 executor 历来 take 后不 Wipe，credential 在内存中逃逸到本地变量
+
+MEDIUM：
+- **M-1** emergency cookie 旧格式加 `EMERGENCY_LEGACY_DEADLINE` env (RFC3339)
+  截止；过期后旧 2-part 格式一律拒绝，避免 TTL 升级被旧格式绕过
+- **M-2** PKCE pkceStore 是进程内 map；启动时检测 `DEPLOYMENT_TOPOLOGY=
+  multi-instance` 打 warn 提醒运维；OPS-047 跟踪 DB/Redis 升级
+- **M-4** firewall batch path 加入 timeoutExceptStreaming 白名单（仅 :bind
+  / :unbind 端点豁免），由 portalRunBatch 自身的 worker pool + per-item 30s
+  控制，不再被 chi 全局 60s timeout 砍
+
+LOW：
+- **L-1** scripts/install-git-hooks.sh：开发者一次性安装 pre-commit hook，
+  自动跑 check-join-node-sync.sh，本地拒绝漂移 commit
+- **L-2** default-groups-manager.tsx remove() 改 useConfirm + destructive
+  二次确认，替换 window.confirm（providers.tsx 已挂 ConfirmDialogProvider，
+  之前 comment 误判没接上下文）
+
+未做项（信息性 / 风险已记录，OPS-047 跟踪）：
+- M-3 fontsource dynamic import 实际收益 < changelog 声称（fontsource 已
+  unicode-range 切片 + font-display: swap）→ 上线后实测 Lighthouse 决定保留
+- M-5 dispatch error message 用结构化 code 而非已格式化字符串 → 改 reducer 接口
+- L-3 amend 第四轮 commit message 描述（H-3 已修，描述已对齐）
+- L-4 changelog 时间戳粒度
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun test` 45/45 PASS / `bun run lint` 0 errors / cluster scripts ci gate PASS。
+
+---
+
 ## 2026-05-10 [progress] PLAN-051 第四轮 —— OPS-047 再消化 11 项
 
 第四轮在前三轮 53 项之上再消化 11 项（64/74 = 86%）：

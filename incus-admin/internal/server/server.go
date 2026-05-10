@@ -189,7 +189,10 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 	// 把 /api/console (WebSocket) 与 /api/portal/jobs/{id}/stream (SSE) 都砍在
 	// 60s——长重装、长加入节点等场景前端直接断流。改为路径白名单豁免：流式路径
 	// 不进 timeout context，由 hijack/upgrade 自身控制超时。
-	r.Use(timeoutExceptStreaming(60*time.Second, "/api/console", "/api/portal/jobs/", "/api/admin/jobs/"))
+	// pma-cr M-4：firewall batch bind/unbind 串行最多 64 VM × 30s/item = 320s
+	// 全局 timeout 60s 不够。在 worker pool 全完成前 chi cancel 会砍剩余 items。
+	// 加入白名单后由 portalRunBatch 自身的 worker pool + per-item 30s 控制。
+	r.Use(timeoutExceptStreaming(60*time.Second, "/api/console", "/api/portal/jobs/", "/api/admin/jobs/", "/api/portal/firewall/groups/"))
 	r.Use(slogMiddleware)
 	// Session-3 §1🔴-1：HTTP 响应压缩。等级 5 在 CPU 与体积之间折中。entry JS
 	// 307 KB → 96 KB gzip（3.2× 收益），CSS 175 KB → 58 KB；首屏 LCP 直接受益。
@@ -243,6 +246,10 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.ProxyAuth)
 		r.Use(middleware.UserFromEmail(userLookup, roleLookup))
+		// pma-cr H-2 / Session-1 W4：高敏端点独立 5/min 限流。挂在 Group 顶层，
+		// 覆盖 /api/auth/stepup/* + /api/admin/users:batch + /shadow/* 等子路径。
+		// 非匹配路径透传，不影响 /api/portal 的 30/min（下面单独挂）。
+		r.Use(middleware.RateLimitSensitive)
 
 		r.Route("/api/portal", func(r chi.Router) {
 			r.Use(middleware.RateLimit)
@@ -621,12 +628,19 @@ func (s *Server) emergencyRouter() http.Handler {
 		exp := time.Now().Add(10 * time.Minute).Unix()
 		expS := strconv.FormatInt(exp, 10)
 		sig := hmacSign(adminEmail+"|"+expS, s.cfg.Auth.EmergencyToken)
+		// pma-cr H-1：Secure 条件化。emergency 监听 127.0.0.1:8081 设计上是 HTTP；
+		// 运维通过 SSH tunnel 转发到本机 → 浏览器看到 http://localhost:<port>。
+		// 如果硬编码 Secure=true，浏览器会拒绝 set-cookie（非 https 上下文），
+		// emergency 通道默默废掉。读 r.TLS 决定：仅 TLS 终结情况下加 Secure。
+		// localhost 在主流浏览器是 secure context 例外，但 spec 上不保证；
+		// 改 fail-safe：HTTP 时不加 Secure（emergency 走 SSH tunnel 已是私密通道）。
+		secure := r.TLS != nil
 		http.SetCookie(w, &http.Cookie{
 			Name:     "emergency_auth",
 			Value:    adminEmail + "|" + expS + "|" + sig,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   true, // emergency 监听 :8081 通过 SSH tunnel + TLS 反代或本机 TLS
+			Secure:   secure,
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   600,
 		})
@@ -693,6 +707,16 @@ func timeoutExceptStreaming(d time.Duration, prefixes ...string) func(http.Handl
 							return
 						}
 						break // 落到 wrapped 走 timeout
+					}
+					// pma-cr M-4：firewall 仅 :bind / :unbind 批量端点豁免；
+					// GET / CRUD 等短查询仍走 60s timeout
+					if strings.HasPrefix(path, "/api/portal/firewall/groups/") {
+						if strings.HasSuffix(path, "/bind") || strings.HasSuffix(path, "/unbind") ||
+							strings.Contains(path, ":bind") || strings.Contains(path, ":unbind") {
+							next.ServeHTTP(w, r)
+							return
+						}
+						break
 					}
 					next.ServeHTTP(w, r)
 					return

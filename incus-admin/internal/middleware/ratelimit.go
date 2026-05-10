@@ -142,6 +142,8 @@ func isSensitiveRoute(path string) bool {
 	return false
 }
 
+// RateLimit 给 /api/portal 路径的默认 30/min 限流。仅在 portal sub-router
+// 挂载；其它路径（admin / auth / shadow）由 RateLimitSensitive 单独覆盖。
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// PLAN-025：SSE 长连接不应该被请求频率限流。job 流就一条连接 + 心跳，
@@ -158,15 +160,35 @@ func RateLimit(next http.Handler) http.Handler {
 		if email, _ := r.Context().Value(CtxUserEmail).(string); email != "" {
 			key = email
 		}
-		// 高敏端点走 5/min；其它走 30/min
-		limiter := defaultLimiter
-		if isSensitiveRoute(r.URL.Path) {
-			limiter = sensitiveLimiter
-		}
-		if !limiter.allow(key) {
+		if !defaultLimiter.allow(key) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RateLimitSensitive 给高敏端点的独立 5/min 限流。pma-cr H-2 修复：原版把
+// sensitive 判定塞在 RateLimit 内部，但 RateLimit 仅挂在 /api/portal，
+// /api/auth/stepup/ + /api/admin/users:batch + /shadow/ 都走不到。
+// 把这个 middleware 挂到 r.Group（ProxyAuth 之后），按 path prefix 仅对
+// 高敏路径生效，其它路径透传不动。
+func RateLimitSensitive(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isSensitiveRoute(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := realClientIP(r)
+		if email, _ := r.Context().Value(CtxUserEmail).(string); email != "" {
+			key = email
+		}
+		if !sensitiveLimiter.allow(key) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"sensitive rate limit exceeded"}`))
 			return
 		}
 		next.ServeHTTP(w, r)

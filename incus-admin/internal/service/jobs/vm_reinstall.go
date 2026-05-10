@@ -173,7 +173,11 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 		_ = rt.deps.VMs.UpdatePassword(ctx, *job.VMID, password)
 	}
 
-	rt.takeParams(job.ID)
+	// pma-cr H-3 / Session-2 F-39：take 出来的 params 必须显式 Wipe，不依赖
+	// runOne defer（runOne defer 的 takeParams 在这里返 nil，本地变量永不 Wipe）
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 	return nil
 }
 
@@ -186,5 +190,8 @@ func (e *vmReinstallExecutor) Rollback(ctx context.Context, rt *Runtime, job *mo
 	if job.VMID != nil {
 		_ = rt.deps.VMs.UpdateStatus(ctx, *job.VMID, model.VMStatusError)
 	}
-	rt.takeParams(job.ID)
+	// pma-cr H-3：rollback 路径同样显式 Wipe
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 }

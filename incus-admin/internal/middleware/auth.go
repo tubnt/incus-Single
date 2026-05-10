@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -93,7 +95,14 @@ func verifyEmergencyCookie(cookieValue string) (email string, ok bool) {
 		}
 		return emailV, true
 	case 2:
-		// 旧格式（向后兼容；下次 EMERGENCY_TOKEN 轮换即失效）
+		// pma-cr M-1 / PLAN-051 §2-B：旧格式 grace deadline。EMERGENCY_LEGACY_DEADLINE
+		// 为 RFC3339 时间戳；过该时间后旧格式（无 TTL）一律拒绝。空值表示当前
+		// 还在 grace 期（向后兼容）。建议运维一次性配 +30 天，到期后删除该 env，
+		// 自然进入"仅新格式"模式。
+		if deadline := getLegacyDeadline(); !deadline.IsZero() && time.Now().After(deadline) {
+			slog.Warn("emergency cookie legacy format rejected after deadline", "deadline", deadline)
+			return "", false
+		}
 		emailV, sig := parts[0], parts[1]
 		if emailV == "" {
 			return "", false
@@ -108,6 +117,29 @@ func verifyEmergencyCookie(cookieValue string) (email string, ok bool) {
 		return emailV, true
 	}
 	return "", false
+}
+
+var (
+	legacyDeadlineOnce sync.Once
+	legacyDeadlineVal  time.Time
+)
+
+// getLegacyDeadline 解析 EMERGENCY_LEGACY_DEADLINE env（RFC3339）；空值或解析
+// 失败返 zero time（grace 阶段，旧格式仍有效）。
+func getLegacyDeadline() time.Time {
+	legacyDeadlineOnce.Do(func() {
+		raw := strings.TrimSpace(os.Getenv("EMERGENCY_LEGACY_DEADLINE"))
+		if raw == "" {
+			return
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			slog.Warn("EMERGENCY_LEGACY_DEADLINE parse failed; treating as no deadline (legacy still accepted)", "raw", raw, "error", err)
+			return
+		}
+		legacyDeadlineVal = t
+	})
+	return legacyDeadlineVal
 }
 
 func ProxyAuth(next http.Handler) http.Handler {

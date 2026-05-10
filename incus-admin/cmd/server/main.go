@@ -222,6 +222,14 @@ func runServer() {
 		return t.UserID, nil
 	})
 
+	// pma-cr M-2 / Session-1 O3：PKCE pkceStore 是进程内 map（state→verifier）。
+	// 多实例部署下 callback 可能命中无 verifier 的实例 → step-up 失败用户无诊断。
+	// 启动 warn 提醒：DEPLOYMENT_TOPOLOGY=multi-instance 时让运维注意，
+	// 同步把 pkce store 升级到 DB / Redis（OPS-047 跟踪）。
+	if topo := strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_TOPOLOGY"))); topo == "multi-instance" {
+		slog.Warn("DEPLOYMENT_TOPOLOGY=multi-instance detected: in-memory pkceStore + emergency lock buckets are not shared between instances; step-up may fail when callback hits a different instance. See OPS-047 for shared store migration.")
+	}
+
 	// Step-up OIDC is optional; absence just disables sensitive-route protection.
 	// Init is outside the clusterMgr block because step-up has no cluster dependency.
 	var stepUpHandler server.StepUpHandler
