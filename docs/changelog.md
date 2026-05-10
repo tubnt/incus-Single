@@ -1,5 +1,46 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 23:14 [done] OPS-049 速率限流换 token bucket + IETF RateLimit headers
+
+修生产 21:05:20 实测的 `/api/portal` 全线 429 故障：tom@5ok.co 在 1 分钟内
+顺利下了 2 单后第 3 单被拒，13 秒内连 GET /products、/services 都 429。
+根因不是配额（max_vms=5 / 当前 2 台），是 `defaultLimiter = newRateLimiter
+(30, time.Minute)` 的固定窗口共享桶被 SPA 单页加载的 8-15 req 烧光。
+
+行业基线（per-user authenticated）：
+- DigitalOcean：5000/h + 250/min burst（sliding window）
+- Linode：    1600/min 写 / 200/min 分页 GET（token bucket）
+- Vultr：     1800/min (30 req/s)（token bucket）
+- Hetzner：   3600/h（token bucket）
+- k8s/GCP/Istio：均 token bucket
+
+共识：token bucket = 云原生默认；burst ≈ 2-3× sustained；必须返
+IETF draft RateLimit-* + Retry-After。固定窗口有跨界 2x burst 漏洞。
+
+改动：
+- `internal/middleware/ratelimit.go` 全量重写：自定义 fixed window →
+  `golang.org/x/time/rate.Limiter` per-key token bucket
+  - portal 桶：5 rps + burst 30（长期 ~300/min，对比 DO 250/min burst 略松）
+  - sensitive 桶：1 rps + burst 5（长期 ~60/min + 允许 5 burst，
+    对比旧 5/min fixed 长期一致但短突更友好）
+  - 响应增 IETF draft headers：`RateLimit-Limit/-Remaining/-Reset`
+  - 429 时增 `Retry-After`（秒数）
+- 保留：per-email key（已登录）/ XFF IP（未登录）双策略、SSE /stream 透传、
+  trusted proxy XFF 解析、sensitive 路由前缀列表
+- `internal/middleware/ratelimit_test.go` 加 4 个 testcase：
+  TestKeyedLimiterBurst / TestRateLimitHeaders / TestRateLimitStreamBypass /
+  TestRateLimitSensitiveTransparent
+- `go.mod`：`golang.org/x/time v0.11.0` 从 indirect 提到 direct
+
+部署：
+- 本地 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build，sha256 `447ed0db...`
+- gzip → file_deploy → install → systemctl restart
+- PID 1045676 active，/healthz 200，无 error/panic
+
+验证：
+- `go vet ./...` PASS
+- `go test ./...` PASS（middleware 7/7 含 4 个新增 token bucket 行为测试）
+
 ## 2026-05-10 21:44 [done] UX-007 初始凭据可重看入口（Step-up gated）
 
 补 PLAN-051 用户端遗留 UX 缺口：用户在 `/launch` 完成 VM 创建后，关闭页面
