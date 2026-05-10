@@ -318,9 +318,10 @@ USEREOF
     log "5/5 启动虚拟机..."
     incus start "${VM_NAME}"
 
-    # 保存凭据
-    echo "${VM_NAME}: user=ubuntu password=${VM_PASS} ip=${VM_IP}" >> "${CREDENTIAL_FILE}"
-    chmod 600 "${CREDENTIAL_FILE}"
+    # PLAN-051 §2-A / Session-2 F-02：不再把明文密码 append 到磁盘文件。
+    # 历史 ${CREDENTIAL_FILE} 用法违反 OPS-022 加密基线（incus-admin 已 AES-256-GCM）
+    # 与全局「Never log secrets」原则。改为只在本次脚本输出展示，运维需要立即记下。
+    # 不打印 password 到 syslog——log() 走 stderr，只 echo 到终端 stdout。
 
     echo ""
     log "=========================================="

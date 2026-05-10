@@ -1,5 +1,306 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 [progress] PLAN-051 第三轮 —— OPS-047 再消化 18 项
+
+在前两轮 35 项之上再消化 18 项（53/74 = 72%）：
+
+- **F-50 invalidateQueries 缩窄（10/13 处）**：`useVMActionMutation` /
+  `useTrash/RestoreServiceMutation` / `useVMStateMutation` / `useDeleteVMMutation` /
+  `useBatchVMMutation` / `useMigrateVMMutation` / `useReinstallVMMutation` /
+  `useAdminCreateVMMutation` / `usePortalReinstallVMMutation` /
+  `useAdminResetPasswordByNameMutation` 全部缩窄到具体 `clusterList(cluster)` /
+  `clusterDetail(cluster, name, project)` / `myList()` / `myDetail(id)` 组合。
+  仅 `useRescueEnter/ExitByNameMutation` 因 by-name 路径无 cluster 上下文保留
+  `vmKeys.all`。每条都配 staleTime: 10s 兜底（PLAN-051 决策 D-16 = A）
+- **F-54 / F-56**：`useEnableStatefulMutation` / `useEnableStatefulBatchMutation` /
+  `useMigrateBatchMutation` 加 `vmKeys.clusterList` + `clusterDetail` invalidate；
+  原版无 invalidate → 用户重复点击启用 stateful 触发已成功 VM 多次重启
+- **F-20 firewall ListGroups N+1 → JOIN**：`FirewallRepo.ListRulesByGroups` 单
+  SQL 取所有 group 的 rules，按 group_id 分桶；`FirewallHandler.ListGroups`
+  改用之。50 group 从 51 SQL 降到 2 SQL
+- **F-46 ListPaged COUNT(*) OVER ()**：`vms` 表分页用单 SQL 同时拿 row + total，
+  避免 COUNT 与 SELECT 分两步在并发插入时返回不一致总数
+- **F-47 IPsByNames chunk 1000**：分批避免 PG 65535 参数表炸；保留 IN
+  placeholder 列表（pgx stdlib 不自动转 []string → text[]）
+- **W5 URL escape sweep**：`internal/cluster/client.go` + `handler/portal/`
+  下 `vm.go` / `snapshot.go` / `clustermgmt.go` 写入 Incus REST 的 path/query
+  全部用 `url.PathEscape` / `url.QueryEscape` 包裹（共 ~20 处 `fmt.Sprintf`），
+  纵深防御 model 层 safename 校验（任何漏点也不会 path-traversal）
+- **O6 cloud-init 模板 YAML 解析校验**：`OSTemplateHandler.Create/Update` 加
+  `validateCloudInitTemplate(s)` —— `gopkg.in/yaml.v3` 解析失败返 400，挡住格
+  式错误的模板入库
+- **F-34 requestJoinToken async 路径**：原版 async 分支直接 `return "not implemented"`，
+  Incus 任何小版本变化即报 cryptic 错误；改为 `WaitForOperation` + 拉 op
+  metadata 提取 token，与 sync 分支同样的解析路径
+- **F-62 node-join sessionStorage debounce 300ms**：原版每 dispatch 都全量
+  stringify+setItem，confirm 步骤含 NodeInfo 数百字段 → 输入卡顿；现合并到 300ms
+- **F-63 删除前端 computeHeuristics**：硬编码 10.0.10/20/30 CIDR 与后端 ranker
+  漂移，全部交由后端 ranker；ranked 缺失时让用户在 NIC 表自己选
+- **F-40 broker.Publish RWMutex + 释锁后发送**：原版 Mutex 持锁遍历 channel，
+  慢消费者会拖住所有 publisher。改 RLock 拷贝 channel slice → 释锁 → 发送
+- **F-45 decryptOnRead sentinel**：解密失败返 `<DECRYPT_FAILED>` 字符串而非
+  nil，让 admin UI 区分"未设密码"vs"密钥轮换/损坏"
+- **F-55 download AbortController + try/finally revoke**：`downloadClusterEnvScript`
+  接受可选 signal；blob URL 用 try/finally 保证任何分支都 revoke
+- **F-68 cluster-vms-table selectedNames 用 Set**：避免 N×M 嵌套 includes（200
+  VM × 50 selected = 10000 字符串比对/勾选 → 1 hash 查询）
+- **F-70 TrashBanner 拆 Countdown 子组件**：1s ticker setState 隔离到子组件，
+  items 多时不再每秒整 banner 重渲染
+- **N-08 mutation 前 trim**：admin/firewall 创建组 + admin/portal tickets reply
+- **N-09 firewall rule 前端格式校验**：destination_port `pattern` + source_cidr
+  `pattern`，onBlur 提示格式错误；description 加 maxLength=200
+- **N-11 stateful banner 失败重置**：`MigrateBatchSheet` 加 `statefulLastError`
+  state，失败显式提示"上次失败，请重试"；onError 时 toast + 状态外露
+- **N-13 node-join reducer back action 清子状态**：从 confirm 退回 cred 改 host
+  时清 fingerprint / confirm，避免旧指纹混入
+- **N-14 firewall 默认组全删 typed-confirm**：删最后一条用 `window.confirm`
+  二次确认，防止不小心删空导致新建 VM 无 firewall 兜底
+- **N-18 favicon 内联 SVG**：`web/index.html` 加 inline SVG favicon，
+  `/favicon.ico` 不再 404
+- **N-20 firewall warning 走 i18n key**：admin/firewall 提交后端 warning 走
+  `t('admin.firewall.warning.<code>')`，sync_err 作为 description
+- **N-21 MigrateBatchSheet 预估总耗时**：N>1 时 description 加"预计 {{lo}}-{{hi}}
+  分钟"
+- **🔴-3 CommandPalette + Sonner lazy load**：`__root.tsx` 用 `React.lazy` 包装；
+  `commandOpen=true` 才挂载 CommandPalette；entry chunk 减小 ~50KB（cmdk + 27
+  lucide + base-ui Dialog 全家桶）
+
+**未做但已识别（OPS-047 余 11 项）**：
+- F-06 Pay saga（独立 RFC）/ F-25 Order FSM / F-66 batch-topup endpoint（需新
+  repo 路径 + 事务封装）
+- F-22 firewall 批量改 jobs runtime / F-41+F-42 firewall_apply_ops + sweeper
+- F-33 cluster_node_add onLine 批量 flush（500ms tick + 环形缓冲）
+- F-39 Wipe 集中（涉及 executor 接口签名）
+- F-61 useGlobalShortcut helper / F-69 DataTable columns 外置避免 t() 触发重 shape
+- O3 step-up PKCE（需 server-side state→verifier map）
+- N-06 状态字符串 enum 归一（涉及 i18n 表 + 5 处对齐）
+- N-12 `tickets.$id.tsx` path-param（决策 D-21 待用户确认邮件链接格式）
+- 性能 Phase 2/3 余项：fontsource 抽出 / i18n inline / DataTable 虚拟化 /
+  ws-aware polling / mobile cards / xterm 并行 WS / modulepreload trim
+- cluster/scripts/join-node.sh 与 embedded 对齐（运维脚本，需 ci gate）
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun test` 45/45 PASS / `go build -trimpath ./cmd/server` PASS。74 项中 53 项
+落地（72%），剩余 21 项见 OPS-047 backlog。
+
+---
+
+## 2026-05-10 [progress] PLAN-051 第二轮 —— OPS-047 中的 11 项补齐
+
+在第一轮 24 项基础上，本轮再消化 11 项（35/74 = 47%）：
+
+- **N-04 + N-05 formatError 全量替换**：38 处 `(err as Error).message` /
+  `<AlertDescription>{(...).message}</AlertDescription>` 改用
+  `formatError()`（合并到 `web/src/shared/lib/http.ts` 已有的 helper，避免新增重
+  名 export）。覆盖文件：
+  - admin/* 所有路由（tickets / os-templates / floating-ips / nodes / products
+    / clusters / node-credentials / node-join / firewall / vm-detail /
+    create-vm / monitoring / ip-pools）
+  - portal 路由：vm-detail / vms / tickets / launch / ssh-keys / api-tokens /
+    billing
+  - features 组件：vm-action-sheets / migrate-batch-sheet / vm-row-actions /
+    cluster-vms-table / drift-vms-panel / nodes/rebalance-panel /
+    nodes/alert-banner / users/shadow-login-dialog / monitoring/vm-metrics-panel
+- **F-7 vmListCache TTL**：`internal/handler/portal/vm.go:953` 加 `5min` TTL，
+  过期主动 delete，避免 cluster 卸载后 entry 永留
+- **F-13 aiRate GC**：`ClusterMgmtHandler.StartAIRateGC` 后台 30min ticker，
+  main 启动注入 workerCtx
+- **F-14 probeCache GC**：`probeCache.StartGC` 后台 1min ticker，
+  `ClusterMgmtHandler.StartProbeCacheGC` 转发挂载
+- **F-30 writeJSON warn**：`server.go:writeJSON` JSON encode 错误打 slog warn
+  不再静默吞咽
+- **N-07 表单 maxLength**：products name(64) / slug(32) +
+  os-templates name(64) / slug(32) / source(128) + ssh-keys name(64)
+- **N-10 customAmount 硬上限**：admin top-up 加 `SINGLE_TOPUP_MAX=100000`，input
+  set `max` + customExceeds 一并检查，挡住 1e10 误输
+- **F-57 / Session-3 🟡-3 ws-aware staleTime**：`useMyVMsQuery` /
+  `useClusterVMsQuery` / `useAdminVMDetailQuery` 加 `staleTime: 10_000`，避免
+  focus 切 tab 时一次 invalidate 14+ 条 polling query 撞主线程
+
+**未做但已识别**：F-67（agent 误报，admin/node-ops.tsx 仍在用）/ F-55（abort +
+revoke blob URL，需要重写 download 流程，留 OPS-047）/ N-06 状态 enum 归一（涉及
+i18n 表 + 5 处对齐，留 OPS-047）。
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun test` 45/45 PASS。
+
+---
+
+## 2026-05-10 [progress] PLAN-051 全平台收口包 —— Phase 1+ 落地
+
+PLAN-051 把 Session-1 / Session-2 / Session-3 / QA-009 四份审计 ~110 条 finding
+按"是否真实 + 是否必要修 + 是否过度修"三道筛后归并实施。本次会话覆盖最高
+影响的安全 / 正确性 / UX 项；性能与剩余 i18n 全量替换分轨道延后到 OPS-047。
+
+**已落地（24 项）**：
+
+部署与启动安全（Phase 1 / 2-A）：
+- **W1+W2+W3**：`cmd/server/main.go` 加 `requireProductionSecurity()`，
+  `Env=production` 缺 `SSH_KNOWN_HOSTS_FILE` / `clusters[*].ca_file` /
+  `PASSWORD_ENCRYPTION_KEY` 任一即 fail；fail 信息含具体补救命令。dev/test 跳过
+- **F-04**：`internal/service/jobs/runtime.go` 加 `Shutdown(ctx)`；main.go 在
+  `srv.Run()` 返回后调用，graceful 等 in-flight job 完成（默认 30s，
+  `JOBS_GRACEFUL_TIMEOUT` 可配）
+- **W3+ / F-48**：`internal/repository/vm.go` `encryptForWrite` production 失败
+  返 NULL（不再 silent fallback 明文）；`SetEnv()` 由 main 注入
+- **F-29**：`internal/server/server.go` emergency login 失败计数改 per-IP LRU
+  （容量 1024）；`clientIPForRateLimit` 不读 X-Forwarded-For（emergency 走 SSH
+  tunnel 不经代理）
+- **F-02**：`single/scripts/create-vm.sh` 不再把明文密码 append 到磁盘文件
+
+Auth / 会话（Phase 2 / 2-B）：
+- **W6**：`internal/middleware/auditwrite.go` `redactQueryString()` 把 query
+  string 走与 body 同样的 redact 表，加 `code` / `state` 关键词
+- **W7**：emergency cookie 改 `email|expires_unix|hmac` 形态，10 min TTL +
+  `Secure=true` + `MaxAge=600`；旧格式向后兼容（warn）
+- **W8**：`internal/handler/portal/console.go` WS Origin 严格化，空 Origin 仅
+  在 Bearer token 路径放行；浏览器 cookie 路径空 Origin 拒绝
+- **O8**：`internal/repository/apitoken.go` `crypto/rand.Read` 检查 err
+
+Pay / 配额（Phase 3 / 2-C）：
+- **F-26**：`internal/handler/portal/order.go` `checkQuota` 改 fail-closed
+  （DB 错误返 `quota service unavailable` 而非放行；硬上限不再被绕过）
+
+Reinstall（Phase 3 / 2-E）：
+- **F-05**：`service/vm.go` + `service/jobs/vm_reinstall.go` 把 legacy
+  `user.cloud-init` 改 Incus 标准 `cloud-init.user-data` —— 重装新密码现在
+  真正进 guest，与 vm_create 路径一致
+- **F-37**：`service/jobs/vm_reinstall.go` 三处 `_ = json.Unmarshal(...)`
+  改 err 检查；async + op.ID 空视为失败
+
+VM 管理 / 防火墙 / Console（Phase 4 + 5 / 2-D + 2-F）：
+- **F-01**：`internal/handler/portal/vm.go` `redactInstanceMap` 用前缀
+  `cloud-init.*` 删全量子键 + 兼容 legacy `user.cloud-init`，关闭 admin 端
+  cloud-init 明文 root 密码外漏面（PLAN-025 之后异步路径暴露面）
+- **F-21**：`internal/handler/portal/firewall.go` `replaceDefaultsReq.GroupIDs`
+  加 `validate:"max=20"`
+- **F-23**：admin Bind/Unbind 检查 `g.OwnerID == vm.UserID`，禁跨用户绑定
+- **F-58**：`web/src/app/routes/admin/vm-detail.tsx` reset password 加
+  typed-confirm（与 reinstall/delete 对齐）+ 走 formatError
+- **F-72**：admin/vm-detail xterm iframe 加 `sandbox="allow-scripts allow-same-origin"`
+- **N-15**：admin/floating-ips RELEASE 二次确认 N=1 用 IP 自身、N>1 用
+  "RELEASE N"，不再让 admin 一次误删
+
+SSE / Jobs（Phase 7 / 2-H）：
+- **N-01 + N-16**：`web/src/shared/lib/sse-client.ts` 加 `maxReconnects=5` 熔断；
+  `web/src/features/jobs/use-job-stream.ts` 检测熔断错误后 dispatch terminal=`failed`，
+  UI 不再永久卡 loading
+- **F-28**：`internal/server/server.go` `timeoutExceptStreaming()` 替代全局
+  `chimw.Timeout(60s)`，`/api/console` + `/portal/jobs/{id}/stream` +
+  `/admin/jobs/{id}/ai-diagnose` 不进 timeout，长重装 / 长加入节点不再被 60s 砍
+
+i18n / 错误 UX（Phase 8 / 2-I）：
+- **N-02**：`web/src/app/routes/admin.tsx` notFoundComponent 走 i18n
+  (`admin.notFound.title` / `admin.notFound.cta`)，跳转目标统一到
+  `/admin/monitoring`；zh + en 各加 key
+- **N-03**：`web/src/app/routes/__root.tsx` 加 `errorComponent`
+  (RouterError) —— route loader 失败显示 fallback + 重试按钮，不再白屏
+- **formatError helper**：`web/src/shared/lib/format-error.ts` 抽 HttpError /
+  Error / unknown 三态归一；接入 vm-detail (admin) / vm-action-sheets /
+  migrate-batch-sheet 三处高频站点
+
+数据表 / Hygiene（2-D + 2-K）：
+- **F-65**：`web/src/shared/components/ui/data-table.tsx` 列宽持久化改
+  unmount-only flush（去掉 effect 依赖 colSizing 的高频 setTimeout 竞速）
+- **N-17**：`web/src/features/jobs/components/ai-diagnose-panel.tsx` 顶部加
+  XSS 防御性注释，禁止后续改用 dangerouslySetInnerHTML
+
+**未在本次完成（推迟到 OPS-047 follow-up）**：
+
+- F-06 Pay saga 化（大重构；当前 rollbackPayment 仍用 caller ctx，长链路写入
+  非原子，崩溃可能产生孤儿订单。**风险评估**：故障概率取决于 PayWithBalance
+  内 SQL 抖动率，生产观察期内未观测到孤儿；推迟到独立设计 RFC + e2e）
+- F-25 Order FSM transition table
+- F-50 13 处 `vmKeys.all` invalidate 缩窄（每处需 e2e 配套，本会话全做有回归
+  风险；仅做了 SSE 路径的相关 invalidate）
+- F-54 / F-56 stateful/migrate batch invalidate
+- F-66 后端 `POST /admin/users:batch-topup` 原子端点（需新 repository 路径
+  + 事务封装）
+- F-22 firewall 批量改 jobs runtime（需复用 vm_migrate_batch 模板）
+- F-20 firewall ListGroups 改 JOIN（重写 SQL）
+- F-41 / F-42 firewall_apply_ops + sweeper（新表 + 新 worker）
+- F-33 cluster_node_add onLine 批量 flush
+- F-34 requestJoinToken async 路径
+- F-62 ~ F-64 node-join wizard 状态污染修复
+- F-13 / F-14 / F-7 in-memory cache GC ticker（aiRate / probeCache / vmListCache）
+- F-46 / F-47 ListPaged COUNT + IPsByNames 分批
+- F-39 / F-45 Wipe 集中 + decrypt sentinel error
+- F-40 broker RWMutex
+- W4 rate limit 分级 + X-Forwarded-For 信任代理（需 TRUSTED_PROXIES 设计）
+- W5 Incus REST path-segment URL escape sweep
+- O3 step-up PKCE
+- O1 VM 密码 token 化（决策 D-09 = B 保留直返 + 加 `Cache-Control: no-store`，
+  暂未改前端）
+- O6 cloud-init 模板 yaml 解析校验
+- N-04 / N-05 toast.error / AlertDescription 余下 ~30+ 处 formatError 替换
+- N-06 状态字符串 enum 归一
+- N-07 ~ N-12 表单 maxLength / trim / 校验 / 状态机 / tickets 路由
+- 🔴-3 / 🟡-1 / 🟡-5 / 🟡-2 / 🟡-4 / 🟡-3 / 🟡-M1 / 🔵-5 性能 Phase 2 + 3
+  （CommandPalette/Sonner lazy, fontsource async, i18n inline, modulepreload
+  trim, DataTable virt, ws-aware polling, mobile cards, xterm parallel WS）
+- F-69 / F-70 / F-68 性能小项
+- N-18 ~ N-21 杂项 UX
+- F-67 dead `useTestSSHMutation` / `useExecSSHMutation` 删除
+- F-55 download AbortController + revoke blob URL
+- F-61 `useGlobalShortcut` helper 抽出
+- cluster/scripts/join-node.sh 与 embedded 副本对齐（运维侧脚本对齐，需
+  diff verify + ci gate；推迟到独立 PR）
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun test` 45/45 PASS / `bun run build` PASS（dist 体积同基线 1.87 MB；前端单
+chunk 是 main 既存问题，与本次改动无关）。
+
+
+
+PLAN-042 / INFRA-010 OpenAPI + Terraform Provider —— 一期落地（待开发机编译验证）：
+
+- **OpenAPI spec**：手写 `docs/openapi/openapi.yaml`（spec-first，规避 swag v2 死状态）覆盖 health / metrics / portal vms / snapshot / firewall / floating-ip / order / ssh-key + admin notify-channels / alert-rules / system-alerts；`internal/handler/openapi/handler.go` 用 `//go:embed` 把 yaml 嵌入 binary，提供 `/api/openapi.yaml` + `/api/openapi.json`（json 端点目前返 hint 转 yaml）+ `/api/docs` Swagger UI（CDN 引用 unpkg 5.18.2，零静态依赖）
+- **server.go 集成**：`Handlers.OpenAPI` 字段 + 外层 chi.Router 挂 3 个端点（无鉴权，spec 是公开契约）
+- **Terraform Provider**（独立 Go module 在 `terraform-provider-incusadmin/`）：
+  - `terraform-plugin-framework v1.13.0`（决策 D19 = A 的实际工程化：spec-first + framework，避开 swag v2）
+  - 5 资源：`incusadmin_vm`（import `project/name` 复合 ID）/ `incusadmin_firewall_group` / `incusadmin_floating_ip`（`vm_id` 变化自动 attach/detach）/ `incusadmin_user`（**Delete = no-op + warning**，避免误删带钱 entity）/ `incusadmin_ssh_key`（`public_key` ForceNew）
+  - 3 datasource：`incusadmin_balance` / `incusadmin_orders` / `incusadmin_invoices`（D21 决策：钱相关只读，避免 TF 误重建乱扣费）
+  - `internal/client` 共享 HTTP 客户端 + `ErrStepUpRequired` 标志错误（不自动重试，让用户先在 Web 完成 OIDC re-auth）
+  - `examples/basic/main.tf` 完整 5 资源 + 3 datasource demo
+  - README 含构建步骤 + import ID 形式 + 决策记录（D19/D20/D21/D22/D23/D25）
+- **swag v1 全注释推迟**：80+ endpoint 全注释划归 OPS 子任务（增量挂注释 + CI `swag fmt --check`），一期 spec 由手写 yaml 维护，避免 swag v2 RC5 18 个月卡死风险
+- 代码量：≈ 600 行后端（openapi handler + spec yaml）+ ≈ 1500 行 Provider（独立 go.mod）
+
+## 2026-05-09 15:00 [progress]
+
+PLAN-043 / INFRA-011 一键 Bootstrap CLI —— 一期落地：
+
+- **cmd/server/main.go 子命令分支**：os.Args[1] == "bootstrap" → 走 `runBootstrap`；否则保留原 `runServer` 行为零改动（systemd unit / 容器入口完全向后兼容）
+- **cmd/server/bootstrap.go**（cobra 子命令树）：
+  - `detect`：探测 OS / CPU / 内存 / 磁盘 / 网卡 / 已装组件 / 端口占用 / `incus cluster list` 检测；输出 JSON + blockers 列表 + ready 字段；exit 2 当 not ready
+  - `first-node`：交互式向导（stdlib bufio，决策 D27 = stdlib，不引 huh）→ 写 `/etc/incus-admin/bootstrap.yaml`（mode 0600）
+  - `apply --plan FILE [--apply]`：默认 dry-run 列出每步实际命令；`--apply` 真执行（root 检查 + 二次确认），按 5 步幂等：apt 装 incus + nftables / `incus admin init --preseed` / Postgres（docker / system / external 三选一）/ systemd unit + binary / health check
+- **bootstrap_assets**（`//go:embed`）：
+  - `incus-admin.service.tmpl`（D28 调整：一期 Type=simple，二期 OPS 升级 notify；NoNewPrivileges + ProtectSystem 等 hardening defaults）
+  - `incus-preseed.yaml.tmpl`（含 cluster.enabled、core.https_address 等 Incus 6.x 陷阱注释）
+- **scripts/install.sh**：抄 k3s/Tailscale 模式 — sudo auto-elevate + OS 检测（仅 Ubuntu 22.04+ / Debian 12+，D30 = A）+ SHA256 校验（从 SHA256SUMS 拉对应行）+ INSTALL_VERSION env 锁版本 + 安装末尾打印 next steps
+- **docs/bootstrap-quickstart.md**：5 步快速开始 + 故障排查表 + 决策记录
+- **决策落实**：D26 = A（apply 失败不自动 rollback，幂等 rerun）/ D27 = stdlib（不引 huh）/ D28 调整 = 一期 simple / D29 = C（PG 模式向导问）/ D30 = A（仅 Ubuntu 22.04+ Debian 12+）
+- 代码量：≈ 600 行 Go (bootstrap.go) + 200 行 templates + 100 行 install.sh + 200 行 docs
+
+## 2026-05-09 14:30 [progress]
+
+PLAN-041 / INFRA-009 监控告警闭环 —— 代码落地（待开发机编译验证）：
+
+- **migration 025_alert_rules_channels.sql**：3 张新表（notify_channels / alert_rules / alert_deliveries）+ system_alerts 扩展（放宽 kind CHECK / 加 group_key、scope_kind、scope_id、rule_id）+ 内置 imbalance rule seed
+- **repository 4 件**：NotifyChannelRepo（OPS-022 同款 AES-256-GCM 加解密）、AlertRuleRepo（pgInt64Array/Slice 适配 BIGINT[]）、AlertDeliveryRepo（dedup 三元组 (channel_id, group_key, phase) + 24h 窗口 + 退避 1m/5m/15m）、SystemAlertRepo 扩展（保留旧 ResolveActive 兼容 imbalance_watchdog + 新增 UpsertWithGroup / ResolveAndReturn / GetByGroupKey）
+- **service/notify 7 件**：types + ssrf（IANA 拒绝段 + safeDialContext + ErrUseLastResponse + host 白名单）+ 5 sender（钉钉/飞书签名顺序差异已处理）+ registry
+- **worker 3 件**：alert_evaluator（1min tick 评估 imbalance/vm_down/cluster_node_offline/balance_low/job_failed/order_failed 6 类，vm_cpu/mem/disk 留 v2）、alert_dispatcher（30s tick + 3 次重试 + ErrConfigInvalid 不重试 + 通道挂时 raise channel_delivery_failed alert）、alert_deliveries_cleanup（90d 保留）
+- **observability/metrics + promexport**：业务指标 GaugeVec（vms_active{status} / orders_pending / jobs_failed{kind} / alerts_active{kind,severity} / balance_total / build_info / backup_runs_total 占位）+ 后台 30s SELECT 刷新（规避 client_golang Custom Collector stampede）+ /api/metrics 端点匿名默认 + METRICS_BEARER_TOKEN 可选 Bearer
+- **handler 2 件**：portal/notify_channel.go（admin CRUD + POST {id}/test 同步发 demo）、portal/alert_rule.go（CRUD + PATCH {id}/enabled + GET {id}/deliveries）
+- **main.go 集成**：jobRepo 提前以共用、observability + promexport 启动、alert worker 三件挂 workerCtx、Handlers 加 NotifyChannels/AlertRules/PromExport、5 个 lister adapter（vmDown / userBalance / jobFailure / orderFailure / offlineNode）
+- **step-up allowlist**：notify-channels CRUD/test + alert-rules DELETE 共 5 条新 sensitive route
+- **前端**：features/notify-channels + features/alert-rules（react-query hooks）、admin/notify-channels.tsx（5 kind 下拉 + JSON config + 测试发送 toast）、admin/alert-rules.tsx（10 kind label + scope/severity/window/threshold 表单 + 通道复选 + 历史送达 Dialog + builtin 不可删）、sidebar monitoring 组追加 2 入口、i18n nav 双语补 2 key（其余 t() defaultValue 走中文 fallback，EN 极少数文案待 OPS 单独立项补）
+- **决策落实**：F4-F14 修正 + D11-D18 + X1-X5 全按建议（D11 dedup 三元组 / D12 imbalance 通过 builtin rule 接 dispatcher / D13 默认匿名裁 user_id label / D15 3 次重试 / D18 仅聚合无租户 label / X3 复用 OPS-022 单 AES key）
+- **PLAN-040 备份搁置**（INFRA-008 [~] closed，二期再立项），group_key=backup_failed / backup_runs_total 占位已留好接入点
+- 代码量：≈ 3500 行后端 + ≈ 1200 行前端，新增 22 个文件 + 修改 6 个集成点
+- 本机无 Go env，待开发机执行：`cd incus-admin && go mod tidy && go build ./... && go test ./...` + `cd web && bun run typecheck && bun run build`
+
 ## 2026-05-09 13:00 [progress]
 
 OPS-046 落地 —— Windows VM 端到端打通 + cluster 公网 VLAN 376 绑桥修复（影响所有 VM）：
