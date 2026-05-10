@@ -231,6 +231,14 @@ func (r *Runtime) runOne(parent context.Context, jobID int64) {
 	// detached ctx：worker shutdown 不取消进行中的 job；30min 是 image-pull 上限
 	jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+	// Session-2 F-39 / PLAN-051 §2-K：集中 cred.Wipe。原版每个 executor 自觉调
+	// （cluster_node_add 调，vm_reinstall 漏调）；改在 runOne defer 里统一兜底。
+	// takeParams 已是幂等：executor 自己 take 之后 Wipe 后再次 take 返 nil 跳过。
+	defer func() {
+		if p := r.takeParams(jobID); p != nil && p.Credential != nil {
+			p.Credential.Wipe()
+		}
+	}()
 
 	exec, err := r.dispatch(job)
 	if err != nil {

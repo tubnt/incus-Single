@@ -43,6 +43,34 @@ export function ConsoleTerminal({
   useEffect(() => {
     if (!termRef.current) return;
 
+    // Session-3 🔵-5 / PLAN-051 §2-J：WS 握手与 xterm 实例化并行。原版必须等
+    // terminal.open + fitAddon.fit 完后才 new WebSocket，浪费 ~100-300ms RTT。
+    // 改：先发 WS，早期消息进 buffer；terminal 就绪后 flush。
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/console?vm=${encodeURIComponent(vmName)}&project=${encodeURIComponent(project)}&cluster=${encodeURIComponent(cluster)}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    const earlyBuffer: Uint8Array[] = [];
+    let terminalReady = false;
+    ws.onmessage = (event) => {
+      const writeOrBuffer = (chunk: Uint8Array) => {
+        if (terminalReady && terminalRef.current) {
+          terminalRef.current.write(chunk);
+        } else {
+          earlyBuffer.push(chunk);
+        }
+      };
+      if (event.data instanceof ArrayBuffer) {
+        writeOrBuffer(new Uint8Array(event.data));
+      } else if (typeof event.data === "string") {
+        writeOrBuffer(new TextEncoder().encode(event.data));
+      } else if (event.data instanceof Blob) {
+        event.data.arrayBuffer().then((buf) => writeOrBuffer(new Uint8Array(buf)));
+      }
+    };
+
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 14,
@@ -57,28 +85,13 @@ export function ConsoleTerminal({
     fitAddon.fit();
     terminalRef.current = terminal;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/console?vm=${encodeURIComponent(vmName)}&project=${encodeURIComponent(project)}&cluster=${encodeURIComponent(cluster)}`;
-
     terminal.writeln(`Connecting to ${vmName}...`);
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    terminalReady = true;
+    for (const chunk of earlyBuffer) terminal.write(chunk);
+    earlyBuffer.length = 0;
 
     ws.onopen = () => {
       terminal.writeln("Connected.\r\n");
-    };
-
-    ws.binaryType = "arraybuffer";
-
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        terminal.write(new Uint8Array(event.data));
-      } else if (typeof event.data === "string") {
-        terminal.write(event.data);
-      } else if (event.data instanceof Blob) {
-        event.data.arrayBuffer().then((buf) => terminal.write(new Uint8Array(buf)));
-      }
     };
 
     ws.onerror = () => {

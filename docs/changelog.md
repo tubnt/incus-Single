@@ -1,5 +1,59 @@
 # IncusAdmin Changelog
 
+## 2026-05-10 [progress] PLAN-051 第四轮 —— OPS-047 再消化 11 项
+
+第四轮在前三轮 53 项之上再消化 11 项（64/74 = 86%）：
+
+资金/状态机：
+- **F-66 batch-topup 原子端点**：handler/portal/user_batch.go 扩 topup action，
+  options.amount + description；后端串行 + 同 daily cap 内部事务（防 partial
+  扣款）。前端 useBatchTopUpMutation 包装；admin/users.tsx 替换原 Promise.allSettled
+  N 笔独立 http.post → 单 endpoint 调用 + isPending gate 防重复提交
+- **F-25 Order FSM transition table**：order.go 加 orderTransitions map，admin
+  UpdateStatus 不再允许任意流转；不合法返 422 + allowed_to 列表
+
+并发/资源：
+- **F-39 cred.Wipe 集中**：runtime.runOne defer 统一兜底，executor 不再各自负责
+- **F-33 cluster_node_add 500ms tick batch flush**：onLine 改 buffer latestLine +
+  500ms ticker flush，远端 apt-install / image pull 数千行 stdout 不再每行同步
+  BEGIN/UPDATE/COMMIT；5 并发节点加入不会耗尽 PG 连接池
+- **F-61 useGlobalShortcut helper**：shared/lib/use-global-shortcut.ts 抽出统一
+  keydown 守卫（INPUT/dialog/cmdk/contenteditable 排除），调用站点逐步迁移
+
+Auth 进阶（W4）：
+- **限流分级**：默认 30/min；高敏端点 5/min（/api/auth/stepup/ +
+  /api/admin/users:batch + /shadow/）
+- **TRUSTED_PROXIES env**：CIDR 列表，支持 X-Forwarded-For 真实客户端 IP
+  （登录前阶段防代理本地地址收敛 → 单用户被借机耗尽配额）
+
+性能：
+- **🔵-5 xterm WS 并行**：terminal.tsx 先发 WebSocket 握手再做 Terminal 实例化，
+  早期消息进 earlyBuffer，省 100-300ms 黑屏
+
+数据保护：
+- **O1 密码响应 no-store**：Pay 路径在密码直返时加
+  Cache-Control: no-store + Pragma: no-cache，防 CDN 边缘 / 浏览器缓存泄露
+
+运维脚本（J）：
+- **F-03 cluster scripts 单一来源**：cluster/scripts/join-node.sh 用 embedded 副本
+  覆盖；scripts/check-join-node-sync.sh CI gate 走 diff -q，漂移即 fail
+
+**未完成（OPS-047 余 10 项 - 都是大重构 / 涉外接口设计）**：
+- F-06 Pay saga（独立 RFC + e2e）/ F-22 firewall jobs runtime / F-41+42 apply_ops + sweeper
+- F-69 DataTable columns 外置（仅语言切换边界，性价比低）
+- O3 step-up PKCE（需 server-side state→verifier map 设计）
+- N-06 状态字符串 enum 归一（涉及 i18n 表 + 5 处对齐）
+- N-12 tickets.$id.tsx path-param（决策 D-21 待用户回答邮件链接格式）
+- F-58/F-66 ESLint custom rule（防回退）
+- 性能 Phase 2/3 余项：fontsource 抽出 / i18n inline / DataTable 虚拟化 /
+  modulepreload trim / mobile cards
+
+**验收**：`go vet ./...` PASS / `go test ./...` PASS / `bun run typecheck` PASS
+/ `bun test` 45/45 PASS / `go build -trimpath ./cmd/server` PASS / cluster scripts
+sync ci gate PASS。74 项中 64 项落地（86%）。
+
+---
+
 ## 2026-05-10 [progress] PLAN-051 第三轮 —— OPS-047 再消化 18 项
 
 在前两轮 35 项之上再消化 18 项（53/74 = 72%）：

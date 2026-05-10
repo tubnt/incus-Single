@@ -397,6 +397,10 @@ func (h *OrderHandler) payWithSyncProvisioning(w http.ResponseWriter, r *http.Re
 		"ip":      result.IP,
 		"amount":  order.Amount,
 	})
+	// Session-1 O1 / PLAN-051 §2-B 决策 D-09 = B：密码直返但加 Cache-Control:
+	// no-store + Pragma: no-cache，防止响应被浏览器/CDN 边缘缓存意外保留。
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "provisioned",
 		"vm_name":  result.VMName,
@@ -435,6 +439,25 @@ func (h *OrderHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
 }
 
+// orderTransitions 是 admin UpdateStatus 允许的状态转移表。
+// Session-2 F-25 / PLAN-051 §2-C：原版无校验，admin 可任意流转
+// (active → pending → cancelled → paid)，配额/退款副作用漂移。
+//
+// 业务约束：
+//   - pending 是唯一的入口；paid/provisioning 由 Pay 路径自动推进，admin 也可
+//     手动设回 pending（仅作 dry-run 测试）
+//   - active 是终态（VM 已创建+生效），仅可 → expired（订阅过期）或 cancelled
+//     （售后退）。退款副作用由 cancelled transition 触发（OPS-047 saga 单独处理）
+//   - expired/cancelled 是死态，不可再流转。
+var orderTransitions = map[string]map[string]struct{}{
+	"pending":      {"paid": {}, "cancelled": {}, "expired": {}},
+	"paid":         {"provisioning": {}, "active": {}, "cancelled": {}, "pending": {}},
+	"provisioning": {"active": {}, "cancelled": {}, "paid": {}},
+	"active":       {"expired": {}, "cancelled": {}},
+	"expired":      {},
+	"cancelled":    {},
+}
+
 func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	orderID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	var req struct {
@@ -443,14 +466,49 @@ func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
+	// Session-2 F-25：FSM 转移检查。从当前 status 拉表查 → 不允许返 422。
+	current, err := h.orders.GetByID(r.Context(), orderID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if current == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "order not found"})
+		return
+	}
+	allowed, ok := orderTransitions[current.Status]
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": fmt.Sprintf("unknown current status %q", current.Status),
+		})
+		return
+	}
+	if _, transOK := allowed[req.Status]; !transOK {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":         fmt.Sprintf("transition %s → %s not allowed", current.Status, req.Status),
+			"current":       current.Status,
+			"allowed_to":    keysOf(allowed),
+		})
+		return
+	}
 	if err := h.orders.UpdateStatus(r.Context(), orderID, req.Status); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 	audit(r.Context(), r, "order.update_status", "order", orderID, map[string]any{
+		"from":   current.Status,
 		"status": req.Status,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"status": req.Status})
+}
+
+// keysOf returns map keys as a slice，给 422 响应里的 allowed_to 字段用。
+func keysOf(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // rollbackPayment 在扣款成功但后续 VM 创建失败时调用：退款 + 释放 IP + 订单置 cancelled。

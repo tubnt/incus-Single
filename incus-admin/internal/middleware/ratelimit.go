@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -56,7 +59,88 @@ func (rl *rateLimiter) cleanup() {
 	}
 }
 
-var defaultLimiter = newRateLimiter(30, time.Minute)
+var (
+	defaultLimiter = newRateLimiter(30, time.Minute)
+	// Session-1 W4 / PLAN-051 §2-B：高敏端点单独 5/min。匹配前缀：
+	//   /api/auth/stepup/        OIDC 重认证（攻击者可借此撞 Logto 限流）
+	//   /api/admin/users:batch   批量改角色 / 充值
+	//   /shadow/                 admin 影子登录
+	sensitiveLimiter = newRateLimiter(5, time.Minute)
+	rateLimitSensitiveRoutes  = []string{"/api/auth/stepup/", "/api/admin/users:batch", "/shadow/"}
+)
+
+// trustedProxiesEnv 解析 TRUSTED_PROXIES（CIDR 或 IP，逗号分隔）。
+// 默认空 = 不信任任何前置代理。生产部署 Cloudflare 时填入 CF 网段。
+var (
+	trustedProxiesOnce sync.Once
+	trustedProxiesNets []*net.IPNet
+)
+
+func loadTrustedProxies() []*net.IPNet {
+	trustedProxiesOnce.Do(func() {
+		raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+		if raw == "" {
+			return
+		}
+		for _, p := range strings.Split(raw, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if !strings.Contains(p, "/") {
+				if strings.Contains(p, ":") {
+					p += "/128"
+				} else {
+					p += "/32"
+				}
+			}
+			_, nw, err := net.ParseCIDR(p)
+			if err == nil {
+				trustedProxiesNets = append(trustedProxiesNets, nw)
+			}
+		}
+	})
+	return trustedProxiesNets
+}
+
+var ipRe = regexp.MustCompile(`^[0-9a-fA-F:.]+$`)
+
+// realClientIP 在 RemoteAddr 属于 TRUSTED_PROXIES 时从 X-Forwarded-For 摘出
+// 真实客户端 IP；否则用 RemoteAddr 自身（防伪造）。emergency listener 不调用，
+// 它通过 SSH tunnel 直连，没有前置代理。
+func realClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	remoteIP := net.ParseIP(host)
+	trusted := loadTrustedProxies()
+	for _, nw := range trusted {
+		if nw.Contains(remoteIP) {
+			xff := r.Header.Get("X-Forwarded-For")
+			if xff != "" {
+				// XFF: client, proxy1, proxy2 — 取最左侧（client）
+				parts := strings.SplitN(xff, ",", 2)
+				ip := strings.TrimSpace(parts[0])
+				if ip != "" && ipRe.MatchString(ip) {
+					return ip
+				}
+			}
+			break
+		}
+	}
+	return host
+}
+
+// isSensitiveRoute 返回 true 表示该 path 走 5/min 严格限流（其它路径走 30/min）。
+func isSensitiveRoute(path string) bool {
+	for _, p := range rateLimitSensitiveRoutes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
 
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -66,11 +150,20 @@ func RateLimit(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		key := r.RemoteAddr
+		// Session-1 W4 / PLAN-051 §2-B：登录前阶段（无 user email）从
+		// X-Forwarded-For 取真实 IP，避免 Cloudflare/oauth2-proxy 把所有未登录
+		// 请求 RemoteAddr 收敛到代理本地地址 → 全集群共享一个桶 → 单用户登录被
+		// 攻击者借机耗尽配额。
+		key := realClientIP(r)
 		if email, _ := r.Context().Value(CtxUserEmail).(string); email != "" {
 			key = email
 		}
-		if !defaultLimiter.allow(key) {
+		// 高敏端点走 5/min；其它走 30/min
+		limiter := defaultLimiter
+		if isSensitiveRoute(r.URL.Path) {
+			limiter = sensitiveLimiter
+		}
+		if !limiter.allow(key) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":"rate limit exceeded"}`))

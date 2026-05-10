@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   useAdminUsersQuery,
+  useBatchTopUpMutation,
   useBatchUserMutation,
 } from "@/features/users/api";
 import { UserDetailSheet } from "@/features/users/components/user-detail-sheet";
@@ -39,8 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
-import { formatError, http } from "@/shared/lib/http";
-import { queryClient } from "@/shared/lib/query-client";
+import { formatError } from "@/shared/lib/http";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/users")({
@@ -58,11 +58,13 @@ function UsersPage() {
   const [openUser, setOpenUser] = useState<User | null>(null);
   const [batchTopUpOpen, setBatchTopUpOpen] = useState(false);
   const [batchAmount, setBatchAmount] = useState<string>("");
-  const [batchPending, setBatchPending] = useState(false);
   const { data, isLoading } = useAdminUsersQuery(page);
   const users = data?.users ?? [];
   const total = data?.total ?? users.length;
   const batchMutation = useBatchUserMutation();
+  // Session-2 F-66：原子批量充值 mutation；isPending 直到 invalidate 完成
+  const batchTopUpMutation = useBatchTopUpMutation();
+  const batchPending = batchTopUpMutation.isPending || batchMutation.isPending;
 
   const selected = useMemo(
     () =>
@@ -142,9 +144,10 @@ function UsersPage() {
     );
   };
 
-  // 批量充值：每人 X 元（不是平均分配 —— 业界 admin top-up 通常按"每人统一额度"
-  // 来奖励/补偿一组用户）。后端无 batch endpoint；前端 Promise.all 单笔下发，每笔
-  // 独立 audit log。partial 失败时返回数量对比。
+  // Session-2 F-66 / PLAN-051 §2-D：改走 useBatchTopUpMutation 单 endpoint。
+  // 原版 Promise.allSettled N 笔独立 http.post，partial 失败信息丢失 + setBatchPending
+  // 早于 invalidate → 短窗口内可重复提交。后端 endpoint 串行 + 内部事务（同 daily
+  // cap），前端 isPending gate 直到 invalidate 完成。
   const runBatchTopUp = async (amount: number) => {
     if (!(amount > 0) || selected.length === 0) return;
     const ok = await confirm({
@@ -157,42 +160,33 @@ function UsersPage() {
       }),
     });
     if (!ok) return;
-    setBatchPending(true);
-    const results = await Promise.allSettled(
-      selected.map((id) =>
-        http.post(
-          `/admin/users/${id}/balance`,
-          { amount, description: "Admin batch top-up" },
+    try {
+      const res = await batchTopUpMutation.mutateAsync({ ids: selected, amount });
+      const okCount = res.succeeded.length;
+      const failCount = res.failed.length;
+      if (failCount === 0) {
+        toast.success(
+          t("admin.users.batchTopUpOk", {
+            defaultValue: "批量充值成功：{{n}} 人 × {{amt}}",
+            n: okCount,
+            amt: formatCurrency(amount),
+          }),
+        );
+      } else {
+        toast.warning(
+          t("admin.users.batchTopUpPartial", {
+            defaultValue: "部分成功：成功 {{ok}} 失败 {{fail}}",
+            ok: okCount,
+            fail: failCount,
+          }),
           {
-            intent: {
-              action: "user.topup",
-              args: { user_id: id, amount, batch: true },
-              description: `批量充值 #${id} +${amount}`,
-            },
+            description: res.failed.map((f) => `#${f.key}: ${f.error}`).join("\n"),
+            duration: 15000,
           },
-        ),
-      ),
-    );
-    setBatchPending(false);
-    const okCount = results.filter((r) => r.status === "fulfilled").length;
-    const failCount = results.length - okCount;
-    queryClient.invalidateQueries({ queryKey: ["user"] });
-    if (failCount === 0) {
-      toast.success(
-        t("admin.users.batchTopUpOk", {
-          defaultValue: "批量充值成功：{{n}} 人 × {{amt}}",
-          n: okCount,
-          amt: formatCurrency(amount),
-        }),
-      );
-    } else {
-      toast.warning(
-        t("admin.users.batchTopUpPartial", {
-          defaultValue: "部分成功：成功 {{ok}} 失败 {{fail}}",
-          ok: okCount,
-          fail: failCount,
-        }),
-      );
+        );
+      }
+    } catch (e) {
+      toast.error(formatError(e));
     }
     setBatchTopUpOpen(false);
     setBatchAmount("");

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -152,6 +153,12 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		currentName     = ""
 		lastError      string
 		stepFailedSent bool
+		// Session-2 F-33 / PLAN-051 §2-G：原版每行 stdout 同步 BEGIN/UPDATE/COMMIT，
+		// apt-install / image pull 输出可达数千行 → 5 并发节点加入即耗尽 PG 连接池。
+		// 改：mu 内只更新 latestLine，500ms tick 把 latest 一次写到 DB；
+		// 失败时立刻 flush（不依赖 ticker）。
+		latestLine string
+		dirty      bool
 	)
 	finishCurrent := func(status, detail string) {
 		if currentSeq < 0 {
@@ -159,6 +166,26 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		}
 		rt.finishStep(ctx, job.ID, currentSeq, currentName, status, detail)
 	}
+
+	flushTicker := time.NewTicker(500 * time.Millisecond)
+	defer flushTicker.Stop()
+	tickerDone := make(chan struct{})
+	go func() {
+		defer close(tickerDone)
+		for range flushTicker.C {
+			mu.Lock()
+			seq := currentSeq
+			name := currentName
+			line := latestLine
+			d := dirty
+			dirty = false
+			mu.Unlock()
+			if d && seq >= 0 {
+				_ = rt.deps.Jobs.UpdateStep(ctx, job.ID, seq, model.StepStatusRunning, line)
+				_ = name
+			}
+		}
+	}()
 
 	onLine := func(line string) {
 		mu.Lock()
@@ -172,6 +199,8 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 				return
 			}
 			currentSeq, currentName = seq, name
+			latestLine = ""
+			dirty = false
 			rt.step(ctx, job.ID, seq, name, model.StepStatusRunning, strings.TrimSpace(m[2]))
 			return
 		}
@@ -179,18 +208,21 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		if strings.Contains(line, "[ERROR]") {
 			lastError = line
 		}
-		// 持续把最后一行作为当前 step.detail（轻量 truncated 留尾）
+		// 把最后一行 buffer 到 latestLine；500ms tick 后台 flush（避免高频 DB 写）
 		if currentSeq >= 0 {
 			truncated := line
 			if len(truncated) > 160 {
 				truncated = truncated[:160] + "…"
 			}
-			// UpdateStep 会写到 detail；不发新事件（Append + Update 双推会刷屏，仅 marker 推）
-			_ = rt.deps.Jobs.UpdateStep(ctx, job.ID, currentSeq, model.StepStatusRunning, truncated)
+			latestLine = truncated
+			dirty = true
 		}
 	}
 
 	streamErr := runner.RunStream(ctx, cmd, onLine)
+	flushTicker.Stop()
+	// 等 ticker goroutine 退出（已 Stop，goroutine range 拿到关闭的 chan 退出）
+	<-tickerDone
 
 	mu.Lock()
 	defer mu.Unlock()
