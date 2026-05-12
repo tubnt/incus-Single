@@ -10,6 +10,7 @@ import {
 import { Button } from "@/shared/components/ui/button";
 import { Card } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 /**
@@ -65,7 +66,7 @@ export function RebalancePanel({ clusterName }: { clusterName: string }) {
           );
           refetch();
         },
-        onError: (e) => toast.error((e as Error).message),
+        onError: (e) => toast.error(formatError(e)),
       },
     );
   };

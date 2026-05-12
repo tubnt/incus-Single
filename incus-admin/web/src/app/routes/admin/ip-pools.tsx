@@ -21,6 +21,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/shared/components/ui/sheet";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/ip-pools")({
   component: IPPoolsPage,
@@ -173,7 +174,7 @@ function AddPoolForm({ onDone }: { onDone: () => void }) {
         </div>
         {mutation.isError && (
           <div className="text-status-error text-sm mt-3">
-            {(mutation.error as Error).message}
+            {formatError(mutation.error)}
           </div>
         )}
       </SheetBody>

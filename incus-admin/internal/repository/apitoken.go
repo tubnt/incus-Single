@@ -21,8 +21,13 @@ func NewAPITokenRepo(db *sql.DB) *APITokenRepo {
 }
 
 func (r *APITokenRepo) Create(ctx context.Context, userID int64, name string, expiresAt *time.Time) (*model.APIToken, error) {
+	// Session-1 O8 / PLAN-051 §2-K：crypto/rand.Read 在 Linux /dev/urandom 不会
+	// 失败，但受限沙箱 / 退化随机源时返零字节 → token 全是预测值。与 Renew()
+	// 的写法保持一致。
 	raw := make([]byte, 32)
-	rand.Read(raw)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, fmt.Errorf("rand: %w", err)
+	}
 	token := "ica_" + hex.EncodeToString(raw)
 	hash := sha256Hash(token)
 

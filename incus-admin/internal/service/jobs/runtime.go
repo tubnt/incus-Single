@@ -30,6 +30,10 @@ type Deps struct {
 	Migrator    VMMigrator
 	// PoolSize 是 worker 池容量；建议 4–8。0 取默认 4。
 	PoolSize int
+	// OPS-050：入队 channel buffer 长度。0 取默认 64。生产建议 256；
+	// 满后 Enqueue 阻塞 HTTP（PayWithBalance 已 commit、余额已扣的状态下挂死），
+	// 调大 buffer 是最直接的缓解手段，配合 PoolSize 拉宽 worker 池。
+	QueueSize int
 }
 
 // VMMigrator 由 service.VMService 实现。jobs 包通过此接口避免反向 import service
@@ -82,15 +86,22 @@ func NewRuntime(deps Deps) *Runtime {
 	if deps.PoolSize <= 0 {
 		deps.PoolSize = 4
 	}
+	if deps.QueueSize <= 0 {
+		deps.QueueSize = 64
+	}
 	return &Runtime{
 		deps:   deps,
 		broker: NewBroker(),
-		queue:  make(chan int64, 64),
+		queue:  make(chan int64, deps.QueueSize),
 		params: make(map[int64]*Params),
 	}
 }
 
 func (r *Runtime) Broker() *Broker { return r.broker }
+
+// QueueDepth 返回当前 channel 里堆积的待消费 job 数。
+// 给 metrics ticker 与未来 /metrics endpoint 用。
+func (r *Runtime) QueueDepth() int { return len(r.queue) }
 
 func (r *Runtime) setParams(jobID int64, p Params) {
 	r.pmu.Lock()
@@ -127,11 +138,59 @@ func (r *Runtime) Start(ctx context.Context) {
 		}
 
 		go r.sweeper(ctx)
+		go r.queueMetrics(ctx)
 	})
+}
+
+// queueMetrics 周期性打 queue 深度日志。每 30s 一行，仅当队列非空时输出，
+// 空载不刷屏。给运维通过 grep 看实时压力用；未来接 Prometheus exporter 时
+// 改读 QueueDepth() 即可。
+func (r *Runtime) queueMetrics(ctx context.Context) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			depth := r.QueueDepth()
+			if depth > 0 {
+				slog.Info("provisioning queue depth",
+					"depth", depth,
+					"pool_size", r.deps.PoolSize,
+					"capacity", cap(r.queue))
+			}
+		}
+	}
 }
 
 // Stop 等所有 worker 退出。调用方应先 cancel runtime ctx。
 func (r *Runtime) Stop() { r.wg.Wait() }
+
+// Shutdown 是 graceful 退出 entrypoint：先关闭 queue（拒新工），然后等 in-flight
+// worker 完成；ctx 超时则放弃等待返 ctx.Err()，调用方据此决定 exit code。
+//
+// Session-2 F-04：原版 main.go 在 SIGTERM 时只 cancel workerCtx 让 worker 立刻
+// 退出（worker select 撞到 ctx.Done() 直接 return），但 in-flight job 在 detached
+// 30min ctx 里继续跑——进程随后 os.Exit 把它强杀，DB 留 running 行没人收尾。
+// Shutdown 在 worker ctx cancel 之前调，让正在跑的 job 跑完或者超时（默认运维侧
+// 30s 上限）。runOne 用 background ctx 是有意设计——shutdown 不打断业务正确性，
+// 只决定我们等多久。
+func (r *Runtime) Shutdown(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		slog.Info("provisioning runtime shutdown clean", "in_flight", 0)
+		return nil
+	case <-ctx.Done():
+		slog.Warn("provisioning runtime shutdown timeout; in-flight jobs will be sweeped on next start", "error", ctx.Err())
+		return ctx.Err()
+	}
+}
 
 // Enqueue 把已 INSERT 的 job 推入队列，并暂存 params。queue 满时阻塞等待
 // （避免静默丢任务）。handler 拿到 job_id 后立即返 202。
@@ -206,6 +265,14 @@ func (r *Runtime) runOne(parent context.Context, jobID int64) {
 	// detached ctx：worker shutdown 不取消进行中的 job；30min 是 image-pull 上限
 	jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+	// Session-2 F-39 / PLAN-051 §2-K：集中 cred.Wipe。原版每个 executor 自觉调
+	// （cluster_node_add 调，vm_reinstall 漏调）；改在 runOne defer 里统一兜底。
+	// takeParams 已是幂等：executor 自己 take 之后 Wipe 后再次 take 返 nil 跳过。
+	defer func() {
+		if p := r.takeParams(jobID); p != nil && p.Credential != nil {
+			p.Credential.Wipe()
+		}
+	}()
 
 	exec, err := r.dispatch(job)
 	if err != nil {

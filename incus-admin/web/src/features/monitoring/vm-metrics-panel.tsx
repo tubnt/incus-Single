@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { http } from "@/shared/lib/http";
+import { formatError, http } from "@/shared/lib/http";
 
 interface VMMetricData {
   cpu_user_pct: number;
@@ -45,7 +45,7 @@ export function VMMetricsPanel({ vmName, apiBase, cluster }: VMMetricsPanelProps
         <div className="text-xs text-muted-foreground">{t("monitoring.loading", { defaultValue: "Loading metrics..." })}</div>
       ) : error ? (
         <div className="text-xs text-destructive">
-          {t("monitoring.loadFailed", { defaultValue: "Load failed" })}: {(error as Error).message}
+          {t("monitoring.loadFailed", { defaultValue: "Load failed" })}: {formatError(error)}
         </div>
       ) : !m ? (
         <div className="text-xs text-muted-foreground">{t("monitoring.noData", { defaultValue: "No metrics available" })}</div>

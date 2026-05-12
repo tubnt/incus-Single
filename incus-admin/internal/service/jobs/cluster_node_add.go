@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -151,6 +153,12 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		currentName     = ""
 		lastError      string
 		stepFailedSent bool
+		// Session-2 F-33 / PLAN-051 §2-G：原版每行 stdout 同步 BEGIN/UPDATE/COMMIT，
+		// apt-install / image pull 输出可达数千行 → 5 并发节点加入即耗尽 PG 连接池。
+		// 改：mu 内只更新 latestLine，500ms tick 把 latest 一次写到 DB；
+		// 失败时立刻 flush（不依赖 ticker）。
+		latestLine string
+		dirty      bool
 	)
 	finishCurrent := func(status, detail string) {
 		if currentSeq < 0 {
@@ -158,6 +166,26 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		}
 		rt.finishStep(ctx, job.ID, currentSeq, currentName, status, detail)
 	}
+
+	flushTicker := time.NewTicker(500 * time.Millisecond)
+	defer flushTicker.Stop()
+	tickerDone := make(chan struct{})
+	go func() {
+		defer close(tickerDone)
+		for range flushTicker.C {
+			mu.Lock()
+			seq := currentSeq
+			name := currentName
+			line := latestLine
+			d := dirty
+			dirty = false
+			mu.Unlock()
+			if d && seq >= 0 {
+				_ = rt.deps.Jobs.UpdateStep(ctx, job.ID, seq, model.StepStatusRunning, line)
+				_ = name
+			}
+		}
+	}()
 
 	onLine := func(line string) {
 		mu.Lock()
@@ -171,6 +199,8 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 				return
 			}
 			currentSeq, currentName = seq, name
+			latestLine = ""
+			dirty = false
 			rt.step(ctx, job.ID, seq, name, model.StepStatusRunning, strings.TrimSpace(m[2]))
 			return
 		}
@@ -178,18 +208,21 @@ func (e *clusterNodeAddExecutor) Run(ctx context.Context, rt *Runtime, job *mode
 		if strings.Contains(line, "[ERROR]") {
 			lastError = line
 		}
-		// 持续把最后一行作为当前 step.detail（轻量 truncated 留尾）
+		// 把最后一行 buffer 到 latestLine；500ms tick 后台 flush（避免高频 DB 写）
 		if currentSeq >= 0 {
 			truncated := line
 			if len(truncated) > 160 {
 				truncated = truncated[:160] + "…"
 			}
-			// UpdateStep 会写到 detail；不发新事件（Append + Update 双推会刷屏，仅 marker 推）
-			_ = rt.deps.Jobs.UpdateStep(ctx, job.ID, currentSeq, model.StepStatusRunning, truncated)
+			latestLine = truncated
+			dirty = true
 		}
 	}
 
 	streamErr := runner.RunStream(ctx, cmd, onLine)
+	flushTicker.Stop()
+	// 等 ticker goroutine 退出（已 Stop，goroutine range 拿到关闭的 chan 退出）
+	<-tickerDone
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -259,16 +292,28 @@ func requestJoinToken(ctx context.Context, client *cluster.Client, nodeName stri
 		return "", err
 	}
 	if resp.Type == "async" {
+		// Session-2 F-34 / PLAN-051 §2-G：原版直接 return "not implemented"，
+		// Incus 任何小版本变到 async 响应都会让 admin 看到 cryptic 错误。
+		// 改：等 op 完成 → 拉 op metadata 提取 token；同样是 GenerateJoinToken
+		// 的 sync 模式 metadata 形态。
 		var op struct{ ID string }
-		_ = json.Unmarshal(resp.Metadata, &op)
-		if op.ID != "" {
-			if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
-				return "", fmt.Errorf("wait token operation: %w", werr)
-			}
-			// 异步 op 完成后需要再 GET operation metadata 拿 token；此分支较少触发，
-			// Incus 6 通常 sync 返回。失败留给上层 audit。
-			return "", fmt.Errorf("async token flow not implemented; expected sync response")
+		if uerr := json.Unmarshal(resp.Metadata, &op); uerr != nil {
+			return "", fmt.Errorf("parse async metadata: %w", uerr)
 		}
+		if op.ID == "" {
+			return "", fmt.Errorf("incus async response missing operation id")
+		}
+		if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
+			return "", fmt.Errorf("wait token operation: %w", werr)
+		}
+		// 拉完整 op 取 metadata（含 server_name/fingerprint/addresses/secret）
+		opResp, gerr := client.APIGet(ctx, fmt.Sprintf("/1.0/operations/%s", url.PathEscape(op.ID)))
+		if gerr != nil {
+			return "", fmt.Errorf("get token operation metadata: %w", gerr)
+		}
+		// op metadata 嵌在 resources 与 metadata 字段；Incus 6.x 把 token 字段
+		// 放 operation.metadata 里。这里直接复用下方解析逻辑（resp 重新指向 op）
+		resp = opResp
 	}
 
 	var tok struct {

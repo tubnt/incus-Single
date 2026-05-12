@@ -31,6 +31,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/firewall")({
   component: FirewallPage,
@@ -117,7 +118,7 @@ function GroupCard({
     if (!ok) return;
     deleteMutation.mutate(undefined, {
       onSuccess: () => toast.success(t("admin.firewall.deleted", "已删除")),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -247,7 +248,7 @@ function RulesEditor({
           toast.success(t("admin.firewall.saved", "规则已保存"));
         }
       },
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
 
   return (
@@ -279,6 +280,10 @@ function RulesEditor({
             value={r.destination_port}
             onChange={(e) => patch(r._uiId, { destination_port: e.target.value })}
             className="col-span-2 h-8 font-mono"
+            // QA-009 N-09 / PLAN-051 §2-G：前端 onBlur 校验 port-range 格式
+            // 接受形如 22 / 22,80 / 1000-2000 / 22,80,1000-2000；空字符串放行（允许"任意端口"）
+            pattern="^([0-9]{1,5}(-[0-9]{1,5})?)(,\s*[0-9]{1,5}(-[0-9]{1,5})?)*$"
+            title="格式：22 / 22,80 / 1000-2000 / 22,80,3306"
           />
           <Input
             type="text"
@@ -286,6 +291,9 @@ function RulesEditor({
             value={r.source_cidr}
             onChange={(e) => patch(r._uiId, { source_cidr: e.target.value })}
             className="col-span-2 h-8 font-mono"
+            // QA-009 N-09：CIDR 格式（IPv4 / IPv6 简化）
+            pattern="^(([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?|([0-9a-fA-F:]+)(\/[0-9]{1,3})?)?$"
+            title="格式：10.0.0.0/8 / 2001:db8::/32 / 留空（任意来源）"
           />
           <Input
             type="text"
@@ -293,6 +301,7 @@ function RulesEditor({
             value={r.description}
             onChange={(e) => patch(r._uiId, { description: e.target.value })}
             className="col-span-3 h-8"
+            maxLength={200}
           />
           <Button
             variant="ghost"
@@ -344,18 +353,30 @@ function CreateGroupPanel({ onDone }: { onDone: () => void }) {
   const mutation = useCreateFirewallGroupMutation();
 
   const submit = () => {
+    // QA-009 N-08 / PLAN-051 §2-G：mutation 前 trim，避免尾随空格触发后端拒绝/重复。
+    // QA-009 N-20：warning + sync_err 走 i18n 模板，warning 是后端 code，sync_err 是 detail。
     mutation.mutate(
-      { slug, name, description, rules: [emptyRule()] },
+      {
+        slug: slug.trim(),
+        name: name.trim(),
+        description: description.trim(),
+        rules: [emptyRule()],
+      },
       {
         onSuccess: (res) => {
           if (res.warning) {
-            toast.warning(`${res.warning}: ${res.sync_err ?? ""}`);
+            toast.warning(
+              t(`admin.firewall.warning.${res.warning}`, {
+                defaultValue: res.warning,
+              }),
+              { description: res.sync_err ?? undefined },
+            );
           } else {
             toast.success(t("admin.firewall.created", "组已创建"));
           }
           onDone();
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -397,7 +418,7 @@ function CreateGroupPanel({ onDone }: { onDone: () => void }) {
         </div>
         {mutation.isError && (
           <div className="text-status-error text-sm mt-3">
-            {(mutation.error as Error).message}
+            {formatError(mutation.error)}
           </div>
         )}
       </SheetBody>

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -222,8 +223,12 @@ func (c *Client) GetClusterMembers(ctx context.Context) ([]json.RawMessage, erro
 }
 
 // GetInstances returns all instances in a project.
+//
+// Session-1 W5 / PLAN-051 §2-B：project 用 url.QueryEscape，纵深防御兜底
+// model 层 safename 校验（model 层正则现在挡，但任何漏点会立刻 path-traversal
+// 或参数覆盖 → 这里多一道）。
 func (c *Client) GetInstances(ctx context.Context, project string) ([]json.RawMessage, error) {
-	path := fmt.Sprintf("/1.0/instances?recursion=2&project=%s", project)
+	path := fmt.Sprintf("/1.0/instances?recursion=2&project=%s", url.QueryEscape(project))
 	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
@@ -237,7 +242,7 @@ func (c *Client) GetInstances(ctx context.Context, project string) ([]json.RawMe
 
 // GetInstance returns a single instance.
 func (c *Client) GetInstance(ctx context.Context, project, name string) (json.RawMessage, error) {
-	path := fmt.Sprintf("/1.0/instances/%s?project=%s", name, project)
+	path := fmt.Sprintf("/1.0/instances/%s?project=%s", url.PathEscape(name), url.QueryEscape(project))
 	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
@@ -247,7 +252,7 @@ func (c *Client) GetInstance(ctx context.Context, project, name string) (json.Ra
 
 // GetInstanceState returns the runtime state of an instance.
 func (c *Client) GetInstanceState(ctx context.Context, project, name string) (json.RawMessage, error) {
-	path := fmt.Sprintf("/1.0/instances/%s/state?project=%s", name, project)
+	path := fmt.Sprintf("/1.0/instances/%s/state?project=%s", url.PathEscape(name), url.QueryEscape(project))
 	resp, err := c.APIGet(ctx, path)
 	if err != nil {
 		return nil, err
@@ -271,7 +276,7 @@ func (c *Client) ExecNonInteractive(ctx context.Context, project, instance strin
 		return -1, fmt.Errorf("marshal exec body: %w", err)
 	}
 
-	path := fmt.Sprintf("/1.0/instances/%s/exec?project=%s", instance, project)
+	path := fmt.Sprintf("/1.0/instances/%s/exec?project=%s", url.PathEscape(instance), url.QueryEscape(project))
 	resp, err := c.APIPost(ctx, path, strings.NewReader(string(body)))
 	if err != nil {
 		return -1, fmt.Errorf("exec request: %w", err)

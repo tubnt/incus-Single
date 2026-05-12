@@ -13,23 +13,40 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	authcore "github.com/incuscloud/incus-admin/internal/auth"
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/config"
 	adminhandler "github.com/incuscloud/incus-admin/internal/handler/admin"
 	authhandler "github.com/incuscloud/incus-admin/internal/handler/auth"
+	"github.com/incuscloud/incus-admin/internal/handler/openapi"
 	"github.com/incuscloud/incus-admin/internal/handler/portal"
+	"github.com/incuscloud/incus-admin/internal/handler/promexport"
 	"github.com/incuscloud/incus-admin/internal/middleware"
 	"github.com/incuscloud/incus-admin/internal/model"
+	"github.com/incuscloud/incus-admin/internal/observability"
 	"github.com/incuscloud/incus-admin/internal/repository"
 	"github.com/incuscloud/incus-admin/internal/server"
 	"github.com/incuscloud/incus-admin/internal/service"
 	"github.com/incuscloud/incus-admin/internal/service/aiassist"
 	"github.com/incuscloud/incus-admin/internal/service/jobs"
+	"github.com/incuscloud/incus-admin/internal/service/notify"
 	"github.com/incuscloud/incus-admin/internal/worker"
 )
 
 func main() {
+	// PLAN-043 / INFRA-011 bootstrap 子命令分支：args[1] == "bootstrap" 时走
+	// runBootstrap（cobra 子命令树 detect/first-node/apply），否则走 runServer。
+	// 现有 server 启动行为零改动，向后兼容 systemd unit + 容器入口。
+	if len(os.Args) > 1 && os.Args[1] == "bootstrap" {
+		runBootstrap(os.Args[2:])
+		return
+	}
+	runServer()
+}
+
+func runServer() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
 	cfg, err := config.Load()
@@ -37,6 +54,17 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// PLAN-051 §2-A / Session-1 W1/W2/W3：production 必须显式落地三项关键
+	// 安全配置；任一缺失启动 fail，避免"运维忘配 → 直接裸奔"。dev/test 维持
+	// 历史 passthrough 兼容。fail 信息含具体补救命令。
+	if err := requireProductionSecurity(cfg); err != nil {
+		slog.Error("startup refused: production security misconfigured", "error", err)
+		os.Exit(1)
+	}
+
+	// 把 ENV 注入 repository 层让 encryptForWrite 在 production 走 fail-closed
+	repository.SetEnv(cfg.Server.Env)
 
 	slog.Info("incus-admin starting",
 		"listen", cfg.Server.Listen,
@@ -145,6 +173,22 @@ func main() {
 	invoiceRepo := repository.NewInvoiceRepo(db)
 	quotaRepo := repository.NewQuotaRepo(db)
 	alertRepo := repository.NewSystemAlertRepo(db) // PLAN-039 / OPS-044
+	// PLAN-041 / INFRA-009 监控告警闭环
+	alertRuleRepo := repository.NewAlertRuleRepo(db)
+	alertDeliveryRepo := repository.NewAlertDeliveryRepo(db)
+	notifyChannelRepo := repository.NewNotifyChannelRepo(db)
+	notifyRegistry := notify.NewRegistry()
+	// PLAN-025 / INFRA-007 jobRepo 提前到此（PLAN-041 evaluator 需 CountFailedJobsSince）
+	jobRepo := repository.NewProvisioningJobRepo(db)
+
+	// PLAN-041 / INFRA-009 业务指标 collector + Prometheus exposition 端点。
+	// 默认匿名（决策 D13 = A），METRICS_BEARER_TOKEN 非空时强制 Bearer。
+	// StartRefresh 用 workerCtx 启动后台 30s 刷新；workerCtx 在下面创建后再调。
+	promRegistry := prometheus.NewRegistry()
+	bizMetrics := observability.New()
+	bizMetrics.Register(promRegistry)
+	bizMetrics.SetBuildInfo("dev", "", cfg.Server.Env)
+	promExportHandler := promexport.New(promRegistry, os.Getenv("METRICS_BEARER_TOKEN"))
 
 	ipAddrRepo := repository.NewIPAddrRepo(db)
 	healingRepo := repository.NewHealingEventRepo(db)
@@ -177,6 +221,14 @@ func main() {
 		}
 		return t.UserID, nil
 	})
+
+	// pma-cr M-2 / Session-1 O3：PKCE pkceStore 是进程内 map（state→verifier）。
+	// 多实例部署下 callback 可能命中无 verifier 的实例 → step-up 失败用户无诊断。
+	// 启动 warn 提醒：DEPLOYMENT_TOPOLOGY=multi-instance 时让运维注意，
+	// 同步把 pkce store 升级到 DB / Redis（OPS-047 跟踪）。
+	if topo := strings.ToLower(strings.TrimSpace(os.Getenv("DEPLOYMENT_TOPOLOGY"))); topo == "multi-instance" {
+		slog.Warn("DEPLOYMENT_TOPOLOGY=multi-instance detected: in-memory pkceStore + emergency lock buckets are not shared between instances; step-up may fail when callback hits a different instance. See OPS-047 for shared store migration.")
+	}
 
 	// Step-up OIDC is optional; absence just disables sensitive-route protection.
 	// Init is outside the clusterMgr block because step-up has no cluster dependency.
@@ -242,6 +294,9 @@ func main() {
 	// systemd but prevented clean shutdown in tests.
 	workerCtx, cancelWorkers := context.WithCancel(context.Background())
 	defer cancelWorkers()
+
+	// PLAN-041 / INFRA-009 业务指标后台 30s 刷新。挂在 workerCtx 之后避免引用未定义。
+	bizMetrics.StartRefresh(workerCtx, db, 30*time.Second)
 
 	// Retention worker: deletes audit_logs rows older than
 	// AUDIT_RETENTION_DAYS (default 365). Runs until server shutdown.
@@ -324,6 +379,29 @@ func main() {
 		// 5min tick × 3 ticks = 15min 持续不均衡 → 写 system_alerts。
 		go worker.RunImbalanceWatchdog(workerCtx, scheduler, clusterMgr, vmRepo, alertRepo, 5*time.Minute, 3)
 
+		// PLAN-041 / INFRA-009 监控告警闭环 worker：
+		//   - evaluator 1min tick：拉 enabled rules 评估，触发 → upsert system_alerts
+		//     + enqueue alert_deliveries
+		//   - dispatcher 30s tick：扫 pending deliveries → sender.Send → 重试/失败
+		//   - cleanup  24h tick：清 90 天前 alert_deliveries 行
+		go worker.RunAlertEvaluator(workerCtx, worker.EvaluatorDeps{
+			Rules:      alertRuleRepo,
+			Alerts:     alertRepo,
+			Deliveries: alertDeliveryRepo,
+			VMs:        vmDownAdapter{repo: vmRepo},
+			Users:      userBalanceAdapter{repo: userRepo},
+			Jobs:       jobFailureAdapter{repo: jobRepo},
+			Orders:     orderFailureAdapter{repo: orderRepo},
+			Nodes:      offlineNodeAdapter{scheduler: scheduler, mgr: clusterMgr},
+		}, 1*time.Minute)
+		go worker.RunAlertDispatcher(workerCtx, worker.DispatcherDeps{
+			Deliveries: alertDeliveryRepo,
+			Channels:   notifyChannelRepo,
+			Alerts:     alertRepo,
+			Registry:   notifyRegistry,
+		}, 30*time.Second, 50)
+		go worker.RunAlertDeliveriesCleanup(workerCtx, alertDeliveryRepo, 90)
+
 		// One-shot startup reconcile: ensure every DB firewall_groups row
 		// has a matching Incus network ACL. Migration 011 INSERTs seed rows
 		// (default-web / ssh-only / database-lan) but only handler.CreateGroup
@@ -338,7 +416,7 @@ func main() {
 
 	// PLAN-025 / INFRA-007 异步 provisioning runtime。clusterMgr 为 nil 时
 	// （DB-only 测试 / 配置缺失）跳过启动；handler 走兜底同步路径。
-	jobRepo := repository.NewProvisioningJobRepo(db)
+	// jobRepo 已在上文提前创建（PLAN-041 evaluator 共用）。
 	var jobsRuntime *jobs.Runtime
 	if clusterMgr != nil {
 		jobsRuntime = jobs.NewRuntime(jobs.Deps{
@@ -352,10 +430,13 @@ func main() {
 			OSTemplates: osTemplateRepo,
 			Firewall:    defaultFirewallApplier{repo: firewallRepo, svc: service.NewFirewallService(clusterMgr, vmSvc)},
 			Migrator:    vmMigratorAdapter{svc: vmSvc}, // PLAN-037: cluster.vm.migrate-batch
-			PoolSize:    4,
+			PoolSize:    cfg.Jobs.PoolSize,             // OPS-050: env JOBS_POOL_SIZE，默认 4
+			QueueSize:   cfg.Jobs.QueueSize,            // OPS-050: env JOBS_QUEUE_SIZE，默认 64
 		})
 		jobsRuntime.Start(workerCtx)
-		slog.Info("provisioning jobs runtime started", "pool_size", 4)
+		slog.Info("provisioning jobs runtime started",
+			"pool_size", cfg.Jobs.PoolSize,
+			"queue_size", cfg.Jobs.QueueSize)
 	}
 
 	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)
@@ -373,6 +454,10 @@ func main() {
 		WithTopology(scheduler, vmRepo). // PLAN-037 / OPS-040
 		WithAlerts(alertRepo).            // PLAN-039 / OPS-044
 		WithAIProvider(aiProvider)        // PLAN-038 / OPS-041 Tier 2
+	// PLAN-051 §2-K / Session-2 F-13 + F-14：aiRate 与 probeCache 内存 map
+	// 后台周期 GC，防止低活跃用户 entry / 过期 probe 记录永久驻留 → 内存线性增长。
+	clusterMgmtHandler.StartAIRateGC(workerCtx, 30*time.Minute)
+	clusterMgmtHandler.StartProbeCacheGC(workerCtx, time.Minute)
 	if jobsRuntime != nil {
 		adminVMHandler.WithJobs(jobsRuntime, jobRepo)
 		portalVMHandler.WithJobs(jobsRuntime, jobRepo)
@@ -416,12 +501,77 @@ func main() {
 		Jobs:        jobsHandlerOrNil(jobsRuntime, jobRepo, vmRepo, aiProvider),
 		Auth:        stepUpHandler,
 		Shadow:      shadowHandler,
+		// PLAN-041 / INFRA-009 监控告警闭环
+		NotifyChannels: portal.NewNotifyChannelHandler(notifyChannelRepo, notifyRegistry),
+		AlertRules:     portal.NewAlertRuleHandler(alertRuleRepo, alertDeliveryRepo),
+		PromExport:     promExportHandler,
+		// PLAN-042 / INFRA-010 OpenAPI spec + Swagger UI
+		OpenAPI: openapi.NewHandler(),
 	})
 
-	if err := srv.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+	runErr := srv.Run()
+
+	// PLAN-051 §2-A / Session-2 F-04：HTTP server stopped accepting new connections
+	// 之后再给 in-flight provisioning job 一段 graceful 等待。runtime.Shutdown
+	// races wg.Wait() against ctx；超时则放弃，sweeper 会在下次启动时收尾。
+	// JOBS_GRACEFUL_TIMEOUT 默认 30s（决策 D-05）。
+	if jobsRuntime != nil {
+		gracePeriod := jobsGracefulTimeout()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
+		defer cancel()
+		slog.Info("waiting for in-flight provisioning jobs", "timeout", gracePeriod)
+		_ = jobsRuntime.Shutdown(shutdownCtx)
+	}
+
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "server error: %v\n", runErr)
 		os.Exit(1)
 	}
+}
+
+// jobsGracefulTimeout 读 JOBS_GRACEFUL_TIMEOUT 环境变量（time.ParseDuration），
+// 默认 30s。超时上限是 image-pull 上限的下界——若设 >30min，sweeper 重启会重复劳动。
+func jobsGracefulTimeout() time.Duration {
+	v := strings.TrimSpace(os.Getenv("JOBS_GRACEFUL_TIMEOUT"))
+	if v == "" {
+		return 30 * time.Second
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		slog.Warn("invalid JOBS_GRACEFUL_TIMEOUT; using 30s", "value", v, "error", err)
+		return 30 * time.Second
+	}
+	return d
+}
+
+// requireProductionSecurity 检查 cfg.Server.Env=="production" 下的三项关键安全
+// 配置，缺一项即 fail 启动。对 test/dev 全跳过，保持现有 dev 体验。
+//   - W1: SSH_KNOWN_HOSTS_FILE 必须配 → MITM 保护
+//   - W2: clusters[*].CAFile 必须配 → mTLS root chain 保护（首次 TOFU 不再有 CA 兜底）
+//   - W3: PASSWORD_ENCRYPTION_KEY 必须配 → vms.password 落库加密
+//
+// PLAN-051 §2-A / 决策 D-01：选项 B（先 PR1 配 env，再 PR2 加 fail-fast），生效
+// 时机由运维控制；本函数只在 Env=production 时拉闸。
+func requireProductionSecurity(cfg *config.Config) error {
+	if !strings.EqualFold(cfg.Server.Env, "production") {
+		return nil
+	}
+	var missing []string
+	if cfg.Monitor.SSHKnownHostsFile == "" {
+		missing = append(missing, "SSH_KNOWN_HOSTS_FILE (mitigates MITM on node SSH; generate via 'ssh-keyscan -H <node-ip> >> /etc/incus-admin/known_hosts')")
+	}
+	if cfg.Auth.PasswordEncryptionKey == "" {
+		missing = append(missing, "PASSWORD_ENCRYPTION_KEY (encrypts vms.password at rest; generate via 'openssl rand -base64 32')")
+	}
+	for _, cc := range cfg.Clusters {
+		if cc.CAFile == "" {
+			missing = append(missing, "clusters."+cc.Name+".ca_file (Incus mTLS root; without it first connect TOFU has no CA backstop)")
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("missing required production env(s):\n  - %s", strings.Join(missing, "\n  - "))
 }
 
 // ensureCustomerProjectAllowsClusterTarget patches every configured Incus
@@ -760,4 +910,93 @@ func migrateVMPasswordsToEncrypted(db *sql.DB) {
 	if migrated > 0 {
 		slog.Info("vms.password migrated to encrypted", "count", migrated)
 	}
+}
+
+// ============================================================================
+// PLAN-041 / INFRA-009 evaluator 适配器
+//
+// worker 包通过几个小接口（VMDownLister / UsersBalanceLister / ...）拿数据，
+// 避免 worker 反向 import repository 包。每个 adapter 仅做方法名 / 类型转换。
+// ============================================================================
+
+// vmDownAdapter 把 VMRepo.ListVMRecentlyDown 转成 worker.VMDownLister。
+type vmDownAdapter struct{ repo *repository.VMRepo }
+
+func (a vmDownAdapter) ListRecentlyDown(ctx context.Context, since time.Time) ([]worker.VMDownInfo, error) {
+	if a.repo == nil {
+		return nil, nil
+	}
+	rows, err := a.repo.ListVMRecentlyDown(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]worker.VMDownInfo, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, worker.VMDownInfo{
+			VMID: r.VMID, Name: r.Name, Cluster: r.Cluster, Status: r.Status,
+		})
+	}
+	return out, nil
+}
+
+// userBalanceAdapter 把 UserRepo.ListUsersBelowBalance 转成 worker.UsersBalanceLister。
+type userBalanceAdapter struct{ repo *repository.UserRepo }
+
+func (a userBalanceAdapter) ListBelowBalance(ctx context.Context, threshold float64) ([]worker.UserBalance, error) {
+	if a.repo == nil {
+		return nil, nil
+	}
+	rows, err := a.repo.ListUsersBelowBalance(ctx, threshold)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]worker.UserBalance, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, worker.UserBalance{ID: r.ID, Email: r.Email, Balance: r.Balance})
+	}
+	return out, nil
+}
+
+// jobFailureAdapter 把 ProvisioningJobRepo.CountFailedJobsSince 转成 worker.JobFailureCounter。
+type jobFailureAdapter struct{ repo *repository.ProvisioningJobRepo }
+
+func (a jobFailureAdapter) CountFailedSince(ctx context.Context, since time.Time) (int, error) {
+	if a.repo == nil {
+		return 0, nil
+	}
+	return a.repo.CountFailedJobsSince(ctx, since)
+}
+
+// orderFailureAdapter 把 OrderRepo.CountFailedOrdersSince 转成 worker.OrderFailureCounter。
+type orderFailureAdapter struct{ repo *repository.OrderRepo }
+
+func (a orderFailureAdapter) CountFailedSince(ctx context.Context, since time.Time) (int, error) {
+	if a.repo == nil {
+		return 0, nil
+	}
+	return a.repo.CountFailedOrdersSince(ctx, since)
+}
+
+// offlineNodeAdapter 用 scheduler 缓存 + cluster manager 列出每集群 offline node。
+type offlineNodeAdapter struct {
+	scheduler *cluster.Scheduler
+	mgr       *cluster.Manager
+}
+
+func (a offlineNodeAdapter) ListOfflineNodes(_ context.Context) (map[string][]string, error) {
+	if a.scheduler == nil || a.mgr == nil {
+		return nil, nil
+	}
+	out := make(map[string][]string)
+	for _, c := range a.mgr.List() {
+		nodes := a.scheduler.GetNodes(c.Name)
+		var offline []string
+		for _, n := range nodes {
+			if n.Status != "Online" {
+				offline = append(offline, n.Name)
+			}
+		}
+		out[c.Name] = offline
+	}
+	return out, nil
 }

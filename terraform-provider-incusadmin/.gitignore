@@ -1,0 +1,20 @@
+# Compiled binary
+terraform-provider-incusadmin
+*.exe
+*.dll
+*.dylib
+
+# Test binary
+*.test
+
+# Coverage
+*.out
+
+# Terraform local state (operator runs)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Distribution
+dist/

@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/create-vm")({
@@ -287,7 +288,7 @@ function CreateVMPage() {
 
                     {createMutation.isError ? (
                       <Alert variant="error">
-                        <AlertDescription>{(createMutation.error as Error).message}</AlertDescription>
+                        <AlertDescription>{formatError(createMutation.error)}</AlertDescription>
                       </Alert>
                     ) : null}
 

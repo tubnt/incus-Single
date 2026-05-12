@@ -256,8 +256,11 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		applyUserDefaultFirewallGroups(ctx, rt, job, rt.clusterName(job.ClusterID), params.Project, job.TargetName)
 	}
 
-	// 消费 params
-	rt.takeParams(job.ID)
+	// 消费 params + pma-cr H-3：显式 Wipe credential（vm_create 不带 SSH cred，
+	// 但 takeParams 返回的 Params 含密码 plaintext；保险起见 Wipe）
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 	return nil
 }
 
@@ -334,7 +337,10 @@ func (e *vmCreateExecutor) Rollback(ctx context.Context, rt *Runtime, job *model
 		}
 	}
 
-	rt.takeParams(job.ID)
+	// pma-cr H-3：rollback 路径同样显式 Wipe
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 }
 
 func (e *vmCreateExecutor) bestEffortDeleteInstance(ctx context.Context, client *cluster.Client, project, name string) error {

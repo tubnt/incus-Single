@@ -1,0 +1,32 @@
+[Unit]
+Description=incus-admin private cloud management
+Documentation=https://github.com/5ok-co/incus-admin
+After=network-online.target postgresql.service docker.service
+Wants=network-online.target
+
+[Service]
+# PLAN-043 / D28：一期用 Type=simple（默认，systemd 在 fork+exec 后立即视为 active）。
+# 二期 OPS 单独立项升级到 Type=notify + go-systemd SdNotify("READY=1")，让
+# `systemctl restart` 等到端口真正就绪再返回，避免 LB 短暂 5xx。
+# Fail-fast on missing env file (production deploys must drop /etc/incus-admin/env).
+Type=simple
+EnvironmentFile=/etc/incus-admin/env
+ExecStart=/usr/local/bin/incus-admin
+Restart=on-failure
+RestartSec=3s
+
+# Hardening defaults (incus-admin only opens listen ports + reads/writes its own state).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Domain/email hints exposed for runbooks
+Environment=DOMAIN={{DOMAIN}}
+Environment=ADMIN_EMAILS={{ADMIN_EMAIL}}
+
+[Install]
+WantedBy=multi-user.target

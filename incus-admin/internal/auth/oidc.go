@@ -54,17 +54,49 @@ func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirect
 // StepUpAuthURL returns the Logto authorization URL with prompt=login and
 // max_age=0 so that Logto forces the user through a full re-auth (including MFA
 // if enabled in Logto), regardless of current Logto session freshness.
-func (c *OIDCClient) StepUpAuthURL(state string) string {
-	return c.Config.AuthCodeURL(state,
+//
+// Session-1 O3 / PLAN-051 §2-B 决策 D-10 = A：补 PKCE。code_verifier 走 server-
+// side store 通过 state 关联（不存浏览器避免被扩展嗅）。调用方需在 Start 拿到
+// verifier 后存入 store；Callback 时根据 state 取出传给 VerifyCode。
+func (c *OIDCClient) StepUpAuthURL(state, codeChallenge string) string {
+	opts := []oauth2.AuthCodeOption{
 		oauth2.SetAuthURLParam("prompt", "login"),
-		oauth2.SetAuthURLParam("max_age", "0"))
+		oauth2.SetAuthURLParam("max_age", "0"),
+	}
+	if codeChallenge != "" {
+		opts = append(opts,
+			oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+		)
+	}
+	return c.Config.AuthCodeURL(state, opts...)
+}
+
+// GeneratePKCE 返回一对 verifier/challenge。verifier 留 server-side，challenge
+// 通过 OIDC URL 发给 IDP；IDP 收到 token exchange 时校验 SHA256(verifier) 等于
+// challenge。RFC 7636。
+func GeneratePKCE() (verifier, challenge string, err error) {
+	var raw [32]byte
+	if _, err = rand.Read(raw[:]); err != nil {
+		return "", "", fmt.Errorf("rand for verifier: %w", err)
+	}
+	verifier = base64.RawURLEncoding.EncodeToString(raw[:])
+	sum := sha256.Sum256([]byte(verifier))
+	challenge = base64.RawURLEncoding.EncodeToString(sum[:])
+	return verifier, challenge, nil
 }
 
 // VerifyCode exchanges the authorization code for tokens, verifies the
 // id_token signature/issuer/audience, and returns the minimal claims needed to
 // match the user and record the step-up timestamp.
-func (c *OIDCClient) VerifyCode(ctx context.Context, code string) (*StepUpClaims, error) {
-	tok, err := c.Config.Exchange(ctx, code)
+//
+// codeVerifier 是 PKCE 的 server-side secret；空字符串表示未启用（向后兼容）。
+func (c *OIDCClient) VerifyCode(ctx context.Context, code, codeVerifier string) (*StepUpClaims, error) {
+	var opts []oauth2.AuthCodeOption
+	if codeVerifier != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("code_verifier", codeVerifier))
+	}
+	tok, err := c.Config.Exchange(ctx, code, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}

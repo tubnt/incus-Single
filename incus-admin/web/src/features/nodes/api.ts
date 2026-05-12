@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { clusterKeys } from "@/features/clusters/api";
+import { vmKeys } from "@/features/vms/api";
 import { http } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
 
@@ -197,8 +198,11 @@ export function useMigrateBatchMutation(clusterName: string) {
         },
       ),
     onSuccess: () => {
+      // PLAN-051 §2-D / Session-2 F-56：节点拓扑 + 不均衡 + cluster VMs 列表 + my list
       queryClient.invalidateQueries({ queryKey: nodeKeys.topology(clusterName) });
       queryClient.invalidateQueries({ queryKey: nodeKeys.imbalance(clusterName) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(clusterName) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
     },
   });
 }
@@ -218,6 +222,13 @@ export function useEnableStatefulMutation() {
           },
         },
       ),
+    // Session-2 F-54：原版无 invalidate，UI 显示旧 migration.stateful → 用户重复点击
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({
+        queryKey: vmKeys.clusterDetail(params.cluster, params.name, params.project ?? "customers"),
+      });
+    },
   });
 }
 
@@ -235,6 +246,9 @@ export function useEnableStatefulBatchMutation() {
           },
         },
       ),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+    },
   });
 }
 
@@ -660,9 +674,15 @@ export function clusterEnvScriptURL(clusterName: string): string {
 // OPS-028 P3.4：fetch 走 step-up 401 拦截 → 跳 OIDC；避免浏览器直链落到
 // step-up JSON 裸页。返回 ok=true 时浏览器开始下载；ok=false 时已被
 // step-up 接管或抛出错误。
-export async function downloadClusterEnvScript(clusterName: string): Promise<void> {
+//
+// Session-2 F-55 / PLAN-051 §2-K：接受可选 AbortSignal 让调用方在 unmount
+// 时取消请求；blob URL 用 try/finally 保证任何分支都 revoke（含异常路径）。
+export async function downloadClusterEnvScript(
+  clusterName: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const url = clusterEnvScriptURL(clusterName);
-  const resp = await fetch(url, { credentials: "same-origin" });
+  const resp = await fetch(url, { credentials: "same-origin", signal });
   if (resp.status === 401) {
     const body: unknown = await resp.json().catch(() => null);
     if (
@@ -683,13 +703,21 @@ export async function downloadClusterEnvScript(clusterName: string): Promise<voi
   }
   const blob = await resp.blob();
   const objectURL = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = objectURL;
-  a.download = "cluster-env.sh";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(objectURL);
+  try {
+    const a = document.createElement("a");
+    a.href = objectURL;
+    a.download = "cluster-env.sh";
+    document.body.appendChild(a);
+    try {
+      a.click();
+    } finally {
+      document.body.removeChild(a);
+    }
+  } finally {
+    // 即使 a.click 抛错也保证回收 blob URL —— 浏览器对 blob URL 的内存
+    // 持有引用直到 revoke，泄漏会持续到 tab close。
+    URL.revokeObjectURL(objectURL);
+  }
 }
 
 export function useRemoveNodeMutation(clusterName: string) {

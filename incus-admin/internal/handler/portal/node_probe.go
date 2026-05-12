@@ -76,6 +76,28 @@ func (c *probeCache) gcLocked() {
 	}
 }
 
+// StartGC 启动后台 ticker 周期清理。Session-2 F-14 / PLAN-051 §2-K：原版只
+// 在 put/get 时清，流量停滞时过期记录长存内存里。1min tick 比 ttl 密 5×。
+func (c *probeCache) StartGC(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				c.mu.Lock()
+				c.gcLocked()
+				c.mu.Unlock()
+			}
+		}
+	}()
+}
+
 func newProbeID() string {
 	var b [12]byte
 	_, _ = rand.Read(b[:])

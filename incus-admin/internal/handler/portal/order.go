@@ -397,6 +397,10 @@ func (h *OrderHandler) payWithSyncProvisioning(w http.ResponseWriter, r *http.Re
 		"ip":      result.IP,
 		"amount":  order.Amount,
 	})
+	// Session-1 O1 / PLAN-051 §2-B 决策 D-09 = B：密码直返但加 Cache-Control:
+	// no-store + Pragma: no-cache，防止响应被浏览器/CDN 边缘缓存意外保留。
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "provisioned",
 		"vm_name":  result.VMName,
@@ -435,6 +439,25 @@ func (h *OrderHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "cancelled"})
 }
 
+// orderTransitions 是 admin UpdateStatus 允许的状态转移表。
+// Session-2 F-25 / PLAN-051 §2-C：原版无校验，admin 可任意流转
+// (active → pending → cancelled → paid)，配额/退款副作用漂移。
+//
+// 业务约束：
+//   - pending 是唯一的入口；paid/provisioning 由 Pay 路径自动推进，admin 也可
+//     手动设回 pending（仅作 dry-run 测试）
+//   - active 是终态（VM 已创建+生效），仅可 → expired（订阅过期）或 cancelled
+//     （售后退）。退款副作用由 cancelled transition 触发（OPS-047 saga 单独处理）
+//   - expired/cancelled 是死态，不可再流转。
+var orderTransitions = map[string]map[string]struct{}{
+	"pending":      {"paid": {}, "cancelled": {}, "expired": {}},
+	"paid":         {"provisioning": {}, "active": {}, "cancelled": {}, "pending": {}},
+	"provisioning": {"active": {}, "cancelled": {}, "paid": {}},
+	"active":       {"expired": {}, "cancelled": {}},
+	"expired":      {},
+	"cancelled":    {},
+}
+
 func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	orderID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	var req struct {
@@ -443,14 +466,49 @@ func (h *OrderHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	if !decodeAndValidate(w, r, &req) {
 		return
 	}
+	// Session-2 F-25：FSM 转移检查。从当前 status 拉表查 → 不允许返 422。
+	current, err := h.orders.GetByID(r.Context(), orderID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if current == nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "order not found"})
+		return
+	}
+	allowed, ok := orderTransitions[current.Status]
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error": fmt.Sprintf("unknown current status %q", current.Status),
+		})
+		return
+	}
+	if _, transOK := allowed[req.Status]; !transOK {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":         fmt.Sprintf("transition %s → %s not allowed", current.Status, req.Status),
+			"current":       current.Status,
+			"allowed_to":    keysOf(allowed),
+		})
+		return
+	}
 	if err := h.orders.UpdateStatus(r.Context(), orderID, req.Status); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 	audit(r.Context(), r, "order.update_status", "order", orderID, map[string]any{
+		"from":   current.Status,
 		"status": req.Status,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"status": req.Status})
+}
+
+// keysOf returns map keys as a slice，给 422 响应里的 allowed_to 字段用。
+func keysOf(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // rollbackPayment 在扣款成功但后续 VM 创建失败时调用：退款 + 释放 IP + 订单置 cancelled。
@@ -480,8 +538,10 @@ func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, 
 // checkQuota 在 PayWithBalance 之前对 user+product 做 quota 预检查。
 // 返回 nil 表示通过；返回 err 表示触限，msg 直接对用户展示。
 //
-// 策略：sql.ErrNoRows（用户未设 quota 行）→ 跳过 = 不限制（admin 未配置等价于
-// 不限）。任何其他 DB 错误 → 跳过 + slog.Warn（避免 quota 系统故障阻塞付款）。
+// 策略（Session-2 F-26 / PLAN-051 §2-C 决策 D-04 = B 硬软分离）：
+//   - quota 查询失败：fail-closed（DB 错误 → 503，避免硬上限被绕过）
+//   - quota 行不存在（sql.ErrNoRows / GetByUserID 返 nil + nil error）：放行
+//   - VMs 列表查询失败：fail-closed（用户当前用量未知，无法判定硬上限）
 //
 // 检查 4 个轴：max_vms / max_vcpus / max_ram_mb / max_disk_gb。当前 VMs 用
 // repo.ListByUser 的 active 行（含 creating/running 等非删除态）；新购的
@@ -489,17 +549,19 @@ func (h *OrderHandler) rollbackPayment(ctx context.Context, order *model.Order, 
 func (h *OrderHandler) checkQuota(ctx context.Context, userID int64, product *model.Product) error {
 	q, err := h.quotas.GetByUserID(ctx, userID)
 	if err != nil {
-		// no row 或临时 DB 错都放行；前者是设计行为，后者宁可通过也不阻挡付款
-		slog.Debug("quota lookup skipped", "user_id", userID, "error", err)
-		return nil
+		// PLAN-051 §2-C：DB 错误 → fail-closed。GetByUserID 对 sql.ErrNoRows 返
+		// (nil, nil)，这里能进 if 分支说明真有 DB 问题。返 fmt.Errorf 让 caller
+		// 写 503 给用户："暂时无法验证额度，请稍后重试"。
+		slog.Error("quota lookup failed; refusing purchase to protect hard limits", "user_id", userID, "error", err)
+		return fmt.Errorf("quota service unavailable")
 	}
 	if q == nil {
 		return nil
 	}
 	vms, err := h.vmRepo.ListByUser(ctx, userID)
 	if err != nil {
-		slog.Warn("quota usage query failed; allowing purchase", "user_id", userID, "error", err)
-		return nil
+		slog.Error("quota usage query failed; refusing purchase to protect hard limits", "user_id", userID, "error", err)
+		return fmt.Errorf("quota service unavailable")
 	}
 	curVMs := len(vms)
 	curCPU, curRAM, curDisk := 0, 0, 0

@@ -31,6 +31,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { StatusPill } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 import { formatNodeMessage, formatNodeStatus } from "@/shared/lib/status-i18n";
 import { fmtBytes } from "@/shared/lib/utils";
 
@@ -164,7 +165,7 @@ function NodeRow({ node: n, clusterName }: { node: NodeInfo; clusterName: string
                   destructive: true,
                 });
                 if (ok) evacuateMutation.mutate(n.server_name, {
-                  onError: (err) => toast.error((err as Error).message),
+                  onError: (err) => toast.error(formatError(err)),
                 });
               }}
               disabled={acting}
@@ -219,7 +220,7 @@ function AddClusterForm({ onDone }: { onDone: () => void }) {
     if (!isValid) return;
     mutation.mutate(form, {
       onSuccess: onDone,
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 

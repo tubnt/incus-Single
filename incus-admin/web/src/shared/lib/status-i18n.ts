@@ -15,6 +15,29 @@ export function formatVmStatus(t: TFunction, status: string | null | undefined):
   return t(key, { defaultValue: status });
 }
 
+/**
+ * 状态字符串归一比较 helper。
+ * Session-2 N-06 / PLAN-051 §2-I：消除散布全代码库的 `vm.status === "Running"`
+ * 风格硬编码（后端有时返 "Running" 有时 "RUNNING"，旧代码大小写两种比较各写一份）。
+ * 用法：`isStatusOneOf(vm.status, "running", "starting")`
+ */
+export function isStatusOneOf(
+  status: string | null | undefined,
+  ...candidates: string[]
+): boolean {
+  if (!status) return false;
+  const norm = status.toLowerCase();
+  return candidates.some((c) => c.toLowerCase() === norm);
+}
+
+/** 状态归一 helper —— 单个 candidate（语义糖） */
+export function isStatus(
+  status: string | null | undefined,
+  candidate: string,
+): boolean {
+  return isStatusOneOf(status, candidate);
+}
+
 /** 节点状态 — `Online` / `Offline` / `Evacuated` 等（后端可能 `ONLINE` 大写） */
 export function formatNodeStatus(t: TFunction, status: string | null | undefined): string {
   if (!status) return "—";

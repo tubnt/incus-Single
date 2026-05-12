@@ -22,6 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 interface VMRowActionsProps {
@@ -100,7 +101,7 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
         t("vm.rescueEntered", { snap: res.snapshot, defaultValue: "已进入 Rescue；快照 {{snap}}" }),
         { duration: 15_000 },
       ),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -127,7 +128,7 @@ export function VMRowActions({ vm, cluster, onOpenSheet }: VMRowActionsProps) {
             ? t("vm.rescueExitedRestored", { defaultValue: "已恢复快照并启动" })
             : t("vm.rescueExited", { defaultValue: "已退出 Rescue" }),
         ),
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };

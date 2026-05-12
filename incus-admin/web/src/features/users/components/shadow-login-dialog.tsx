@@ -13,7 +13,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
-import { http } from "@/shared/lib/http";
+import { formatError, http  } from "@/shared/lib/http";
 
 export function ShadowLoginDialog({
   open,
@@ -50,7 +50,7 @@ export function ShadowLoginDialog({
       // 服务端 OIDC 跳转，必须用 window.location.href
       window.location.href = resp.redirect_url;
     } catch (e) {
-      toast.error(String((e as Error).message ?? e));
+      toast.error(String(formatError(e) ?? e));
       setSubmitting(false);
     }
   };

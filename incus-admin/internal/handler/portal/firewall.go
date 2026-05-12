@@ -1,10 +1,13 @@
 package portal
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -88,12 +91,21 @@ func (h *FirewallHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+	// Session-2 F-20 / PLAN-051 §2-F：N+1 → 单 SQL 取所有 rules，按 group_id 分桶
+	groupIDs := make([]int64, len(groups))
+	for i, g := range groups {
+		groupIDs[i] = g.ID
+	}
+	rulesByGroup, err := h.repo.ListRulesByGroups(r.Context(), groupIDs)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	out := make([]firewallGroupDTO, 0, len(groups))
 	for _, g := range groups {
-		rules, err := h.repo.ListRules(r.Context(), g.ID)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
+		rules := rulesByGroup[g.ID]
+		if rules == nil {
+			rules = []model.FirewallRule{}
 		}
 		out = append(out, firewallGroupDTO{FirewallGroup: g, Rules: rules})
 	}
@@ -480,6 +492,15 @@ func (h *FirewallHandler) AdminBindVM(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
 		return
 	}
+	// Session-2 F-23 / PLAN-051 §2-F 决策 D-13 = A：admin 不能把"用户 A 的私有组"
+	// 绑到"用户 B 的 VM"。命名空间约定 fwg-u<owner>-<slug> 假设 owner 与 vm 同人；
+	// 否则后续 detach 找不到正确 ACL 名。共享组 (OwnerID == nil) 不受限。
+	if group.OwnerID != nil && *group.OwnerID != vm.UserID {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": fmt.Sprintf("group #%d is private to user #%d, cannot bind to vm owned by user #%d", group.ID, *group.OwnerID, vm.UserID),
+		})
+		return
+	}
 	clusterName, project := h.resolveVMLocation(vm)
 	if err := h.svc.AttachACLToVM(r.Context(), clusterName, project, vm.Name, group); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "attach ACL: " + err.Error()})
@@ -516,6 +537,13 @@ func (h *FirewallHandler) AdminUnbindVM(w http.ResponseWriter, r *http.Request) 
 	group, err := h.repo.GetGroupByID(r.Context(), groupID)
 	if err != nil || group == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "group not found"})
+		return
+	}
+	// Session-2 F-23：与 AdminBindVM 同样的 owner 一致性检查
+	if group.OwnerID != nil && *group.OwnerID != vm.UserID {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": fmt.Sprintf("group #%d is private to user #%d, cannot operate on vm owned by user #%d", group.ID, *group.OwnerID, vm.UserID),
+		})
 		return
 	}
 	clusterName, project := h.resolveVMLocation(vm)
@@ -819,7 +847,9 @@ func (h *FirewallHandler) PortalListDefaults(w http.ResponseWriter, r *http.Requ
 }
 
 type replaceDefaultsReq struct {
-	GroupIDs []int64 `json:"group_ids" validate:"omitempty,dive,gt=0"`
+	// Session-2 F-21 / PLAN-051 §2-F：max=20 防止单请求提交 1000 个 ID 触发
+	// per-id N+1 SELECT。20 个默认组对正常运维场景已足够。
+	GroupIDs []int64 `json:"group_ids" validate:"omitempty,max=20,dive,gt=0"`
 }
 
 // PortalReplaceDefaults 原子替换当前用户的默认组列表。
@@ -919,7 +949,12 @@ type batchBindResult struct {
 }
 
 // portalRunBatch attaches/detaches one group across multiple VMs the user owns.
-// 串行执行（每 VM stop→PATCH→start），让前端能看到进度。
+//
+// Session-2 F-22 / PLAN-051 §2-F：原版串行 stop→PATCH→start，最多 64 VM × ~1s
+// 在一次 HTTP 请求里跑，撞 chi 60s timeout 中途砍断，前 N 个已重启、后 M 个状态
+// 不明。改：worker pool 4 并发 + per-item 30s ctx timeout，整体大概率 < 60s
+// 完成；超时由 chi 的 ResponseWriter cancel 接管，已完成的项写 audit 后标 failed。
+//
 // 单台失败不影响其他 VM；终态返 succeeded/failed 双列表（PLAN-023 batchutil 风格）。
 func (h *FirewallHandler) portalRunBatch(
 	r *http.Request,
@@ -946,42 +981,88 @@ func (h *FirewallHandler) portalRunBatch(
 		return
 	}
 
+	type batchOutcome struct {
+		vmID    int64
+		errCode string // "" = ok
+		errMsg  string
+	}
+
+	const concurrency = 4
+	const perItemTimeout = 30 * time.Second
+
+	work := make(chan int64, len(req.VMIDs))
+	results := make(chan batchOutcome, len(req.VMIDs))
+	for _, id := range req.VMIDs {
+		work <- id
+	}
+	close(work)
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for vmID := range work {
+				itemCtx, cancel := context.WithTimeout(r.Context(), perItemTimeout)
+				out := batchOutcome{vmID: vmID}
+				vm, err := h.vmRepo.GetByID(itemCtx, vmID)
+				if err != nil || vm == nil || vm.UserID != userID {
+					out.errCode = "access"
+					out.errMsg = "access denied or vm not found"
+					results <- out
+					cancel()
+					continue
+				}
+				// F-23 owner check（admin 路径已加；portal 路径 vm.UserID==userID 已隐含）
+				clusterName, project := h.resolveVMLocation(vm)
+				var aclErr error
+				if op == "bind" {
+					aclErr = h.svc.AttachACLToVM(itemCtx, clusterName, project, vm.Name, g)
+				} else {
+					aclErr = h.svc.DetachACLFromVM(itemCtx, clusterName, project, vm.Name, g)
+				}
+				if aclErr != nil {
+					out.errCode = "acl"
+					out.errMsg = aclErr.Error()
+					results <- out
+					cancel()
+					continue
+				}
+				var dbErr error
+				if op == "bind" {
+					dbErr = h.repo.Bind(itemCtx, vmID, groupID)
+				} else {
+					dbErr = h.repo.Unbind(itemCtx, vmID, groupID)
+				}
+				if dbErr != nil {
+					out.errCode = "db"
+					out.errMsg = dbErr.Error()
+				}
+				results <- out
+				cancel()
+			}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
 	result := batchBindResult{Total: len(req.VMIDs), Succeeded: []int64{}, Failed: []map[string]any{}}
-	for _, vmID := range req.VMIDs {
-		vm, err := h.vmRepo.GetByID(r.Context(), vmID)
-		if err != nil || vm == nil || vm.UserID != userID {
-			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "access denied or vm not found"})
-			continue
-		}
-		clusterName, project := h.resolveVMLocation(vm)
-		var aclErr error
-		if op == "bind" {
-			aclErr = h.svc.AttachACLToVM(r.Context(), clusterName, project, vm.Name, g)
+	for out := range results {
+		if out.errCode == "" {
+			result.Succeeded = append(result.Succeeded, out.vmID)
 		} else {
-			aclErr = h.svc.DetachACLFromVM(r.Context(), clusterName, project, vm.Name, g)
+			result.Failed = append(result.Failed, map[string]any{
+				"vm_id": out.vmID,
+				"error": out.errCode + ": " + out.errMsg,
+			})
 		}
-		if aclErr != nil {
-			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "acl: " + aclErr.Error()})
-			continue
-		}
-		var dbErr error
-		if op == "bind" {
-			dbErr = h.repo.Bind(r.Context(), vmID, groupID)
-		} else {
-			dbErr = h.repo.Unbind(r.Context(), vmID, groupID)
-		}
-		if dbErr != nil {
-			result.Failed = append(result.Failed, map[string]any{"vm_id": vmID, "error": "db: " + dbErr.Error()})
-			continue
-		}
-		result.Succeeded = append(result.Succeeded, vmID)
 	}
 
 	auditAction := "firewall." + op + "_batch"
 	audit(r.Context(), r, auditAction, "firewall_group", groupID, map[string]any{
-		"vm_count":    len(req.VMIDs),
-		"succeeded":   len(result.Succeeded),
-		"failed":      len(result.Failed),
+		"vm_count":  len(req.VMIDs),
+		"succeeded": len(result.Succeeded),
+		"failed":    len(result.Failed),
 	})
 	writeJSON(w, http.StatusOK, result)
 }

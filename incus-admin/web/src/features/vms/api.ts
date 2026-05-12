@@ -129,6 +129,9 @@ export function useMyVMsQuery() {
     queryKey: vmKeys.myList(),
     queryFn: () => http.get<{ vms: VMService[] }>("/portal/services"),
     refetchInterval: 15_000,
+    // Session-3 🟡-3 / Session-2 F-57：切 tab 抢窗口时给 10s gate，避免一次
+    // focus 把 14+ 条 polling query 全 invalidate 撞主线程。
+    staleTime: 10_000,
   });
 }
 
@@ -141,9 +144,14 @@ export function useMyVMDetailQuery(id: number) {
 }
 
 export function useVMActionMutation(vmId: number) {
+  // Session-2 F-50 / PLAN-051 §2-D：缩窄 invalidate。原 vmKeys.all 会触发
+  // portal+admin 全树 refetch，单次 mutation 引发 6+ endpoint storm。
   return useMutation({
     mutationFn: (action: string) => http.post(`/portal/services/${vmId}/actions/${action}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) });
+    },
   });
 }
 
@@ -160,7 +168,11 @@ export function useTrashServiceMutation() {
   return useMutation({
     mutationFn: (vmId: number) =>
       http.delete<TrashServiceResult>(`/portal/services/${vmId}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: () => {
+      // PLAN-051 §2-D：trash 影响 myList + myTrash；不动 admin cluster cache
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myTrash() });
+    },
   });
 }
 
@@ -171,7 +183,10 @@ export function useRestoreServiceMutation() {
         `/portal/services/${vmId}/restore`,
         {},
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myTrash() });
+    },
   });
 }
 
@@ -198,6 +213,8 @@ export function useClusterVMsQuery(clusterName: string, refetchIntervalMs = 10_0
     enabled: !!clusterName,
     refetchInterval: refetchIntervalMs,
     retry: 1,
+    // Session-3 🟡-3：focus 切 tab 抢窗口给 10s gate
+    staleTime: 10_000,
   });
 }
 
@@ -218,6 +235,8 @@ export function useAdminVMDetailQuery(
     enabled: !!clusterName && !!vmName,
     refetchInterval: refetchIntervalMs,
     retry: 1,
+    // Session-3 🟡-3
+    staleTime: 10_000,
   });
 }
 
@@ -225,7 +244,12 @@ export function useVMStateMutation() {
   return useMutation({
     mutationFn: (params: { name: string; action: string; cluster: string; project: string }) =>
       http.put(`/admin/vms/${params.name}/state`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      // PLAN-051 §2-D：admin 路径影响 cluster list/detail + portal myList（共享 VM）
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterDetail(params.cluster, params.name, params.project) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+    },
   });
 }
 
@@ -243,7 +267,11 @@ export function useDeleteVMMutation() {
           },
         },
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterDetail(params.cluster, params.name, params.project) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+    },
   });
 }
 
@@ -288,7 +316,10 @@ export function useBatchVMMutation() {
           },
         },
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+    },
   });
 }
 
@@ -318,7 +349,10 @@ export function useMigrateVMMutation() {
           },
         },
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterDetail(params.cluster, params.name, params.project) });
+    },
   });
 }
 
@@ -342,6 +376,8 @@ export function useRescueEnterByNameMutation() {
   return useMutation({
     mutationFn: (vmName: string) =>
       http.post<RescueEnterResponse>(`/admin/vms/by-name/${vmName}/rescue/enter`, {}),
+    // PLAN-051 §2-D：rescue 不知道 cluster/project 上下文（by-name 路径），保留 vmKeys.all。
+    // 合理：rescue 是低频操作，每次执行 stale 兜底 5s 即可。
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
@@ -350,6 +386,7 @@ export function useRescueExitByNameMutation(vmName: string) {
   return useMutation({
     mutationFn: (params: RescueExitParams) =>
       http.post(`/admin/vms/by-name/${vmName}/rescue/exit`, params),
+    // 同上理由：vmName 没有 cluster 维度，无法精确 invalidate
     onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
   });
 }
@@ -389,7 +426,11 @@ export function useReinstallVMMutation() {
           os_image: params.os_image,
         },
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterDetail(params.cluster, params.name, params.project) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+    },
   });
 }
 
@@ -435,7 +476,10 @@ export function useAdminCreateVMMutation(clusterName: string) {
   return useMutation({
     mutationFn: (params: AdminCreateVMParams) =>
       http.post<AdminCreateVMResult>(`/admin/clusters/${clusterName}/vms`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(clusterName) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+    },
   });
 }
 
@@ -458,6 +502,33 @@ export function useResetVMPasswordMutation(vmId: number) {
   });
 }
 
+// UX-007: 重看初始凭据（创建瞬间生成的 root 密码）。step-up gated by middleware；
+// HttpError step-up 路径已由 shared/lib/http 通用拦截 → 跳 OIDC → 回来 replay。
+export interface InitialCredentialsResult {
+  vm_name: string;
+  ip: string | null;
+  username: string;
+  password: string;
+  created_at: string;
+}
+
+export function useViewInitialCredentialsMutation(vmId: number) {
+  return useMutation({
+    mutationFn: () =>
+      http.post<InitialCredentialsResult>(
+        `/portal/services/${vmId}/initial-credentials`,
+        {},
+        {
+          intent: {
+            action: "vm.view_initial_credentials",
+            args: { vm_id: vmId },
+            description: `查看 VM #${vmId} 的初始凭据`,
+          },
+        },
+      ),
+  });
+}
+
 // Reinstall from the user (portal) side. Uses the same template_slug wire
 // format as the admin path; backend resolves the slug through os_templates.
 //
@@ -477,7 +548,10 @@ export function usePortalReinstallVMMutation(vmId: number) {
   return useMutation({
     mutationFn: (params: { template_slug?: string; os_image?: string }) =>
       http.post<PortalReinstallResult>(`/portal/services/${vmId}/reinstall`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: vmKeys.myList() });
+      queryClient.invalidateQueries({ queryKey: vmKeys.myDetail(vmId) });
+    },
   });
 }
 
@@ -513,7 +587,11 @@ export function useAdminResetPasswordByNameMutation(vmName: string) {
   return useMutation({
     mutationFn: (params: { cluster: string; project: string; username?: string; mode?: ResetPasswordMode }) =>
       http.post<ResetPasswordResult>(`/admin/vms/${vmName}/reset-password`, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: vmKeys.all }),
+    onSuccess: (_data, params) => {
+      // PLAN-051 §2-D：精确 invalidate cluster scope
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterList(params.cluster) });
+      queryClient.invalidateQueries({ queryKey: vmKeys.clusterDetail(params.cluster, vmName, params.project) });
+    },
   });
 }
 

@@ -1,6 +1,6 @@
 # IncusAdmin - Task List
 
-> Updated: 2026-05-06
+> Updated: 2026-05-09
 
 ## Usage
 
@@ -102,3 +102,13 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**OPS-044 不均衡持续监控 watchdog（仅告警，不自动迁移）**](OPS-044.md) `P2`
 - [x] [**OPS-045 OS 模板目录补充 Windows（占位 + 默认用户映射）**](OPS-045.md) `P3`
 - [x] [**OPS-046 Windows VM 端到端打通（OS-aware vm_create + 公网 VLAN 376 绑桥修复）**](OPS-046.md) `P1`
+- [ ] [**OPS-047 PLAN-051 Follow-up —— 大块项推迟单（saga / N+1 / 性能 Phase 2/3）**](OPS-047.md) `P1`
+- [ ] [**OPS-048 Incus server cert 重签含 wireguard SAN + 重启 W2 fail-fast**](OPS-048.md) `P2`
+- [~] [**INFRA-008 备份与灾备一期 —— 策略 / 保留 / S3 后端**](INFRA-008.md) `P0`
+- [x] [**INFRA-009 监控告警闭环 —— Prometheus 端点 + 阈值规则 + Webhook 通道**](INFRA-009.md) `P0`
+- [x] [**INFRA-010 OpenAPI 规范 + Terraform Provider**](INFRA-010.md) `P1`
+- [x] [**INFRA-011 一键 Bootstrap CLI —— 5 分钟出私有云**](INFRA-011.md) `P2`
+- [x] [**QA-009 前端全面 QA 测试（功能 + 边界 + 异常 + UI 交互 + 兼容性）**](QA-009.md) `P1`
+- [x] [**UX-007 初始凭据可重看入口（Step-up gated）**](UX-007.md) `P1`
+- [x] [**OPS-049 速率限流换 token bucket + IETF RateLimit headers**](OPS-049.md) `P1`
+- [x] [**OPS-050 jobs runtime 容量可配 + 队列深度可观测**](OPS-050.md) `P2`

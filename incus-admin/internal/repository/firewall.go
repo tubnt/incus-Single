@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/incuscloud/incus-admin/internal/model"
 )
@@ -177,6 +178,39 @@ func (r *FirewallRepo) ListRules(ctx context.Context, groupID int64) ([]model.Fi
 			return nil, err
 		}
 		out = append(out, rule)
+	}
+	return out, rows.Err()
+}
+
+// ListRulesByGroups 一次拉多 group 的全部 rules，按 group_id 分桶返回。
+// Session-2 F-20 / PLAN-051 §2-F：替代 ListGroups + N×ListRules 的 N+1 模式。
+// 50 group → 1 SQL，原版 51 SQL。
+func (r *FirewallRepo) ListRulesByGroups(ctx context.Context, groupIDs []int64) (map[int64][]model.FirewallRule, error) {
+	out := map[int64][]model.FirewallRule{}
+	if len(groupIDs) == 0 {
+		return out, nil
+	}
+	// 用 placeholder 列表（pgx stdlib 不自动转 []int64 → bigint[]）
+	placeholders := make([]string, len(groupIDs))
+	args := make([]any, len(groupIDs))
+	for i, id := range groupIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	q := `SELECT ` + firewallRuleColumns + ` FROM firewall_rules
+	      WHERE group_id IN (` + strings.Join(placeholders, ",") + `)
+	      ORDER BY group_id, sort_order ASC, id ASC`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rule model.FirewallRule
+		if err := scanFirewallRule(rows, &rule); err != nil {
+			return nil, err
+		}
+		out[rule.GroupID] = append(out[rule.GroupID], rule)
 	}
 	return out, rows.Err()
 }

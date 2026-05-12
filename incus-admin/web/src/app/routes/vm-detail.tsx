@@ -1,6 +1,6 @@
 import type {ResetPasswordMode} from "@/features/vms/api";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
+import { KeyRound, Play, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Square, Terminal as TerminalIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
   usePortalRescueEnterMutation,
   usePortalRescueExitMutation,
   useResetVMPasswordMutation,
+  useViewInitialCredentialsMutation,
   useVMActionMutation,
 } from "@/features/vms/api";
 import { PortalFirewallPanel } from "@/features/vms/components/portal-firewall-panel";
@@ -31,6 +32,7 @@ import { Button, buttonVariants } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { EmptyState } from "@/shared/components/ui/empty-state";
+import { SecretReveal } from "@/shared/components/ui/secret-reveal";
 import {
   Select,
   SelectContent,
@@ -49,6 +51,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { formatError } from "@/shared/lib/http";
 import { formatVmStatus } from "@/shared/lib/status-i18n";
 import { cn, formatDate } from "@/shared/lib/utils";
 
@@ -69,12 +72,24 @@ function UserVMDetailPage() {
   const [reinstallJobId, setReinstallJobId] = useState<number | null>(null);
   const [resetPwdOpen, setResetPwdOpen] = useState(false);
   const [resetPwdMode, setResetPwdMode] = useState<ResetPasswordMode>("auto");
+  // UX-007: 查看初始凭据（step-up gated）。点击 → mutation 触发，HttpError
+  // step_up_required 已由 shared/lib/http 通用拦截 → 跳 OIDC → 回来 replay
+  // → setInitialCredentials 弹 Sheet。
+  const [initialCredsOpen, setInitialCredsOpen] = useState(false);
+  const [initialCreds, setInitialCreds] = useState<{
+    vm_name: string;
+    ip: string | null;
+    username: string;
+    password: string;
+    created_at: string;
+  } | null>(null);
 
   const { data, isLoading } = useMyVMDetailQuery(id);
   const vm = data?.vm;
 
   const actionMutation = useVMActionMutation(id);
   const resetPwdMutation = useResetVMPasswordMutation(id);
+  const viewInitialMutation = useViewInitialCredentialsMutation(id);
   const reinstallMutation = usePortalReinstallVMMutation(id);
   const rescueEnterMutation = usePortalRescueEnterMutation(id);
   const rescueExitMutation = usePortalRescueExitMutation(id);
@@ -189,7 +204,7 @@ function UserVMDetailPage() {
             setReinstallOpen(false);
           }
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -214,7 +229,7 @@ function UserVMDetailPage() {
           }),
           { duration: 15_000 },
         ),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -243,7 +258,7 @@ function UserVMDetailPage() {
               ? t("vm.rescueExitedRestored", { defaultValue: "已恢复快照并启动" })
               : t("vm.rescueExited", { defaultValue: "已退出 Rescue" }),
           ),
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -311,6 +326,37 @@ function UserVMDetailPage() {
                 <Button size="sm" variant="ghost" disabled={actionMutation.isPending} onClick={() => actionMutation.mutate("restart")}>
                   <RefreshCw size={12} aria-hidden="true" />
                   {t("vm.restart")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={viewInitialMutation.isPending}
+                  title={t("vm.initialCredentialsHint", {
+                    defaultValue: "查看创建时生成的初始 root 密码（需重新认证）。未来修改请用「重置密码」。",
+                  })}
+                  onClick={() =>
+                    viewInitialMutation.mutate(undefined, {
+                      onSuccess: (data) => {
+                        setInitialCreds(data);
+                        setInitialCredsOpen(true);
+                      },
+                      onError: (err) => {
+                        const msg = formatError(err);
+                        if (msg.includes("no_initial_password") || msg.includes("decrypt_failed")) {
+                          toast.warning(
+                            t("vm.initialCredentialsUnavailable", {
+                              defaultValue: "无法读取初始凭据，请使用「重置密码」生成新密码。",
+                            }),
+                          );
+                          return;
+                        }
+                        toast.error(msg);
+                      },
+                    })
+                  }
+                >
+                  <KeyRound size={12} aria-hidden="true" />
+                  {t("vm.initialCredentials", { defaultValue: "初始凭据" })}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={resetPwdMutation.isPending} onClick={() => setResetPwdOpen(true)}>
                   {t("vm.passwordReset", { defaultValue: "重置密码" })}
@@ -427,6 +473,54 @@ function UserVMDetailPage() {
                     </Button>
                   </>
                 )}
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* UX-007 / 查看初始凭据 Sheet */}
+      <Sheet open={initialCredsOpen} onOpenChange={(o) => { if (!o) setInitialCredsOpen(false); }}>
+        <SheetContent side="right" size="min(96vw, 28rem)">
+          <SheetHeader>
+            <SheetTitle>
+              {t("vm.initialCredentialsTitle", {
+                name: vm.name,
+                defaultValue: "{{name}} 初始凭据",
+              })}
+            </SheetTitle>
+          </SheetHeader>
+          <SheetBody className="space-y-4">
+            <p className="text-caption text-muted-foreground">
+              {t("vm.initialCredentialsHint", {
+                defaultValue: "查看创建时生成的初始 root 密码（需重新认证）。未来修改请用「重置密码」。",
+              })}
+            </p>
+            {initialCreds ? (
+              <div className="grid grid-cols-1 gap-3">
+                <SecretReveal
+                  label={t("vm.username", { defaultValue: "用户名" })}
+                  value={initialCreds.username}
+                  inline={false}
+                />
+                <SecretReveal
+                  label={t("vm.password", { defaultValue: "密码" })}
+                  value={initialCreds.password}
+                  inline={false}
+                />
+                {initialCreds.ip ? (
+                  <SecretReveal
+                    label={t("vm.ip", { defaultValue: "IP" })}
+                    value={initialCreds.ip}
+                    inline={false}
+                    autoMaskMs={0}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </SheetBody>
+          <SheetFooter>
+            <Button variant="primary" onClick={() => setInitialCredsOpen(false)}>
+              {t("common.close", { defaultValue: "关闭" })}
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

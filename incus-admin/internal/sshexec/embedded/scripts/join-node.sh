@@ -2,6 +2,11 @@
 # =============================================================================
 # 新节点加入集群一站式脚本
 #
+# !! 此文件是 incus-admin/internal/sshexec/embedded/scripts/join-node.sh 的副本 !!
+# Session-2 F-03 / PLAN-051 §2-A：cluster/scripts 与 embedded 双副本必须严格
+# 一致；CI gate `scripts/check-join-node-sync.sh` 走 diff -q，漂移即 fail。
+# 修改请只改 embedded 那一份并跑 cp 同步过来。
+#
 # 在新节点上执行，完成以下步骤：
 #   1. 前置检查（硬件、OS、网络）
 #   2. 安装 Incus + ceph-common + 必要包

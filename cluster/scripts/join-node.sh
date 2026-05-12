@@ -2,6 +2,11 @@
 # =============================================================================
 # 新节点加入集群一站式脚本
 #
+# !! 此文件是 incus-admin/internal/sshexec/embedded/scripts/join-node.sh 的副本 !!
+# Session-2 F-03 / PLAN-051 §2-A：cluster/scripts 与 embedded 双副本必须严格
+# 一致；CI gate `scripts/check-join-node-sync.sh` 走 diff -q，漂移即 fail。
+# 修改请只改 embedded 那一份并跑 cp 同步过来。
+#
 # 在新节点上执行，完成以下步骤：
 #   1. 前置检查（硬件、OS、网络）
 #   2. 安装 Incus + ceph-common + 必要包
@@ -337,11 +342,20 @@ network:
       mtu: 9000
       addresses:
         - ${CEPH_PUB_IP}/24
+    # VM 公网 VLAN sub-interface —— 不配 IP，用作 br-pub 的 external slave。
+    # OPS-046 教训：少这个子接口/没绑桥，所有 VM 都收不到上游网关 ARP。
+    pub.${VLAN_PUB}:
+      id: ${VLAN_PUB}
+      link: ${NIC_PRIMARY}
+      mtu: 1500
 
   bridges:
     ${BRIDGE_NAME}:
       interfaces:
-        - ${NIC_PRIMARY}
+        # br-pub 的 slave 必须是 pub.${VLAN_PUB} VLAN 子接口（OPS-046）；
+        # 上游交换机给 VM 公网 /26 是 VLAN ${VLAN_PUB} tagged，raw NIC 直挂会
+        # 被桥的 vlan_filtering=1 + PVID=1 丢弃。
+        - pub.${VLAN_PUB}
       mtu: 1500
       dhcp4: false
       dhcp6: false
@@ -425,6 +439,21 @@ YAML
   else
     log_error "加入 Incus 集群失败"
     exit 1
+  fi
+
+  # OPS-046：把本节点的 br-pub external slave 注册成 pub.${VLAN_PUB}。
+  # 这步必须显式做 —— Incus 创建 br-pub managed bridge 不会自动绑物理 slave，
+  # 缺这一步 VM 出口没有上游连接（Linux/Windows 一律 ARP 失败）。
+  # bridge.external_interfaces 是 cluster-member-specific，必须 --target 节点本身。
+  if [[ "$SKIP_NETWORK" != "true" ]]; then
+    local ext_iface="${BRIDGE_EXTERNAL_IFACE:-pub.${VLAN_PUB:-376}}"
+    log_info "注册 br-pub external_interfaces=${ext_iface} 到 Incus（仅本节点）..."
+    if incus network set "${BRIDGE_NAME}" --target "${NODE_NAME}" "bridge.external_interfaces=${ext_iface}" 2>&1; then
+      log_info "  ✓ Incus 已记录 ${ext_iface}，重启后 br-pub 会自动绑该子接口"
+    else
+      log_warn "  ⚠ incus network set bridge.external_interfaces 失败；手动跑："
+      log_warn "    incus network set ${BRIDGE_NAME} --target ${NODE_NAME} bridge.external_interfaces=${ext_iface}"
+    fi
   fi
 }
 
@@ -557,6 +586,23 @@ do_verify() {
       log_info "  [OK] VLAN ${VLAN_MGMT} 接口存在"
     else
       log_error "  [FAIL] VLAN ${VLAN_MGMT} 接口不存在"
+      errors=$((errors + 1))
+    fi
+
+    # OPS-046：检查 VM 公网 VLAN 子接口存在 + 已绑进 br-pub
+    local pub_vlan_iface="pub.${VLAN_PUB:-376}"
+    if ip link show "${pub_vlan_iface}" &>/dev/null; then
+      log_info "  [OK] VM 公网 VLAN 子接口 ${pub_vlan_iface} 存在"
+      # 验证已加入 br-pub bridge —— 没绑桥 VM 一律收不到上游 ARP
+      if bridge link show 2>/dev/null | grep -q "^[0-9]\+: ${pub_vlan_iface}.*master ${BRIDGE_NAME}"; then
+        log_info "  [OK] ${pub_vlan_iface} 已绑入 ${BRIDGE_NAME}"
+      else
+        log_error "  [FAIL] ${pub_vlan_iface} 未绑入 ${BRIDGE_NAME} —— VM 公网会全部断"
+        log_error "    手动修复: ip link set ${pub_vlan_iface} master ${BRIDGE_NAME}"
+        errors=$((errors + 1))
+      fi
+    else
+      log_error "  [FAIL] VM 公网 VLAN 子接口 ${pub_vlan_iface} 不存在 —— VM 没有公网出口"
       errors=$((errors + 1))
     fi
   fi

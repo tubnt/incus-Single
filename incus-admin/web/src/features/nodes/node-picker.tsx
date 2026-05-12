@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { formatNodeStatus } from "@/shared/lib/status-i18n";
+import { formatNodeStatus, isStatus, isStatusOneOf } from "@/shared/lib/status-i18n";
 import { cn } from "@/shared/lib/utils";
 import { useAdminNodesQuery } from "./api";
 
@@ -37,8 +37,9 @@ export function NodePicker({
         {placeholder ?? t("node.select", { defaultValue: "选择节点" })}
       </option>
       {nodes.map((n) => {
-        const online = n.status === "Online" || n.status === "ONLINE" || n.status === "Evacuated";
-        const evacuated = n.status === "Evacuated";
+        // Session-2 N-06 / PLAN-051 §2-I：归一比较代替大小写敏感的多 OR 链
+        const online = isStatusOneOf(n.status, "Online", "Evacuated");
+        const evacuated = isStatus(n.status, "Evacuated");
         return (
           <option key={`${n.cluster}:${n.server_name}`} value={n.server_name}>
             {n.server_name}

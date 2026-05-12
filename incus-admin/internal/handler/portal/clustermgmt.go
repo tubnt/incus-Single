@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,7 +307,7 @@ func (h *ClusterMgmtHandler) NodeDetail(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// 获取节点信息
-	resp, err := client.APIGet(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s", nodeName))
+	resp, err := client.APIGet(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s", url.PathEscape(nodeName)))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to get node: " + err.Error()})
 		return
@@ -377,7 +378,7 @@ func (h *ClusterMgmtHandler) EvacuateNode(w http.ResponseWriter, r *http.Request
 	}
 
 	evacuateBody := strings.NewReader(`{"action":"evacuate"}`)
-	resp, err := client.APIPost(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), evacuateBody)
+	resp, err := client.APIPost(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), evacuateBody)
 	if err != nil {
 		if healingID > 0 && healingRepo != nil {
 			_ = healingRepo.Fail(r.Context(), healingID, err.Error())
@@ -424,7 +425,7 @@ func (h *ClusterMgmtHandler) RestoreNode(w http.ResponseWriter, r *http.Request)
 	}
 
 	restoreBody := strings.NewReader(`{"action":"restore"}`)
-	resp, err := client.APIPost(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), restoreBody)
+	resp, err := client.APIPost(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), restoreBody)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "restore failed: " + err.Error()})
 		return
@@ -783,7 +784,7 @@ func (h *ClusterMgmtHandler) SetMaintenance(w http.ResponseWriter, r *http.Reque
 			"scheduler.instance": target,
 		},
 	})
-	resp, err := client.APIPatch(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s", nodeName), strings.NewReader(string(body)))
+	resp, err := client.APIPatch(r.Context(), fmt.Sprintf("/1.0/cluster/members/%s", url.PathEscape(nodeName)), strings.NewReader(string(body)))
 	if err != nil {
 		slog.Error("set maintenance failed", "node", nodeName, "enabled", req.Enabled, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -1249,4 +1250,51 @@ func (h *ClusterMgmtHandler) allowAIRequest(userID int64) bool {
 	keep = append(keep, now)
 	h.aiRate[userID] = keep
 	return true
+}
+
+// StartProbeCacheGC 让 main 触发 probeCache 后台 GC（Session-2 F-14）。
+func (h *ClusterMgmtHandler) StartProbeCacheGC(ctx context.Context, interval time.Duration) {
+	if h.probeCache != nil {
+		h.probeCache.StartGC(ctx, interval)
+	}
+}
+
+// StartAIRateGC 在 main 启动时调一次：每 30min 清理 aiRate map 里"窗口内全空"的
+// 用户 entry。Session-2 F-13 / PLAN-051 §2-K：原版只在 allowAIRequest 触发时才
+// 清自己 entry，未访问的旧用户 entry 永远留 → map 单调增长。
+func (h *ClusterMgmtHandler) StartAIRateGC(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 30 * time.Minute
+	}
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				h.gcAIRate()
+			}
+		}
+	}()
+}
+
+func (h *ClusterMgmtHandler) gcAIRate() {
+	cutoff := time.Now().Add(-time.Hour)
+	h.aiRateMu.Lock()
+	defer h.aiRateMu.Unlock()
+	for uid, hist := range h.aiRate {
+		keep := hist[:0]
+		for _, ts := range hist {
+			if ts.After(cutoff) {
+				keep = append(keep, ts)
+			}
+		}
+		if len(keep) == 0 {
+			delete(h.aiRate, uid)
+		} else if len(keep) != len(hist) {
+			h.aiRate[uid] = keep
+		}
+	}
 }

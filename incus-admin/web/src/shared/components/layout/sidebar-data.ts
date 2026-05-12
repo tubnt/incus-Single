@@ -31,6 +31,9 @@ export const adminSidebar: NavGroup[] = [
       { key: "nav.monitor", to: "/admin/monitoring", icon: "Activity" },
       { key: "nav.observability", to: "/admin/observability", icon: "BarChart3" },
       { key: "nav.ha", to: "/admin/ha", icon: "Shield" },
+      // PLAN-041 / INFRA-009 监控告警闭环
+      { key: "nav.alertRules", to: "/admin/alert-rules", icon: "Bell" },
+      { key: "nav.notifyChannels", to: "/admin/notify-channels", icon: "Send" },
     ],
   },
   {

@@ -28,6 +28,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { MobileBottomBar } from "@/shared/components/ui/mobile-bottom-bar";
 import { fetchCurrentUser } from "@/shared/lib/auth";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/launch")({
@@ -281,7 +282,7 @@ function LaunchPage() {
                         {error ? (
                           <Alert variant="error">
                             <AlertDescription>
-                              {typeof error === "string" ? error : (error as Error).message}
+                              {typeof error === "string" ? error : formatError(error)}
                             </AlertDescription>
                           </Alert>
                         ) : null}

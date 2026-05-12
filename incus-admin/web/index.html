@@ -6,6 +6,13 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#08090a" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#f7f8f8" media="(prefers-color-scheme: light)" />
+    <!-- QA-009 N-18 / PLAN-051 §2-K：内联 SVG favicon 避免 /favicon.ico 404。
+         IncusAdmin 字母 "I" + 平台主色，浏览器 tab / 书签都能用。 -->
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23365cff'/%3E%3Ctext x='50%25' y='52%25' text-anchor='middle' dy='0.35em' fill='white' font-family='Inter, system-ui, sans-serif' font-weight='600' font-size='20'%3EI%3C/text%3E%3C/svg%3E"
+    />
     <title>IncusAdmin</title>
   </head>
   <body>

@@ -73,12 +73,20 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 	}
 	if delResp != nil && delResp.Type == "async" {
 		var op struct{ ID string }
-		_ = json.Unmarshal(delResp.Metadata, &op)
-		if op.ID != "" {
-			if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
-				rt.finishStep(ctx, job.ID, 2, stepDelete, model.StepStatusFailed, werr.Error())
-				return fmt.Errorf("wait delete: %w", werr)
-			}
+		// Session-2 F-37 / PLAN-051 §2-E：原版用 `_ = json.Unmarshal(...)` 吞错，
+		// 解析失败导致 op.ID 为空 → 跳过 WaitForOperation → recreate 撞 "instance
+		// still exists" 用户看到 cryptic error。明确判 err 后视为失败。
+		if uerr := json.Unmarshal(delResp.Metadata, &op); uerr != nil {
+			rt.finishStep(ctx, job.ID, 2, stepDelete, model.StepStatusFailed, uerr.Error())
+			return fmt.Errorf("parse delete async metadata: %w", uerr)
+		}
+		if op.ID == "" {
+			rt.finishStep(ctx, job.ID, 2, stepDelete, model.StepStatusFailed, "incus async response missing operation id")
+			return fmt.Errorf("delete: incus async response missing operation id")
+		}
+		if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
+			rt.finishStep(ctx, job.ID, 2, stepDelete, model.StepStatusFailed, werr.Error())
+			return fmt.Errorf("wait delete: %w", werr)
 		}
 	}
 	rt.finishStep(ctx, job.ID, 2, stepDelete, model.StepStatusSucceeded, "")
@@ -87,7 +95,10 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 	password := service.GeneratePassword()
 	cloudInit := service.BuildCloudInit(password, nil)
 	service.StripVolatileConfig(inst.Config)
-	inst.Config["user.cloud-init"] = cloudInit
+	// Session-2 F-05 / PLAN-051 §2-E：与 vm.go 重置同步—— 用 Incus 标准
+	// cloud-init key，legacy `user.cloud-init` 不被识别。
+	delete(inst.Config, "user.cloud-init")
+	inst.Config["cloud-init.user-data"] = cloudInit
 
 	body := map[string]any{
 		"name": job.TargetName,
@@ -114,15 +125,21 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 
 	if resp.Type == "async" {
 		var op struct{ ID string }
-		_ = json.Unmarshal(resp.Metadata, &op)
-		if op.ID != "" {
-			rt.step(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusRunning, "等待镜像与磁盘就绪")
-			if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
-				rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusFailed, werr.Error())
-				return fmt.Errorf("wait recreate: %w", werr)
-			}
-			rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusSucceeded, "")
+		// Session-2 F-37
+		if uerr := json.Unmarshal(resp.Metadata, &op); uerr != nil {
+			rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusFailed, uerr.Error())
+			return fmt.Errorf("parse recreate async metadata: %w", uerr)
 		}
+		if op.ID == "" {
+			rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusFailed, "incus async response missing operation id")
+			return fmt.Errorf("recreate: incus async response missing operation id")
+		}
+		rt.step(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusRunning, "等待镜像与磁盘就绪")
+		if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
+			rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusFailed, werr.Error())
+			return fmt.Errorf("wait recreate: %w", werr)
+		}
+		rt.finishStep(ctx, job.ID, 4, stepWaitRecreate, model.StepStatusSucceeded, "")
 	}
 
 	// step 5: start
@@ -135,12 +152,18 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 	}
 	if startResp.Type == "async" {
 		var op struct{ ID string }
-		_ = json.Unmarshal(startResp.Metadata, &op)
-		if op.ID != "" {
-			if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
-				rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusFailed, werr.Error())
-				return fmt.Errorf("wait start after reinstall: %w", werr)
-			}
+		// Session-2 F-37
+		if uerr := json.Unmarshal(startResp.Metadata, &op); uerr != nil {
+			rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusFailed, uerr.Error())
+			return fmt.Errorf("parse start async metadata: %w", uerr)
+		}
+		if op.ID == "" {
+			rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusFailed, "incus async response missing operation id")
+			return fmt.Errorf("start: incus async response missing operation id")
+		}
+		if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
+			rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusFailed, werr.Error())
+			return fmt.Errorf("wait start after reinstall: %w", werr)
 		}
 	}
 	rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusSucceeded, "")
@@ -150,7 +173,11 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 		_ = rt.deps.VMs.UpdatePassword(ctx, *job.VMID, password)
 	}
 
-	rt.takeParams(job.ID)
+	// pma-cr H-3 / Session-2 F-39：take 出来的 params 必须显式 Wipe，不依赖
+	// runOne defer（runOne defer 的 takeParams 在这里返 nil，本地变量永不 Wipe）
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 	return nil
 }
 
@@ -163,5 +190,8 @@ func (e *vmReinstallExecutor) Rollback(ctx context.Context, rt *Runtime, job *mo
 	if job.VMID != nil {
 		_ = rt.deps.VMs.UpdateStatus(ctx, *job.VMID, model.VMStatusError)
 	}
-	rt.takeParams(job.ID)
+	// pma-cr H-3：rollback 路径同样显式 Wipe
+	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
+		taken.Credential.Wipe()
+	}
 }

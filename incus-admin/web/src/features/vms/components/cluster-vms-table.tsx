@@ -23,6 +23,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import { DataTable } from "@/shared/components/ui/data-table";
 import { ErrorState } from "@/shared/components/ui/empty-state";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
+import { formatError } from "@/shared/lib/http";
 import { formatVmStatus } from "@/shared/lib/status-i18n";
 import { cn, formatTime } from "@/shared/lib/utils";
 
@@ -81,6 +82,9 @@ export function ClusterVMsTable({
     () => Object.entries(rowSelection).filter(([, v]) => v).map(([k]) => k),
     [rowSelection],
   );
+  // Session-2 F-68 / PLAN-051 §2-K：用 Set 避免 N×M 嵌套 includes —— N=200 / M=50
+  // 每次勾选 10000 string compare → 1 次 hash 查询。
+  const selectedNamesSet = useMemo(() => new Set(selectedNames), [selectedNames]);
 
   const clearSelection = () => setRowSelection({});
 
@@ -153,7 +157,7 @@ export function ClusterVMsTable({
           },
           onError: (e) => {
             pending -= 1;
-            toast.error((e as Error).message);
+            toast.error(formatError(e));
             if (pending === 0) clearSelection();
           },
         },
@@ -274,8 +278,8 @@ export function ClusterVMsTable({
 
   // 选中 VM 的 IncusInstance 集合（migrate-batch 需要 location/project 字段）
   const selectedVMs = useMemo(
-    () => allVMs.filter((v) => selectedNames.includes(v.name)),
-    [allVMs, selectedNames],
+    () => allVMs.filter((v) => selectedNamesSet.has(v.name)),
+    [allVMs, selectedNamesSet],
   );
 
   return (

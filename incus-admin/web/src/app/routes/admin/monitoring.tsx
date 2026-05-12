@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from "@/shared/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { EmptyState, ErrorState } from "@/shared/components/ui/empty-state";
 import { StatGridSkeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/monitoring")({
@@ -81,9 +82,9 @@ function MonitoringPage() {
           <ErrorState
             title={t("monitoring.fetchFailed", {
               defaultValue: "拉取失败",
-              error: (error as Error).message,
+              error: formatError(error),
             })}
-            description={(error as Error).message}
+            description={formatError(error)}
             retry={() => refetch()}
           />
         ) : allVMs.length === 0 ? (

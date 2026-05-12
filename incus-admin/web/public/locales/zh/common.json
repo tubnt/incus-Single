@@ -1,5 +1,9 @@
 {
   "admin": {
+    "notFound": {
+      "title": "管理页面不存在",
+      "cta": "返回监控总览"
+    },
     "amount": "金额",
     "auditAction": "操作",
     "auditActionPlaceholder": "如 vm. / node. / http.",
@@ -968,15 +972,18 @@
     "vmMetricsTitle": "云主机资源明细"
   },
   "launch": {
-    "authHint": "已绑定的 SSH Key 会自动注入到 authorized_keys；首次登录密码会显示一次。",
+    "authHint": "已绑定的 SSH Key 会自动注入到 authorized_keys；初始密码可在 VM 详情页 → 「初始凭据」重新查看。",
     "authTitle": "认证",
     "balanceInsufficient": "余额不足，请先充值。",
     "balanceLabel": "当前余额",
     "createAnother": "再创建一台",
     "creating": "创建中...",
+    "credentialsDownloaded": "凭据已下载",
+    "credentialsRecoverableHint": "若关闭页面前未复制，可在 VM 详情页 → 「初始凭据」重新查看（需二次认证）。",
     "cta": "立即创建",
     "description": "选择套餐与镜像，下单即扣余额并立即 provision。",
     "done": "云主机创建成功",
+    "downloadCredentials": "下载凭据",
     "failed": "创建失败",
     "goVms": "前往我的云主机",
     "hostnameHint": "可选；留空由后端自动生成 vm-xxxxxx",
@@ -994,6 +1001,7 @@
     "admin": "管理员",
     "adminRoot": "管理员",
     "adminTickets": "工单管理",
+    "alertRules": "告警规则",
     "allVms": "所有云主机",
     "apiTokens": "API",
     "auditLogs": "审计",
@@ -1012,6 +1020,7 @@
     "nodeCredentials": "节点凭据",
     "nodeOps": "节点操作",
     "nodes": "节点",
+    "notifyChannels": "通知通道",
     "observability": "可观测性",
     "orders": "订单",
     "osTemplates": "OS 镜像",
@@ -1305,6 +1314,10 @@
     "forceDeleteMessage": "将物理删除 DB 行并释放 IP {{ip}}。此操作不可撤销（原 VM 在 Incus 端已消失）。",
     "forceDeleteTitle": "清理 Drift VM？",
     "forceDeleted": "已清理",
+    "initialCredentials": "初始凭据",
+    "initialCredentialsHint": "查看创建时生成的初始 root 密码（需重新认证）。未来修改请用「重置密码」。",
+    "initialCredentialsTitle": "{{name}} 初始凭据",
+    "initialCredentialsUnavailable": "无法读取初始凭据，请使用「重置密码」生成新密码。",
     "ip": "IP",
     "markedGoneAt": "标记时间",
     "memory": "内存",

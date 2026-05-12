@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { extractIP, useVMStateMutation } from "@/features/vms/api";
 import { Button } from "@/shared/components/ui/button";
 import { StatusPill, vmStatusToKind } from "@/shared/components/ui/status";
-import { formatVmStatus } from "@/shared/lib/status-i18n";
+import { formatVmStatus, isStatus } from "@/shared/lib/status-i18n";
 import { cn } from "@/shared/lib/utils";
 
 interface VMPeekPanelProps {
@@ -50,9 +50,10 @@ export function VMPeekPanel({ vm, cluster, onClose, onOpenSnapshots }: VMPeekPan
   const project = vm.project || "customers";
   const ip = vm.ip || extractIP(vm) || "—";
   const status = vmStatusToKind(vm.status);
-  const isRunning = vm.status === "Running";
-  const isStopped = vm.status === "Stopped";
-  const isFrozen = vm.status === "Frozen";
+  // Session-2 N-06 / PLAN-051 §2-I：归一比较，消除大小写敏感
+  const isRunning = isStatus(vm.status, "Running");
+  const isStopped = isStatus(vm.status, "Stopped");
+  const isFrozen = isStatus(vm.status, "Frozen");
 
   const runAction = (action: string) =>
     stateMutation.mutate(

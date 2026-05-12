@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -35,6 +36,25 @@ var sensitiveKeyFragments = []string{
 	"access_token",
 	"accesstoken",
 	"refresh_token",
+	// Session-1 W6 / PLAN-051 §2-B：OIDC 一次性参数。code 是短期 authorization
+	// code，state 是签名 nonce；落审计就成二次扩散点。
+	"code",
+	"state",
+}
+
+// redactQueryString returns a query string with sensitive params replaced by
+// "***redacted***". Each value is checked individually so non-sensitive params
+// (e.g. ?cluster=foo) come through untouched. Result is the urlencoded form.
+func redactQueryString(values url.Values) string {
+	clean := make(url.Values, len(values))
+	for k, vs := range values {
+		if isSensitiveKey(k) {
+			clean[k] = []string{"***redacted***"}
+			continue
+		}
+		clean[k] = vs
+	}
+	return clean.Encode()
 }
 
 // AuditAdminWrites records every write request (POST/PUT/PATCH/DELETE) under
@@ -109,7 +129,10 @@ func AuditAdminWrites(writer AuditWriter) func(http.Handler) http.Handler {
 				"body":        redactJSONBody(auditBody),
 			}
 			if r.URL.RawQuery != "" {
-				details["query"] = r.URL.RawQuery
+				// Session-1 W6 / PLAN-051 §2-B：把 query string 走与 body 相同的
+				// redact 列表，并显式拦 oauth code / state。否则 OIDC callback
+				// 路径上的一次性 token 会落进 audit_logs.details 二次扩散给 DBA。
+				details["query"] = redactQueryString(r.URL.Query())
 			}
 			if truncated {
 				details["body_truncated"] = true

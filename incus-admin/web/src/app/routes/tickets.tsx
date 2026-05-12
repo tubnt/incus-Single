@@ -47,6 +47,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatTicketStatus } from "@/shared/lib/status-i18n";
 import { cn, formatDateTime } from "@/shared/lib/utils";
 
@@ -270,7 +271,7 @@ function CreateTicketSheet({
           </div>
           {mutation.isError ? (
             <div className="text-status-error text-sm">
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </div>
           ) : null}
         </SheetBody>
@@ -359,8 +360,10 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
   const canClose = ticketStatus && ticketStatus !== "closed";
 
   const submitReply = () => {
-    if (!reply.trim()) return;
-    replyMutation.mutate(reply, { onSuccess: () => setReply("") });
+    const trimmed = reply.trim();
+    if (!trimmed) return;
+    // QA-009 N-08：trim 后再发
+    replyMutation.mutate(trimmed, { onSuccess: () => setReply("") });
   };
 
   const submitClose = async () => {
@@ -377,7 +380,7 @@ function TicketDetail({ ticketId }: { ticketId: number }) {
         toast.success(t("ticket.closed", { defaultValue: "工单已关闭" })),
       onError: (e) =>
         toast.error(
-          (e as Error).message || t("ticket.closeFailed", { defaultValue: "关闭失败" }),
+          formatError(e) || t("ticket.closeFailed", { defaultValue: "关闭失败" }),
         ),
     });
   };

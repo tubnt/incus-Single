@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -134,6 +135,24 @@ type Handlers struct {
 	// token and sets the cookie) and Exit (clears the cookie). All three
 	// require an existing oauth2-proxy session.
 	Shadow ShadowHandler
+	// PLAN-041 / INFRA-009 监控告警闭环。三个新 handler：
+	//   - NotifyChannels: admin CRUD + 测试发送
+	//   - AlertRules:     admin CRUD + 启停 + 历史送达
+	//   - PromExport:     /api/metrics Prometheus 端点（默认匿名 + 可选 Bearer）
+	NotifyChannels AdminRouteRegistrar
+	AlertRules     AdminRouteRegistrar
+	PromExport     http.Handler
+	// PLAN-042 / INFRA-010 OpenAPI spec 暴露 + Swagger UI。
+	// /api/openapi.yaml + /api/openapi.json + /api/docs。无鉴权（spec 是公开契约）。
+	OpenAPI OpenAPIHandler
+}
+
+// OpenAPIHandler 把 openapi handler 的两个端点单独标出来，
+// 让 server.go 注册时能直接挂多个 path。
+type OpenAPIHandler interface {
+	ServeYAML(w http.ResponseWriter, r *http.Request)
+	ServeJSON(w http.ResponseWriter, r *http.Request)
+	ServeUI(w http.ResponseWriter, r *http.Request)
 }
 
 // StepUpHandler is satisfied by *handler/auth.Handler.
@@ -166,8 +185,27 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
-	r.Use(chimw.Timeout(60 * time.Second))
+	// Session-2 F-28 / PLAN-051 §2-H：原版 chimw.Timeout(60s) 是全局 middleware，
+	// 把 /api/console (WebSocket) 与 /api/portal/jobs/{id}/stream (SSE) 都砍在
+	// 60s——长重装、长加入节点等场景前端直接断流。改为路径白名单豁免：流式路径
+	// 不进 timeout context，由 hijack/upgrade 自身控制超时。
+	// pma-cr M-4：firewall batch bind/unbind 串行最多 64 VM × 30s/item = 320s
+	// 全局 timeout 60s 不够。在 worker pool 全完成前 chi cancel 会砍剩余 items。
+	// 加入白名单后由 portalRunBatch 自身的 worker pool + per-item 30s 控制。
+	r.Use(timeoutExceptStreaming(60*time.Second, "/api/console", "/api/portal/jobs/", "/api/admin/jobs/", "/api/portal/firewall/groups/"))
 	r.Use(slogMiddleware)
+	// Session-3 §1🔴-1：HTTP 响应压缩。等级 5 在 CPU 与体积之间折中。entry JS
+	// 307 KB → 96 KB gzip（3.2× 收益），CSS 175 KB → 58 KB；首屏 LCP 直接受益。
+	// SSE / WS 路径走的是 hijack/upgrade，不会被压缩中间件触发。
+	r.Use(chimw.Compress(5,
+		"text/html",
+		"text/css",
+		"text/plain",
+		"application/javascript",
+		"application/json",
+		"application/wasm",
+		"image/svg+xml",
+	))
 
 	distHash := DistHash()
 	if distHash == "" {
@@ -182,6 +220,21 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 		})
 	})
 
+	// PLAN-041 / INFRA-009：Prometheus exposition 端点。挂在 ProxyAuth 之外，
+	// 让外部 Prom / Grafana 直接抓取（默认匿名；可选 Bearer 由 PromExport 自己处理）。
+	if h.PromExport != nil {
+		r.Method(http.MethodGet, "/api/metrics", h.PromExport)
+	}
+
+	// PLAN-042 / INFRA-010：OpenAPI spec + Swagger UI。挂在 ProxyAuth 之外，
+	// 公开契约（spec 不含敏感信息，其访问反映"我是怎样的 API"）。
+	if h.OpenAPI != nil {
+		r.Get("/api/openapi.yaml", h.OpenAPI.ServeYAML)
+		r.Get("/api/openapi.json", h.OpenAPI.ServeJSON)
+		r.Get("/api/docs", h.OpenAPI.ServeUI)
+		r.Get("/api/docs/", h.OpenAPI.ServeUI)
+	}
+
 	// Step-up OIDC callback lives outside the ProxyAuth group because Logto
 	// redirects the browser back here after the user completes re-authentication.
 	// oauth2-proxy's skip_auth_routes must also include this path; otherwise
@@ -193,6 +246,10 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.ProxyAuth)
 		r.Use(middleware.UserFromEmail(userLookup, roleLookup))
+		// pma-cr H-2 / Session-1 W4：高敏端点独立 5/min 限流。挂在 Group 顶层，
+		// 覆盖 /api/auth/stepup/* + /api/admin/users:batch + /shadow/* 等子路径。
+		// 非匹配路径透传，不影响 /api/portal 的 30/min（下面单独挂）。
+		r.Use(middleware.RateLimitSensitive)
 
 		r.Route("/api/portal", func(r chi.Router) {
 			r.Use(middleware.RateLimit)
@@ -332,6 +389,13 @@ func New(cfg *config.Config, userLookup func(ctx context.Context, email string) 
 			if h.Rescue != nil {
 				h.Rescue.AdminRoutes(r)
 			}
+			// PLAN-041 / INFRA-009 监控告警 admin handler
+			if h.NotifyChannels != nil {
+				h.NotifyChannels.AdminRoutes(r)
+			}
+			if h.AlertRules != nil {
+				h.AlertRules.AdminRoutes(r)
+			}
 		})
 
 		if h.Console != nil {
@@ -456,18 +520,50 @@ func (s *Server) Run() error {
 func (s *Server) emergencyRouter() http.Handler {
 	r := chi.NewRouter()
 
-	var (
+	// Session-2 F-29 / PLAN-051 §2-A：原版 failCount 是全局变量，攻击者可
+	// 把任意 IP 的 5 次失败"借给"另一个 IP，触发后整网卡 15min。改为 per-IP
+	// LRU（容量 1024，新条目挤旧）+ 锁内部局部 mutex。同时把 token compare
+	// 与 lock check 顺序保持不变（先 lock 再 compare），constantTimeEqual 已
+	// 在使用 subtle.ConstantTimeCompare（W7 旧约束已落地，此处只补 per-IP）。
+	type ipBucket struct {
 		failCount int
-		failMu    sync.Mutex
 		lockUntil time.Time
+	}
+	var (
+		buckets = make(map[string]*ipBucket, 64)
+		bMu     sync.Mutex
 	)
 	const maxAttempts = 5
 	const lockDuration = 15 * time.Minute
+	const maxBuckets = 1024
+	getBucket := func(ip string) *ipBucket {
+		bMu.Lock()
+		defer bMu.Unlock()
+		b, ok := buckets[ip]
+		if ok {
+			return b
+		}
+		// 简单容量控制：到上限随机踢一条已解锁条目；保持 in-flight 锁定不动
+		if len(buckets) >= maxBuckets {
+			now := time.Now()
+			for k, v := range buckets {
+				if now.After(v.lockUntil) {
+					delete(buckets, k)
+					break
+				}
+			}
+		}
+		nb := &ipBucket{}
+		buckets[ip] = nb
+		return nb
+	}
 
-	r.Get("/auth/emergency", func(w http.ResponseWriter, _ *http.Request) {
-		failMu.Lock()
-		locked := time.Now().Before(lockUntil)
-		failMu.Unlock()
+	r.Get("/auth/emergency", func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIPForRateLimit(r)
+		b := getBucket(ip)
+		bMu.Lock()
+		locked := time.Now().Before(b.lockUntil)
+		bMu.Unlock()
 
 		if locked {
 			http.Error(w, "too many attempts, locked for 15 minutes", http.StatusTooManyRequests)
@@ -487,50 +583,66 @@ func (s *Server) emergencyRouter() http.Handler {
 	})
 
 	r.Post("/auth/emergency", func(w http.ResponseWriter, r *http.Request) {
-		failMu.Lock()
-		if time.Now().Before(lockUntil) {
-			failMu.Unlock()
-			slog.Warn("emergency login blocked (locked)", "ip", r.RemoteAddr)
+		ip := clientIPForRateLimit(r)
+		b := getBucket(ip)
+
+		bMu.Lock()
+		if time.Now().Before(b.lockUntil) {
+			bMu.Unlock()
+			slog.Warn("emergency login blocked (locked)", "ip", ip)
 			http.Error(w, "too many attempts, locked for 15 minutes", http.StatusTooManyRequests)
 			return
 		}
-		failMu.Unlock()
+		bMu.Unlock()
 
 		// 限制 emergency 登录 body 大小防止 memory exhaustion —— 这里只接受单个 token
 		// 字段，8KB 完全够用。
 		r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
 		token := r.FormValue("token")
 		if !constantTimeEqual(token, s.cfg.Auth.EmergencyToken) {
-			failMu.Lock()
-			failCount++
-			if failCount >= maxAttempts {
-				lockUntil = time.Now().Add(lockDuration)
-				slog.Error("emergency login LOCKED after max attempts", "ip", r.RemoteAddr, "attempts", failCount)
-				failCount = 0
+			bMu.Lock()
+			b.failCount++
+			if b.failCount >= maxAttempts {
+				b.lockUntil = time.Now().Add(lockDuration)
+				slog.Error("emergency login LOCKED after max attempts", "ip", ip, "attempts", b.failCount)
+				b.failCount = 0
 			}
-			failMu.Unlock()
-			slog.Warn("emergency login failed", "ip", r.RemoteAddr)
+			bMu.Unlock()
+			slog.Warn("emergency login failed", "ip", ip)
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
 
-		failMu.Lock()
-		failCount = 0
-		failMu.Unlock()
+		bMu.Lock()
+		b.failCount = 0
+		bMu.Unlock()
 
-		slog.Warn("emergency login SUCCESS", "ip", r.RemoteAddr)
+		slog.Warn("emergency login SUCCESS", "ip", ip)
 		adminEmail := ""
 		if len(s.cfg.Auth.AdminEmails) > 0 {
 			adminEmail = s.cfg.Auth.AdminEmails[0]
 		}
-		sig := hmacSign(adminEmail, s.cfg.Auth.EmergencyToken)
+		// Session-1 W7 / PLAN-051 §2-B 决策 D-07：emergency cookie 改 TTL 形态
+		// (email|expires_unix|hmac)，10 min 后无论 cookie 是否被偷都自动失效。
+		// MaxAge 同步收紧到 600s，cookie 在浏览器侧也立刻清除。
+		exp := time.Now().Add(10 * time.Minute).Unix()
+		expS := strconv.FormatInt(exp, 10)
+		sig := hmacSign(adminEmail+"|"+expS, s.cfg.Auth.EmergencyToken)
+		// pma-cr H-1：Secure 条件化。emergency 监听 127.0.0.1:8081 设计上是 HTTP；
+		// 运维通过 SSH tunnel 转发到本机 → 浏览器看到 http://localhost:<port>。
+		// 如果硬编码 Secure=true，浏览器会拒绝 set-cookie（非 https 上下文），
+		// emergency 通道默默废掉。读 r.TLS 决定：仅 TLS 终结情况下加 Secure。
+		// localhost 在主流浏览器是 secure context 例外，但 spec 上不保证；
+		// 改 fail-safe：HTTP 时不加 Secure（emergency 走 SSH tunnel 已是私密通道）。
+		secure := r.TLS != nil
 		http.SetCookie(w, &http.Cookie{
 			Name:     "emergency_auth",
-			Value:    adminEmail + "|" + sig,
+			Value:    adminEmail + "|" + expS + "|" + sig,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   secure,
 			SameSite: http.SameSiteStrictMode,
-			MaxAge:   3600,
+			MaxAge:   600,
 		})
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
@@ -545,17 +657,74 @@ func (s *Server) emergencyRouter() http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	// Session-2 F-30 / PLAN-051 §2-K：encode 错误打 slog warn 不再静默吞咽。
+	// 客户端已断开时 err = "broken pipe"，是常见情况，仍 warn 记录便于排查 backend bug。
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Warn("writeJSON encode failed", "error", err, "status", status)
+	}
 }
 
 func constantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
+// clientIPForRateLimit 从 r.RemoteAddr 摘 IP（去 :port），用于 emergency login
+// per-IP 限流。emergency 监听 127.0.0.1:8081 通过 SSH tunnel 接入，不走前置代理；
+// 因此不读 X-Forwarded-For，避免攻击者伪造头绕过单 IP 限制。
+func clientIPForRateLimit(r *http.Request) string {
+	addr := r.RemoteAddr
+	if idx := strings.LastIndex(addr, ":"); idx > 0 {
+		addr = addr[:idx]
+	}
+	if addr == "" {
+		addr = "unknown"
+	}
+	return addr
+}
+
 func hmacSign(data, key string) string {
 	h := hmac.New(sha256.New, []byte(key))
 	h.Write([]byte(data))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// timeoutExceptStreaming 是 chimw.Timeout 的白名单变体。匹配 prefixes 之一时
+// 完全跳过 timeout（SSE / WS 自己管 keep-alive），其它路径走标准 chimw.Timeout。
+// stream prefix 还细分 jobs：/portal/jobs/{id}/stream + /admin/jobs/{id}/ai-diagnose
+// 都属于长连接 / 长操作。匹配是 HasPrefix，调用方传精确前缀避免误伤 /jobs 列表 API。
+func timeoutExceptStreaming(d time.Duration, prefixes ...string) func(http.Handler) http.Handler {
+	standard := chimw.Timeout(d)
+	return func(next http.Handler) http.Handler {
+		wrapped := standard(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.URL.Path
+			for _, p := range prefixes {
+				if strings.HasPrefix(path, p) {
+					// 精确再判一次 stream 子路径，避免 /portal/jobs/{id} 详情接口（短查询）也被豁免
+					if strings.HasPrefix(path, "/api/portal/jobs/") || strings.HasPrefix(path, "/api/admin/jobs/") {
+						if strings.HasSuffix(path, "/stream") || strings.Contains(path, "/ai-diagnose") {
+							next.ServeHTTP(w, r)
+							return
+						}
+						break // 落到 wrapped 走 timeout
+					}
+					// pma-cr M-4：firewall 仅 :bind / :unbind 批量端点豁免；
+					// GET / CRUD 等短查询仍走 60s timeout
+					if strings.HasPrefix(path, "/api/portal/firewall/groups/") {
+						if strings.HasSuffix(path, "/bind") || strings.HasSuffix(path, "/unbind") ||
+							strings.Contains(path, ":bind") || strings.Contains(path, ":unbind") {
+							next.ServeHTTP(w, r)
+							return
+						}
+						break
+					}
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			wrapped.ServeHTTP(w, r)
+		})
+	}
 }
 
 func slogMiddleware(next http.Handler) http.Handler {

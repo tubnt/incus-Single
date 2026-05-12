@@ -1,14 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Inter Variable — Linear 风格的核心字体（OFL 1.1）。
-   仅引 latin 子集；italic 与其它语种按需懒加载。 */
-@import "@fontsource-variable/inter/wght.css";
-/* JetBrains Mono Variable —— Berkeley Mono 替代品（Apache 2.0），用于代码 / xterm。 */
-@import "@fontsource-variable/jetbrains-mono/wght.css";
-/* Noto Sans SC Variable —— CJK 自托管，避免 Linux/无字体环境 □ tofu（OFL 1.1）。
-   Fontsource 已按 unicode-range 切片，仅匹配的中文字符段会真正加载。 */
-@import "@fontsource-variable/noto-sans-sc/wght.css";
+/* Session-3 🟡-1 / PLAN-051 §2-J 决策 D-17 = C：fontsource 字体不再 @import
+ * 到主样式（render-blocking），改在 main.tsx 用 dynamic import 异步注入。
+ * 抽出的字体：
+ *   - Inter Variable（Latin 主字体；OFL 1.1）
+ *   - JetBrains Mono Variable（代码 / xterm；Apache 2.0）
+ *   - Noto Sans SC Variable（中文，按 unicode-range 切片；OFL 1.1）—— 决策 D-17
+ *     选择"全抽"而非"仅抽 Latin"以最大化 FCP 收益；中文用户首屏 FOUT 闪烁
+ *     由 system font 回退栈托底（PingFang SC / Microsoft YaHei UI 已配）。
+ */
 
 /* ============================================================
  * Linear 风设计系统（DESIGN.md 同步）

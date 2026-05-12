@@ -7,6 +7,7 @@ import {
   useSystemAlertsQuery,
 } from "@/features/nodes/api";
 import { Button } from "@/shared/components/ui/button";
+import { formatError } from "@/shared/lib/http";
 import { cn } from "@/shared/lib/utils";
 
 /**
@@ -40,7 +41,7 @@ export function AlertBanner() {
                     id: a.id,
                   }),
                 ),
-              onError: (e) => toast.error((e as Error).message),
+              onError: (e) => toast.error(formatError(e)),
             })
           }
         />

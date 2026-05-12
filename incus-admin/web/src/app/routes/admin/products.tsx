@@ -42,6 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatCurrency } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/admin/products")({
@@ -181,7 +182,7 @@ function ProductRow({
     toggleMutation.mutate(
       { active: !product.active },
       {
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -292,6 +293,7 @@ function ProductForm({
               id="product-name"
               placeholder={t("admin.products.namePlaceholder", "名称")}
               value={form.name}
+              maxLength={64}
               onChange={(e) => set("name", e.target.value)}
             />
           </div>
@@ -301,6 +303,8 @@ function ProductForm({
               id="product-slug"
               placeholder="Slug"
               value={form.slug}
+              maxLength={32}
+              pattern="[a-z0-9-]+"
               onChange={(e) => set("slug", e.target.value)}
             />
           </div>
@@ -389,7 +393,7 @@ function ProductForm({
         {mutation.isError ? (
           <Alert variant="error" className="mt-3">
             <AlertDescription>
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </AlertDescription>
           </Alert>
         ) : null}

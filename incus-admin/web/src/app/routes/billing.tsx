@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/shared/components/ui/table";
 import { fetchCurrentUser } from "@/shared/lib/auth";
+import { formatError } from "@/shared/lib/http";
 import { formatInvoiceStatus, formatOrderStatus } from "@/shared/lib/status-i18n";
 import { cn, formatCurrency, formatDate, formatDateTime } from "@/shared/lib/utils";
 
@@ -322,7 +323,7 @@ function OrderRow({
         ) : null}
         {payMutation.isError && o.status === "pending" ? (
           <span className="ml-2 text-caption text-status-error">
-            {(payMutation.error as Error).message}
+            {formatError(payMutation.error)}
           </span>
         ) : null}
       </TableCell>

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -51,6 +52,8 @@ func (h *VMHandler) Routes(r chi.Router) {
 	r.Post("/services/{id}/actions/{action}", h.VMAction)
 	r.Post("/services/{id}/reinstall", h.Reinstall)
 	r.Post("/services/{id}/reset-password", h.ResetPassword)
+	// UX-007: 重看初始密码（创建瞬间的 root 密码）。step-up gated，audit 全记。
+	r.Post("/services/{id}/initial-credentials", h.GetInitialCredentials)
 	// PLAN-034: 用户自助 trash-with-undo。删除 = 软移入回收站（30s 窗口可撤销），
 	// purge 后 status = 'deleted'。配合 admin 端 worker.RunVMTrashPurger。
 	r.Delete("/services/{id}", h.TrashService)
@@ -333,6 +336,79 @@ func (h *VMHandler) ListServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"vms": NewVMServiceDTOList(vms, h.clusters, defaultProjectForMgr(h.clusters))})
+}
+
+// GetInitialCredentials 让 owner 在 VM 创建后任何时刻重看初始 root 密码。
+//
+// UX-007 / PLAN-051 follow-up：DonePanel 仅创建瞬间显示一次，关闭页面后用户
+// 没有路径找回。后端 vms.password 一直存（AES-256-GCM 加密，OPS-022），
+// 这里只是把已有数据通过 step-up gate 重新返给 owner。
+//
+// 与 ResetPassword 的区别：
+//   - GetInitialCredentials：返历史密码，不变更 VM 状态（只读）
+//   - ResetPassword：生成新密码 + 写入 VM（agent-exec 或 cloud-init），破坏旧密码
+//
+// 安全：
+//   - step-up gated（middleware/stepup.go 白名单）
+//   - owner_id 校验（与 GetService 同语义）
+//   - audit user.view_initial_credentials
+//   - 解密失败返 422 + 文案提示走 reset-password
+func (h *VMHandler) GetInitialCredentials(w http.ResponseWriter, r *http.Request) {
+	userID, _ := r.Context().Value(middleware.CtxUserID).(int64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid id"})
+		return
+	}
+	vm, err := h.vmRepo.GetByID(r.Context(), id)
+	if err != nil || vm == nil || vm.UserID != userID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+	if vm.Password == nil || *vm.Password == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": "no_initial_password",
+			"hint":  "use reset-password instead",
+		})
+		return
+	}
+	// pma-cr Session-2 F-45 sentinel：解密失败返特定标记
+	const decryptFailed = "<DECRYPT_FAILED>"
+	if *vm.Password == decryptFailed {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": "decrypt_failed",
+			"hint":  "use reset-password instead",
+		})
+		return
+	}
+	audit(r.Context(), r, "user.view_initial_credentials", "vm", vm.ID, map[string]any{
+		"vm_name": vm.Name,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"vm_name":    vm.Name,
+		"ip":         vm.IP,
+		"username":   defaultUserForVM(vm),
+		"password":   *vm.Password,
+		"created_at": vm.CreatedAt,
+	})
+}
+
+// defaultUserForVM 推断 VM 默认登录用户。Linux 镜像走 ubuntu / debian / rocky
+// 等约定；Windows 走 Administrator。无信号时回退 ubuntu（与 cloud-init 默认一致）。
+func defaultUserForVM(vm *model.VM) string {
+	img := strings.ToLower(vm.OSImage)
+	switch {
+	case strings.Contains(img, "windows"):
+		return "Administrator"
+	case strings.Contains(img, "debian"):
+		return "debian"
+	case strings.Contains(img, "rocky"), strings.Contains(img, "alma"), strings.Contains(img, "centos"):
+		return "rocky"
+	case strings.Contains(img, "fedora"):
+		return "fedora"
+	default:
+		return "ubuntu"
+	}
 }
 
 func (h *VMHandler) GetService(w http.ResponseWriter, r *http.Request) {
@@ -702,7 +778,7 @@ func runChaosCycle(clusterName, nodeName string, duration time.Duration, healing
 
 	// Evacuate
 	evacBody := strings.NewReader(`{"action":"evacuate"}`)
-	resp, err := client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), evacBody)
+	resp, err := client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), evacBody)
 	if err != nil {
 		failHealing("evacuate: " + err.Error())
 		return
@@ -728,7 +804,7 @@ func runChaosCycle(clusterName, nodeName string, duration time.Duration, healing
 
 	// Restore
 	restoreBody := strings.NewReader(`{"action":"restore"}`)
-	resp, err = client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName), restoreBody)
+	resp, err = client.APIPost(ctx, fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName)), restoreBody)
 	if err != nil {
 		failHealing("restore: " + err.Error())
 		return
@@ -830,7 +906,7 @@ func (h *AdminVMHandler) EvacuateNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"action": "evacuate"})
-	path := fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName)
+	path := fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName))
 	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		if healingID > 0 && healingRepo != nil {
@@ -877,7 +953,7 @@ func (h *AdminVMHandler) RestoreNode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"action": "restore"})
-	path := fmt.Sprintf("/1.0/cluster/members/%s/state", nodeName)
+	path := fmt.Sprintf("/1.0/cluster/members/%s/state", url.PathEscape(nodeName))
 	resp, err := client.APIPost(r.Context(), path, bytes.NewReader(body))
 	if err != nil {
 		slog.Error("restore node failed", "node", nodeName, "error", err)
@@ -949,18 +1025,26 @@ func (h *AdminVMHandler) ListClusterVMs(w http.ResponseWriter, r *http.Request) 
 		vmListCacheMu.Unlock()
 	}
 
-	// 如果完全失败且有缓存，使用缓存
+	// 如果完全失败且有缓存，使用缓存（Session-2 F-7 / PLAN-051 §2-K：加 5min TTL，
+	// 防止过期 entry 永久驻留 + cluster 卸载后无人清理）。
+	const vmListCacheTTL = 5 * time.Minute
 	if len(allInstances) == 0 && fetchErr != nil {
 		vmListCacheMu.RLock()
 		cached, hasCached := vmListCache[clusterName]
 		vmListCacheMu.RUnlock()
-		if hasCached {
+		if hasCached && time.Since(cached.updated) < vmListCacheTTL {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"vms": cached.vms, "count": len(cached.vms),
 				"stale": true, "cached_at": cached.updated.Format(time.RFC3339),
 				"error": "cluster unreachable, showing cached data",
 			})
 			return
+		}
+		if hasCached {
+			// 过期则主动清，避免内存堆积；同时不再返给用户（要么显示 503）。
+			vmListCacheMu.Lock()
+			delete(vmListCache, clusterName)
+			vmListCacheMu.Unlock()
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "cluster unreachable: " + fetchErr.Error(),
@@ -1018,17 +1102,28 @@ func (h *AdminVMHandler) injectDBIPs(ctx context.Context, instances []json.RawMe
 	return out
 }
 
-// redactInstanceMap 原地移除 Incus instance JSON 中的敏感字段。当前覆盖：
-//   - config.user.cloud-init / expanded_config.user.cloud-init 含明文初始
-//     root 密码（cloud-config password: <hex>），即便对 admin 也应过滤以
-//     减少响应体散布到日志 / 屏幕快照 / 浏览器缓存的暴露面（SEC-002 / OPS-028）。
+// redactInstanceMap 原地移除 Incus instance JSON 中的敏感字段。覆盖：
+//   - config.user.cloud-init / expanded_config.user.cloud-init（legacy key）
+//   - config.cloud-init.* / expanded_config.cloud-init.*（Incus 标准 key；
+//     PLAN-025 之后 vm_create 与 reinstall 实际用 cloud-init.user-data /
+//     cloud-init.network-config / cloud-init.vendor-data。Session-2 F-01：
+//     原版只删 legacy key，新 key 里的明文 `password: <hex>` 完整外漏到
+//     admin 的 /admin/vms、/admin/clusters/{name}/vms、vm 详情，从浏览器
+//     缓存与 nginx access log 二次扩散）
 //
+// 用前缀匹配 + 显式 legacy key 兜底，避免后续新增 cloud-init.* 字段再漏。
 // 这是 admin 视角双重防御 —— admin 本身有 reset-password 权限，但响应体
 // 比按需走 reset-password 接口扩散面更大。
 func redactInstanceMap(m map[string]any) {
 	for _, key := range []string{"config", "expanded_config"} {
-		if cfg, ok := m[key].(map[string]any); ok {
-			delete(cfg, "user.cloud-init")
+		cfg, ok := m[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		for k := range cfg {
+			if k == "user.cloud-init" || strings.HasPrefix(k, "cloud-init.") {
+				delete(cfg, k)
+			}
 		}
 	}
 }
@@ -1989,7 +2084,7 @@ func (h *AdminVMHandler) GetClusterVMDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	snapshotsPath := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s&recursion=1", vmName, project)
+	snapshotsPath := fmt.Sprintf("/1.0/instances/%s/snapshots?project=%s&recursion=1", url.PathEscape(vmName), url.QueryEscape(project))
 	snapResp, snapErr := client.APIGet(r.Context(), snapshotsPath)
 	var snapshots json.RawMessage
 	if snapErr == nil {

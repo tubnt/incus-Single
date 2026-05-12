@@ -8,6 +8,7 @@ import { useConfirm } from "@/shared/components/ui/confirm-dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 import { formatDateTime } from "@/shared/lib/utils";
 
 /** Drift（PLAN-020 reconciler 标 status=gone）的 VM 列表 + 强制清理。 */
@@ -39,7 +40,7 @@ export function DriftVMsPanel() {
     forceDelete.mutate(vm.id, {
       onSuccess: () =>
         toast.success(`${t("vm.forceDeleted", { defaultValue: "已清理" })} ${vm.name}`),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 

@@ -1,0 +1,51 @@
+# incus admin init --preseed 模板（PLAN-043 / INFRA-011）。
+#
+# 由 incus-admin bootstrap apply 渲染：
+#   {{NODE_NAME}}      节点名
+#   {{PUBLIC_IP}}      公网 IP
+#   {{STORAGE_DRIVER}} dir / zfs / ceph
+#   {{STORAGE_DISK}}   zfs 时的物理盘（如 /dev/sdb），dir 时为空
+#   {{CLUSTER_ENABLED}} true / false（首节点 cluster 模式）
+#
+# 注意 Incus 6.x 陷阱：
+#   - core.https_address 必须填可达 IP，不要 0.0.0.0（cluster join 用这个地址回连）
+#   - storage_pools 在 cluster 加节点时必须与首节点完全一致
+
+config:
+  core.https_address: {{PUBLIC_IP}}:8443
+  images.auto_update_interval: "0"
+
+storage_pools:
+  - name: default
+    driver: {{STORAGE_DRIVER}}
+    config: {}
+
+networks:
+  - name: incusbr0
+    type: bridge
+    config:
+      ipv4.address: 10.42.0.1/24
+      ipv4.nat: "true"
+      ipv6.address: "none"
+
+profiles:
+  - name: default
+    config: {}
+    devices:
+      eth0:
+        name: eth0
+        nictype: bridged
+        parent: incusbr0
+        type: nic
+      root:
+        path: /
+        pool: default
+        type: disk
+
+cluster:
+  enabled: {{CLUSTER_ENABLED}}
+  server_name: {{NODE_NAME}}
+  cluster_address: ""
+  cluster_certificate: ""
+  server_address: {{PUBLIC_IP}}:8443
+  cluster_token: ""

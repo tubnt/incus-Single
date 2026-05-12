@@ -595,7 +595,11 @@ func (s *VMService) Reinstall(ctx context.Context, params ReinstallParams) (*Rei
 	// Strip volatile.* keys: same reason as resetPasswordOffline. The new
 	// instance gets fresh volatile state from Incus on first start.
 	stripVolatileConfig(inst.Config)
-	inst.Config["user.cloud-init"] = cloudInit
+	// Session-2 F-05 / PLAN-051 §2-E：使用 Incus 标准 cloud-init key（与 vm_create.go
+	// 保持一致），legacy `user.cloud-init` 不被 cloud-init datasource 识别 → 重装后
+	// 新密码不进 guest，用户用响应里的密码登不上。同时清掉 legacy key 防止两份并存。
+	delete(inst.Config, "user.cloud-init")
+	inst.Config["cloud-init.user-data"] = cloudInit
 
 	body := map[string]any{
 		"name": params.VMName,

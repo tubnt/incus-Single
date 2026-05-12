@@ -48,6 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/os-templates")({
   component: OSTemplatesPage,
@@ -195,7 +196,7 @@ function TemplateRow({
     deleteMutation.mutate(undefined, {
       onSuccess: () =>
         toast.success(t("admin.osTemplates.deleted", "已删除")),
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -228,7 +229,7 @@ function TemplateRow({
             onClick={() =>
               toggleMutation.mutate(
                 { enabled: !template.enabled },
-                { onError: (err) => toast.error((err as Error).message) },
+                { onError: (err) => toast.error(formatError(err)) },
               )
             }
             disabled={toggleMutation.isPending}
@@ -304,7 +305,7 @@ function TemplateForm({
         );
         onDone();
       },
-      onError: (err) => toast.error((err as Error).message),
+      onError: (err) => toast.error(formatError(err)),
     });
   };
 
@@ -331,6 +332,7 @@ function TemplateForm({
             <Input
               id="ostpl-name"
               value={form.name}
+              maxLength={64}
               onChange={(e) => set("name", e.target.value)}
               placeholder="Ubuntu 24.04 LTS"
             />
@@ -340,6 +342,8 @@ function TemplateForm({
             <Input
               id="ostpl-slug"
               value={form.slug}
+              maxLength={32}
+              pattern="[a-z0-9-]+"
               onChange={(e) => set("slug", e.target.value)}
               placeholder="ubuntu-24-04"
               className="font-mono"
@@ -355,6 +359,7 @@ function TemplateForm({
             <Input
               id="ostpl-source"
               value={form.source}
+              maxLength={128}
               onChange={(e) => set("source", e.target.value)}
               placeholder="ubuntu/24.04/cloud"
               className="font-mono"
@@ -437,7 +442,7 @@ function TemplateForm({
         {mutation.isError ? (
           <Alert variant="error" className="mt-3">
             <AlertDescription>
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </AlertDescription>
           </Alert>
         ) : null}

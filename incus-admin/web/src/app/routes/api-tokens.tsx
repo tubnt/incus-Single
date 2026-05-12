@@ -37,6 +37,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { cn, formatDate, formatDateTime } from "@/shared/lib/utils";
 
 // OPS-030: TTL 选项 + 倒计时文案改成 i18n 化（接 t fn）。
@@ -219,7 +220,7 @@ function CreateTokenSheet({
           </div>
           {mutation.isError ? (
             <div className="text-status-error text-sm">
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </div>
           ) : null}
         </SheetBody>

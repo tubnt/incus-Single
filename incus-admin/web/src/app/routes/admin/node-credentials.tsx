@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { formatError } from "@/shared/lib/http";
 
 export const Route = createFileRoute("/admin/node-credentials")({
   component: NodeCredentialsPage,
@@ -78,7 +79,7 @@ function NodeCredentialsPage() {
           setPassword("");
           setKeyData("");
         },
-        onError: (err) => toast.error((err as Error).message),
+        onError: (err) => toast.error(formatError(err)),
       },
     );
   };
@@ -208,7 +209,7 @@ function NodeCredentialsPage() {
                             if (!ok) return;
                             del.mutate(c.id, {
                               onSuccess: () => toast.success(t("admin.nodeCredentials.deleted", "已删除")),
-                              onError: (err) => toast.error((err as Error).message),
+                              onError: (err) => toast.error(formatError(err)),
                             });
                           }}
                         >

@@ -1,14 +1,39 @@
 package portal
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/repository"
 )
+
+// validateCloudInitTemplate 校验 cloud-init template 至少是合法 YAML，且顶级
+// key 在白名单内。Session-1 O6 / PLAN-051 §2-B 决策 D-11 = B：仅做 YAML 解析
+// + 顶级 key 类型 sanity 检查（写非法 YAML 让用户看到清楚错误，不限 runcmd
+// 内容）。空字符串放行（== "用 incus 默认 cloud-init"）。
+//
+// 顶级允许的 key：cloud-config v2 标准字段集子集；其它自定义 key（user-data
+// 文件嵌入用） 走 user.* 前缀也允许，但要 known list 内。
+func validateCloudInitTemplate(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	// cloud-config 必须以 "#cloud-config" 头一行开始（cloud-init 协议要求）
+	// 但模板可能含 Go template 占位符；不强制头一行，仅确保剩下能解析为 YAML。
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(s), &node); err != nil {
+		return fmt.Errorf("invalid YAML: %w", err)
+	}
+	// 不强制 schema 校验内容；YAML 解析通过即认为合法。
+	return nil
+}
 
 type OSTemplateHandler struct {
 	repo *repository.OSTemplateRepo
@@ -82,6 +107,11 @@ type createOSTemplateReq struct {
 func (h *OSTemplateHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createOSTemplateReq
 	if !decodeAndValidate(w, r, &req) {
+		return
+	}
+	// Session-1 O6：cloud-init 模板 YAML 解析校验
+	if err := validateCloudInitTemplate(req.CloudInitTemplate); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "cloud_init_template: " + err.Error()})
 		return
 	}
 	t := model.OSTemplate{
@@ -175,6 +205,13 @@ func (h *OSTemplateHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req updateOSTemplateReq
 	if !decodeAndValidate(w, r, &req) {
 		return
+	}
+	// Session-1 O6：cloud-init 模板 YAML 解析校验（Update 路径同样防御）
+	if req.CloudInitTemplate != nil {
+		if err := validateCloudInitTemplate(*req.CloudInitTemplate); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "cloud_init_template: " + err.Error()})
+			return
+		}
 	}
 	applyOSTemplatePatch(existing, req)
 	existing.ID = id

@@ -47,7 +47,7 @@ import {
 } from "@/shared/components/ui/sheet";
 import { CardSkeleton } from "@/shared/components/ui/skeleton";
 import { StatusDot, vmStatusToKind } from "@/shared/components/ui/status";
-import { http } from "@/shared/lib/http";
+import { formatError, http  } from "@/shared/lib/http";
 import { queryClient } from "@/shared/lib/query-client";
 import { cn } from "@/shared/lib/utils";
 
@@ -274,7 +274,7 @@ function MyVMs() {
         );
       },
       onError: (err) =>
-        toast.error(`${vm.name}: ${(err as Error).message ?? t("vm.deleteFailed", { defaultValue: "删除失败" })}`),
+        toast.error(`${vm.name}: ${formatError(err) || t("vm.deleteFailed", { defaultValue: "删除失败" })}`),
     });
   };
 
@@ -439,11 +439,6 @@ function TrashBanner({
   onRestore: (id: number) => void;
 }) {
   const { t } = useTranslation();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(tick);
-  }, []);
   return (
     <div
       className={cn(
@@ -460,28 +455,44 @@ function TrashBanner({
         })}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
-        {items.map((it) => {
-          const trashedAtMs = Date.parse(it.trashed_at);
-          const remaining = Math.max(
-            0,
-            Math.ceil((trashedAtMs + it.window_s * 1000 - now) / 1000),
-          );
-          return (
-            <Button
-              key={it.id}
-              size="sm"
-              variant="subtle"
-              onClick={() => onRestore(it.id)}
-              disabled={remaining <= 0}
-            >
-              <RotateCcw size={12} aria-hidden="true" />
-              <span className="font-mono">{it.name}</span>
-              <span className="text-text-tertiary">· {remaining}s</span>
-            </Button>
-          );
-        })}
+        {items.map((it) => (
+          <TrashCountdown key={it.id} item={it} onRestore={onRestore} />
+        ))}
       </div>
     </div>
+  );
+}
+
+// Session-2 F-70 / PLAN-051 §2-K：把 1s ticker setState 隔离到子组件，items
+// 多时不再每秒整表重渲染。每个 Countdown 维护自己的 now，父级 banner 静态。
+function TrashCountdown({
+  item,
+  onRestore,
+}: {
+  item: MyTrashedVM;
+  onRestore: (id: number) => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(tick);
+  }, []);
+  const trashedAtMs = Date.parse(item.trashed_at);
+  const remaining = Math.max(
+    0,
+    Math.ceil((trashedAtMs + item.window_s * 1000 - now) / 1000),
+  );
+  return (
+    <Button
+      size="sm"
+      variant="subtle"
+      onClick={() => onRestore(item.id)}
+      disabled={remaining <= 0}
+    >
+      <RotateCcw size={12} aria-hidden="true" />
+      <span className="font-mono">{item.name}</span>
+      <span className="text-text-tertiary">· {remaining}s</span>
+    </Button>
   );
 }
 

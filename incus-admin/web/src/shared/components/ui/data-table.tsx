@@ -124,28 +124,23 @@ export function DataTable<TData>({
   const { t } = useTranslation();
 
   // 列宽状态（仅 tableId 提供时启用持久化；否则纯 in-memory，组件销毁丢失）。
-  // columnResizeMode='onChange' 在每帧 mousemove 都更新 colSizing，因此 LS 写入必须节流，
-  // 否则拖拽期间会同步 IO 阻塞主线程（每秒 60+ 次 stringify + setItem）。
+  // Session-2 F-65 / PLAN-051 §2-D 决策 D-14 = C：原版用 useEffect 依赖
+  // [colSizing] + setTimeout debounce，依赖每帧变化导致 cleanup 与 setTimeout 竞速
+  // (每次 effect rerun 先 clearTimeout 再 setTimeout，等于 debounce 形同虚设)。
+  // 改为只在 unmount 一次性 flush + ref 跟踪最新值：拖动期间不写 LS，
+  // 拖动结束 / 卸载 / 切页时 flush 一次。读取仍从 LS 初始化。
   const [colSizing, setColSizing] = useState<ColumnSizingState>(() =>
     tableId ? loadColSizing(tableId) : {},
   );
-  const persistTimerRef = useRef<number | null>(null);
+  const colSizingRef = useRef(colSizing);
+  colSizingRef.current = colSizing;
   useEffect(() => {
     if (!tableId) return;
-    if (persistTimerRef.current != null) window.clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = window.setTimeout(() => {
-      saveColSizing(tableId, colSizing);
-      persistTimerRef.current = null;
-    }, 300);
     return () => {
-      if (persistTimerRef.current != null) {
-        window.clearTimeout(persistTimerRef.current);
-        // 卸载前 flush 一次，避免拖拽中切页丢失最后一次调整
-        saveColSizing(tableId, colSizing);
-        persistTimerRef.current = null;
-      }
+      // 仅卸载时 flush 一次，避免拖拽期间高频写 LS。
+      saveColSizing(tableId, colSizingRef.current);
     };
-  }, [tableId, colSizing]);
+  }, [tableId]);
 
   const table = useReactTable({
     data,

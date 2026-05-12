@@ -28,6 +28,7 @@ import {
   SheetTitle,
 } from "@/shared/components/ui/sheet";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { formatError } from "@/shared/lib/http";
 import { formatDate } from "@/shared/lib/utils";
 
 export const Route = createFileRoute("/ssh-keys")({
@@ -124,6 +125,7 @@ function AddKeySheet({ open, onClose }: { open: boolean; onClose: () => void }) 
               id="ssh-name"
               type="text"
               value={name}
+              maxLength={64}
               onChange={(e) => setName(e.target.value)}
               placeholder={t("sshKey.namePlaceholder", { defaultValue: "如 my-laptop" })}
             />
@@ -143,7 +145,7 @@ function AddKeySheet({ open, onClose }: { open: boolean; onClose: () => void }) 
           </div>
           {mutation.isError ? (
             <div className="text-status-error text-sm">
-              {(mutation.error as Error).message}
+              {formatError(mutation.error)}
             </div>
           ) : null}
         </SheetBody>

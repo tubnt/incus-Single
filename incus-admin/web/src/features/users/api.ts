@@ -57,7 +57,8 @@ export function useUpdateUserRoleMutation(userId: number) {
 }
 
 // PLAN-023 Phase C: 批量改角色。step-up gated by middleware；后端禁止 self-target。
-export type BatchUserAction = "change_role";
+// Session-2 F-66 / PLAN-051 §2-D：扩 topup action（后端原子端点串行 + 同 daily cap）
+export type BatchUserAction = "change_role" | "topup";
 
 export interface BatchUserResult {
   total: number;
@@ -80,6 +81,34 @@ export function useBatchUserMutation() {
             action: `user.batch_${params.action}`,
             args: { ids: params.ids, action: params.action, role: params.role },
             description: `批量 ${params.action}=${params.role} ${params.ids.length} 个用户`,
+          },
+        },
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: userKeys.all }),
+  });
+}
+
+// Session-2 F-66 / PLAN-051 §2-D：批量充值原子端点。后端单 endpoint 串行执行
+// 每条单笔事务（TopUpWithDailyCap 加锁），返回 succeeded/failed key 数组。
+// 前端用 isPending gate 防止重复提交。
+export function useBatchTopUpMutation() {
+  return useMutation({
+    mutationFn: (params: { ids: number[]; amount: number; description?: string }) =>
+      http.post<BatchUserResult>(
+        "/admin/users:batch",
+        {
+          ids: params.ids,
+          action: "topup",
+          options: {
+            amount: params.amount,
+            description: params.description ?? "Admin batch top-up",
+          },
+        },
+        {
+          intent: {
+            action: "user.batch_topup",
+            args: { ids: params.ids, amount: params.amount },
+            description: `批量充值 $${params.amount} × ${params.ids.length} 个用户`,
           },
         },
       ),
