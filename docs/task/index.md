@@ -111,3 +111,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**QA-009 前端全面 QA 测试（功能 + 边界 + 异常 + UI 交互 + 兼容性）**](QA-009.md) `P1`
 - [x] [**UX-007 初始凭据可重看入口（Step-up gated）**](UX-007.md) `P1`
 - [x] [**OPS-049 速率限流换 token bucket + IETF RateLimit headers**](OPS-049.md) `P1`
+- [x] [**OPS-050 jobs runtime 容量可配 + 队列深度可观测**](OPS-050.md) `P2`

@@ -30,6 +30,10 @@ type Deps struct {
 	Migrator    VMMigrator
 	// PoolSize 是 worker 池容量；建议 4–8。0 取默认 4。
 	PoolSize int
+	// OPS-050：入队 channel buffer 长度。0 取默认 64。生产建议 256；
+	// 满后 Enqueue 阻塞 HTTP（PayWithBalance 已 commit、余额已扣的状态下挂死），
+	// 调大 buffer 是最直接的缓解手段，配合 PoolSize 拉宽 worker 池。
+	QueueSize int
 }
 
 // VMMigrator 由 service.VMService 实现。jobs 包通过此接口避免反向 import service
@@ -82,15 +86,22 @@ func NewRuntime(deps Deps) *Runtime {
 	if deps.PoolSize <= 0 {
 		deps.PoolSize = 4
 	}
+	if deps.QueueSize <= 0 {
+		deps.QueueSize = 64
+	}
 	return &Runtime{
 		deps:   deps,
 		broker: NewBroker(),
-		queue:  make(chan int64, 64),
+		queue:  make(chan int64, deps.QueueSize),
 		params: make(map[int64]*Params),
 	}
 }
 
 func (r *Runtime) Broker() *Broker { return r.broker }
+
+// QueueDepth 返回当前 channel 里堆积的待消费 job 数。
+// 给 metrics ticker 与未来 /metrics endpoint 用。
+func (r *Runtime) QueueDepth() int { return len(r.queue) }
 
 func (r *Runtime) setParams(jobID int64, p Params) {
 	r.pmu.Lock()
@@ -127,7 +138,30 @@ func (r *Runtime) Start(ctx context.Context) {
 		}
 
 		go r.sweeper(ctx)
+		go r.queueMetrics(ctx)
 	})
+}
+
+// queueMetrics 周期性打 queue 深度日志。每 30s 一行，仅当队列非空时输出，
+// 空载不刷屏。给运维通过 grep 看实时压力用；未来接 Prometheus exporter 时
+// 改读 QueueDepth() 即可。
+func (r *Runtime) queueMetrics(ctx context.Context) {
+	tick := time.NewTicker(30 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			depth := r.QueueDepth()
+			if depth > 0 {
+				slog.Info("provisioning queue depth",
+					"depth", depth,
+					"pool_size", r.deps.PoolSize,
+					"capacity", cap(r.queue))
+			}
+		}
+	}
 }
 
 // Stop 等所有 worker 退出。调用方应先 cancel runtime ctx。

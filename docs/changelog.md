@@ -1,5 +1,40 @@
 # IncusAdmin Changelog
 
+## 2026-05-11 [done] OPS-050 jobs runtime 容量可配 + 队列深度可观测
+
+异步 provisioning runtime 的 `PoolSize=4` / `QueueSize=64` 此前在
+`cmd/server/main.go:433` 与 `internal/service/jobs/runtime.go:88` 写死。
+促销 / 批量场景下并发 64+ 用户下单时 `Enqueue` 会阻塞 HTTP（PayWithBalance
+已 commit、余额已扣的状态下挂死），运维无法在线扩容。
+
+改动（向后兼容，默认值未变）：
+- `internal/config/config.go` 新增 `JobsConfig{PoolSize, QueueSize}`，
+  env `JOBS_POOL_SIZE` / `JOBS_QUEUE_SIZE`，默认 4 / 64。
+- `internal/service/jobs/runtime.go`：
+  - `Deps` 加 `QueueSize int`（0 取默认 64）。
+  - `NewRuntime` 用 `deps.QueueSize` 建 channel buffer。
+  - 加 `QueueDepth()` 方法，给未来 metrics endpoint 留口。
+  - `Start` 起 metrics ticker goroutine：每 30s 仅当队列非空时 slog
+    `provisioning queue depth depth=N pool_size=M capacity=K`。
+- `cmd/server/main.go`：用 `cfg.Jobs.PoolSize` / `cfg.Jobs.QueueSize`
+  替换字面量；启动日志同时输出 queue_size。
+- `deploy/incus-admin.env.example`：加 `JOBS_POOL_SIZE` / `JOBS_QUEUE_SIZE`
+  注释与默认值，含生产推荐 8 / 256 + ≤ 16 警告。
+- `internal/service/jobs/runtime_capacity_test.go`：3 个新测试
+  覆盖默认值、自定义值、QueueDepth 增减。
+- `docs/task/OPS-050.md` 含孤儿订单恢复 Runbook（PayWithBalance commit
+  后 / Enqueue 前进程崩溃留下 paid 订单 + 扣款 + 无 vm/job 的窗口）。
+
+明确不做（写进任务 Won't-do）：
+- 不引入 Prometheus exporter（INFRA 级，超出本 OPS）。
+- 不改 Enqueue 满阻塞 → 503 的行为变更（前端要配套）。
+- 不加 per-cluster / per-node 限流（需要 PLAN）。
+- 不自动修复孤儿订单（手工 Runbook，避免误退）。
+
+验收：`go vet`、`go build`、`go test ./...` 全绿。生产部署只需在
+`/etc/incus-admin/incus-admin.env` 加两行 env + systemd 重启即可生效，
+无 DB migration、无 API 行为变更。
+
 ## 2026-05-10 23:14 [done] OPS-049 速率限流换 token bucket + IETF RateLimit headers
 
 修生产 21:05:20 实测的 `/api/portal` 全线 429 故障：tom@5ok.co 在 1 分钟内

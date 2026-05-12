@@ -18,6 +18,23 @@ type Config struct {
 	Billing  BillingConfig   `json:"billing"`
 	Monitor  MonitorConfig   `json:"monitor"`
 	AI       AIConfig        `json:"ai"`
+	Jobs     JobsConfig      `json:"jobs"`
+}
+
+// JobsConfig 控制 PLAN-025 异步 provisioning runtime 的容量。
+//
+// PoolSize 是 worker goroutine 池容量；QueueSize 是入队 channel 的 buffer
+// 长度。促销 / 批量场景下默认 4 / 64 不够用——并发 64+ 用户下单时
+// Enqueue 会阻塞 HTTP（PayWithBalance 已 commit、余额已扣的状态下挂死），
+// 生产应通过 env 显式调高。
+//
+// 建议：
+//   - 默认 4 / 64：单机小流量，向后兼容。
+//   - 生产 8 / 256：促销 / 批量。
+//   - 不建议 > 16：单 Incus host 镜像并发拉取超过 16 会撞网络/磁盘瓶颈。
+type JobsConfig struct {
+	PoolSize  int `json:"pool_size"`  // env JOBS_POOL_SIZE，默认 4
+	QueueSize int `json:"queue_size"` // env JOBS_QUEUE_SIZE，默认 64
 }
 
 // AIConfig 控制 PLAN-038 / OPS-041 Tier 2 (LLM 角色推荐) + Tier 3 (LLM 失败诊断)。
@@ -169,6 +186,10 @@ func Load() (*Config, error) {
 			BaseURL:            envOr("AI_BASE_URL", ""),
 			RequestTimeoutSec:  parseIntOr("AI_REQUEST_TIMEOUT_SEC", 30),
 			MonthlyTokenBudget: int64(parseIntOr("AI_MONTHLY_TOKEN_BUDGET", 0)),
+		},
+		Jobs: JobsConfig{
+			PoolSize:  parseIntOr("JOBS_POOL_SIZE", 4),
+			QueueSize: parseIntOr("JOBS_QUEUE_SIZE", 64),
 		},
 	}
 

@@ -430,10 +430,13 @@ func runServer() {
 			OSTemplates: osTemplateRepo,
 			Firewall:    defaultFirewallApplier{repo: firewallRepo, svc: service.NewFirewallService(clusterMgr, vmSvc)},
 			Migrator:    vmMigratorAdapter{svc: vmSvc}, // PLAN-037: cluster.vm.migrate-batch
-			PoolSize:    4,
+			PoolSize:    cfg.Jobs.PoolSize,             // OPS-050: env JOBS_POOL_SIZE，默认 4
+			QueueSize:   cfg.Jobs.QueueSize,            // OPS-050: env JOBS_QUEUE_SIZE，默认 64
 		})
 		jobsRuntime.Start(workerCtx)
-		slog.Info("provisioning jobs runtime started", "pool_size", 4)
+		slog.Info("provisioning jobs runtime started",
+			"pool_size", cfg.Jobs.PoolSize,
+			"queue_size", cfg.Jobs.QueueSize)
 	}
 
 	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)
