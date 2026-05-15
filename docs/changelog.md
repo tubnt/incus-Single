@@ -112,6 +112,62 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第二轮补修 + 现场验证（2026-05-15 11:00 UTC）
+
+用户授权 ai@5ok.co 测多场景，发现 7 个 follow-up，逐个补修部署：
+
+1. **Rocky 9 镜像 `requirements.cdrom_agent=true`**（vm_create.go）
+   原代码只对 Windows 挂 agent:config，Rocky 也要 → 改成所有 VM 都挂
+   （未引用即忽略，无副作用）
+
+2. **runcmd retry 装包**（vm.go BuildCloudInit）
+   cloud-init `packages` 阶段在 Rocky 9 跑得太早 DNS 未就绪 → dnf install
+   必失败。改加 runcmd 兜底 retry：先 30×3s 等 DNS（getent hosts），再
+   5×10s install retry，apt/dnf/pacman/apk 各自分支
+
+3. **RHEL 系 firewalld 禁用**（vm.go runcmd dnf 分支）
+   Rocky/Alma/Fedora 默认 firewalld 阻塞 22/3389 → 加
+   `systemctl disable --now firewalld || true`，边界防御已在 hypervisor
+   层（incus ACL），guest firewalld 重复
+
+4. **reinstall stop op 不等 async 完成**（vm_reinstall.go）
+   `client.APIPut(stop)` 直接 finishStep succeeded，下一步 delete 撞
+   "Instance is running"。改成 wait operation 完成（force=true, 30s timeout）
+
+5. **`to: default` 老版 cloud-init 不识别**（vm.go buildNetworkConfig）
+   Debian 12 cloud-init 报 ValueError → pre-networking 失败、IP 没配。
+   改成 `to: 0.0.0.0/0`（CIDR 标记，所有已知 cloud-init 版本识别）
+
+6. **reinstall 复用旧 inst.Config 的 network-config**（vm_reinstall.go）
+   老 VM 创建时存的 cloud-init.network-config 仍是 `to: default`，
+   reinstall 复用就失败。加字符串替换 `to: default` → `to: 0.0.0.0/0`
+
+7. **YAML merge ExtraYAML**（vm.go mergeCloudInit / mergeMaps）
+   原 string append 遇到 `write_files`/`runcmd` 同名 list key →
+   `mapping key already defined`。改 yaml.v3 真合并：list 字段 append，
+   mapping 字段递归合并，scalar 字段 extra 覆盖（黑名单已禁
+   disable_root / ssh_pwauth）
+
+**最终测试矩阵（全绿）**：
+
+| 场景 | VM | 结果 |
+|------|----|----|
+| Ubuntu 24.04 创建 | vm-f412ee / vm-07f64a | 7 step succeeded，SSH root@ 一次通 |
+| Ubuntu reinstall → Ubuntu | job 36 (vm-284c5d) | 含 ExtraYAML write_files：/tmp/ops051-test.txt = "hello-ai" + 系统 sshd drop-in 并存 |
+| Ubuntu reinstall → Debian 12 | job 34 (vm-07f64a) | 8 step succeeded，SSH root@ 一次通 |
+| reset-password online | service 68 | channel=online, fallback=false, SSH 新密码 一次通 |
+| admin Textarea cloud_init_template | /admin/os-templates id=1 | 可见 + label "高级 cloud-init 注入（可选）" |
+| 黑名单 disable_root: true | PUT 400 | "字段 \"disable_root\" 被禁用：会覆盖 OPS-051 默认 root 登录策略" |
+| 合法 write_files YAML 写入 | PUT 200 | merged 到 base，list append 通过 |
+
+**Known issue 推下游**：
+- Rocky 9 / AlmaLinux 9 / Fedora 40：cloud-init.network-config v2
+  在 RHEL 系 NetworkManager 后端兼容性问题，VM 启动后 enp5s0 无 IPv4
+  → cloud-init.runcmd 永不跑、SSH 不通。**PLAN-053 单独处理**：换
+  NM keyfile renderer 或写到 /etc/sysconfig/network-scripts。Linux
+  cloud variant 中 Ubuntu/Debian/Arch/Alpine（netplan / ifupdown / NM
+  非首位）不受影响。
+
 ### 关联
 
 - 上游：PLAN-051 §2-E F-05（同 key 修补 + reinstall round-trip 测试遗留）

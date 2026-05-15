@@ -299,23 +299,31 @@ func TestBuildCloudInit_NoAptProxy(t *testing.T) {
 }
 
 // TestBuildCloudInit_ExtraYAML 验证 os_templates.cloud_init_template 中追加
-// 字段拼接到 base 之后（不覆盖系统强制字段）。
+// 字段被真正合并到 base（list append，不冲突）。OPS-051 测试发现纯字符串
+// 拼接遇到同名 list key（write_files）会让 cloud-init YAML 解析失败，改
+// yaml.v3 merge。
 func TestBuildCloudInit_ExtraYAML(t *testing.T) {
-	extra := "write_files:\n  - path: /etc/motd\n    content: hello\n"
+	extra := "write_files:\n  - path: /etc/motd\n    content: hello-ai\n"
 	ci := BuildCloudInit(CloudInitInput{
 		OSFamily:  OSFamilyAPT,
 		Password:  "x",
 		ExtraYAML: extra,
 	})
-	if !strings.Contains(ci, "# --- merged from os_templates.cloud_init_template ---") {
-		t.Errorf("missing merge marker:\n%s", ci)
+	// extra write_files 条目必须出现
+	if !strings.Contains(ci, "/etc/motd") || !strings.Contains(ci, "hello-ai") {
+		t.Errorf("extra write_files entry missing:\n%s", ci)
 	}
-	if !strings.Contains(ci, "/etc/motd") {
-		t.Errorf("extra write_files entry missing")
+	// 系统 write_files（sshd drop-in）必须仍在 —— list 应已 append
+	if !strings.Contains(ci, "99-incusadmin.conf") {
+		t.Errorf("system sshd drop-in stripped by extra merge:\n%s", ci)
 	}
-	// 系统字段必须仍在
+	// 系统 packages 必须仍在
 	if !strings.Contains(ci, "openssh-server") {
 		t.Errorf("system openssh-server stripped by extra merge")
+	}
+	// 输出必须是合法 cloud-config（不重复 mapping key）
+	if !strings.HasPrefix(ci, "#cloud-config") {
+		t.Errorf("output missing #cloud-config header")
 	}
 }
 

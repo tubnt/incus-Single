@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/model"
 )
@@ -768,45 +770,134 @@ func BuildCloudInit(in CloudInitInput) string {
 
 	// runcmd 兜底：
 	//   - apt-cacher 健康探测（5s 内不通 → 剥离 proxy；防 mirror 宕机阻塞首装）
+	//   - **packages 字段重试**：cloud-init `packages` 模块在某些镜像
+	//     （实测 Rocky 9 cloud-init 24.4-7）跑得太早，DNS 还没就绪 → dnf
+	//     install 必失败。runcmd 在 cloud-final 阶段执行，此时 networking
+	//     已稳定 → 重装一次确保 sshd 真在。每条加 retry 3 次 + 5s 间隔，
+	//     应对上游瞬时不可达。
 	//   - 启用 sshd（packages 装包后服务可能未自启）
 	//   - 启用 qemu-guest-agent（迁移 / reset-password online 走 guest-agent）
 	//   - reload sshd 让 drop-in 生效
 	b.WriteString("runcmd:\n")
-	if family == OSFamilyAPT && in.AptProxyURL != "" {
-		fmt.Fprintf(&b, "  - 'timeout 5 curl -sf %sacng-report.html > /dev/null || sed -i \"/Acquire::http::Proxy/d;/Acquire::https::Proxy/d\" /etc/apt/apt.conf.d/*'\n", in.AptProxyURL)
+	// 先等 DNS 可解析（Rocky 9 / Fedora 等 RHEL 系 NetworkManager-wait-online
+	// 可能超时但 resolv.conf 还没完全 ready；cloud-init runcmd 启动太快导致
+	// dnf install 必失败）。最多 90 秒 + 3 秒间隔 = 30 次。
+	b.WriteString("  - 'for i in $(seq 1 30); do getent hosts deb.debian.org archive.ubuntu.com mirrors.rockylinux.org > /dev/null 2>&1 && break; sleep 3; done'\n")
+	switch family {
+	case OSFamilyAPT:
+		if in.AptProxyURL != "" {
+			fmt.Fprintf(&b, "  - 'timeout 5 curl -sf %sacng-report.html > /dev/null || sed -i \"/Acquire::http::Proxy/d;/Acquire::https::Proxy/d\" /etc/apt/apt.conf.d/*'\n", in.AptProxyURL)
+		}
+		b.WriteString("  - 'for i in 1 2 3 4 5; do apt-get update -q && apt-get install -y --no-install-recommends openssh-server qemu-guest-agent unattended-upgrades && break; sleep 10; done'\n")
+	case OSFamilyDNF:
+		b.WriteString("  - 'for i in 1 2 3 4 5; do dnf install -y --setopt=install_weak_deps=False openssh-server qemu-guest-agent dnf-automatic && break; sleep 10; done'\n")
+	case OSFamilyPacman:
+		b.WriteString("  - 'for i in 1 2 3 4 5; do pacman -Sy --noconfirm openssh qemu-guest-agent && break; sleep 10; done'\n")
+	case OSFamilyAlpine:
+		b.WriteString("  - 'for i in 1 2 3 4 5; do apk add --no-cache openssh-server qemu-guest-agent && break; sleep 10; done'\n")
 	}
-	fmt.Fprintf(&b, "  - 'systemctl enable --now %s.service'\n", enableSSHService)
+	fmt.Fprintf(&b, "  - 'systemctl enable --now %s.service || true'\n", enableSSHService)
 	b.WriteString("  - 'systemctl enable --now qemu-guest-agent.service || true'\n")
-	fmt.Fprintf(&b, "  - 'systemctl reload %s.service || systemctl restart %s.service'\n", enableSSHService, enableSSHService)
+	fmt.Fprintf(&b, "  - 'systemctl reload %s.service || systemctl restart %s.service || true'\n", enableSSHService, enableSSHService)
 	if family == OSFamilyAPT {
 		b.WriteString("  - 'systemctl enable --now unattended-upgrades.service || true'\n")
 	}
 	if family == OSFamilyDNF {
 		b.WriteString("  - 'systemctl enable --now dnf-automatic.timer || true'\n")
+		// RHEL 系（Rocky/Alma/Fedora）默认装 firewalld 且阻塞 22 / 3389。
+		// 我们的边界防御由 incus ACL（fwg-*） 在 hypervisor 层做，guest 内
+		// firewalld 重复且阻挡用户 ssh。直接禁用（不存在则 noop）。
+		b.WriteString("  - 'systemctl disable --now firewalld || true'\n")
 	}
 
 	base := b.String()
 
-	// ExtraYAML 合并：本期 v1 采用 append 策略（在系统块之后直接拼接），
-	// 让 cloud-init 后写入字段覆盖前置（YAML 1.2 + cloud-init 模块顺序保证
-	// 系统必装包 + 必建账号已在 base 中；ExtraYAML 不能反向移除已设字段）。
-	// PLAN-053 升级 jinja schema-merge 时换实现。
+	// ExtraYAML 合并：cloud-init YAML 不允许同 mapping 内 key 重复，纯字符串
+	// 拼接遇到 write_files / runcmd / packages 等系统已用 key 必报
+	// `mapping key already defined`。这里用 yaml.v3 做真正的合并：
+	//   - list 字段（write_files / runcmd / packages / users / bootcmd 等）
+	//     append（去重靠 cloud-init 自己；重复 path/cmd 是 admin 自负）
+	//   - mapping 字段递归合并（如 apt: { ... }）
+	//   - scalar 字段 extra 覆盖 base（除了黑名单已禁的 disable_root /
+	//     ssh_pwauth）
+	// 合并失败（ExtraYAML 解析错）→ 退回 base，admin 端 validateCloudInit-
+	// Template 已有 yaml.Unmarshal 挡 schema，走到这里失败极少。PLAN-053
+	// 可升级为 cloud-init schema-validate。
 	if strings.TrimSpace(in.ExtraYAML) != "" {
-		extra := strings.TrimPrefix(strings.TrimSpace(in.ExtraYAML), "#cloud-config")
-		extra = strings.TrimLeft(extra, "\n")
-		base += "\n# --- merged from os_templates.cloud_init_template ---\n" + extra + "\n"
+		if merged, err := mergeCloudInit(base, in.ExtraYAML); err == nil {
+			return merged
+		}
+		// 解析失败兜底：保持 base 不变（系统功能不被 ExtraYAML 破坏）
 	}
 	return base
 }
 
+// mergeCloudInit 把 ExtraYAML 合并到 base cloud-config（list append + mapping
+// merge）。返回合并后的纯 YAML（不带 #cloud-config 头，调用方自加）。
+func mergeCloudInit(baseYAML, extraYAML string) (string, error) {
+	baseClean := strings.TrimPrefix(strings.TrimSpace(baseYAML), "#cloud-config")
+	extraClean := strings.TrimPrefix(strings.TrimSpace(extraYAML), "#cloud-config")
+	var baseMap map[string]any
+	var extraMap map[string]any
+	if err := yaml.Unmarshal([]byte(baseClean), &baseMap); err != nil {
+		return "", fmt.Errorf("parse base: %w", err)
+	}
+	if err := yaml.Unmarshal([]byte(extraClean), &extraMap); err != nil {
+		return "", fmt.Errorf("parse extra: %w", err)
+	}
+	merged := mergeMaps(baseMap, extraMap)
+	out, err := yaml.Marshal(merged)
+	if err != nil {
+		return "", fmt.Errorf("marshal merged: %w", err)
+	}
+	return "#cloud-config\n" + string(out), nil
+}
+
+// mergeMaps 把 b 合并到 a：list append、mapping 递归合并、scalar b 覆盖 a。
+func mergeMaps(a, b map[string]any) map[string]any {
+	if a == nil {
+		a = map[string]any{}
+	}
+	for k, vb := range b {
+		va, ok := a[k]
+		if !ok {
+			a[k] = vb
+			continue
+		}
+		// 同名 key：分类处理
+		switch va2 := va.(type) {
+		case []any:
+			if vb2, ok := vb.([]any); ok {
+				a[k] = append(va2, vb2...)
+			} else {
+				a[k] = vb // extra 替换（类型变化，按 extra 为准）
+			}
+		case map[string]any:
+			if vb2, ok := vb.(map[string]any); ok {
+				a[k] = mergeMaps(va2, vb2)
+			} else {
+				a[k] = vb
+			}
+		default:
+			a[k] = vb // scalar 覆盖
+		}
+	}
+	return a
+}
+
 func buildNetworkConfig(ip, cidr, gateway string) string {
+	// OPS-051 测试发现：`to: default` 是新版 netplan v2 关键字（Ubuntu 24.04
+	// cloud-init OK），但 Debian 12 等老版本 cloud-init 解析报
+	// "Address default is not a valid ip address" → cloud-init pre-networking
+	// 失败，VM 无 IP。改用更兼容的 `to: 0.0.0.0/0`（CIDR 标记），所有
+	// 已知 cloud-init 版本均识别。
 	return fmt.Sprintf(`version: 2
 ethernets:
   enp5s0:
     addresses:
       - %s/%s
     routes:
-      - to: default
+      - to: 0.0.0.0/0
         via: %s
     nameservers:
       addresses:

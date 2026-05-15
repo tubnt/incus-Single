@@ -169,15 +169,15 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 			},
 		},
 	}
-	// Windows 路径：antifob/incus-windows 镜像 publish 时带 requirements.cdrom_agent=true，
-	// Incus 期望 instance 显式挂 agent:config（incus-agent 的 ISO，含 windows 端可装
-	// 的 incus-agent.exe + 证书），否则 start 立即报错
+	// OPS-051 follow-up：任何镜像 properties 含 requirements.cdrom_agent=true
+	// 都需要显式挂 agent:config。原代码只覆盖 windows 路径，导致
+	// images:rockylinux/9/cloud（也带 cdrom_agent）start 失败：
 	// "This virtual machine image requires an agent:config disk be added"。
-	if osKind == "windows" {
-		body["devices"].(map[string]any)["incusagent"] = map[string]any{
-			"type":   "disk",
-			"source": "agent:config",
-		}
+	// 修法：所有 VM 都挂；未被 image 引用的盘 incus 不会 mount 进 guest，
+	// 无功能副作用、CDROM 资源开销可忽略（一个空 ISO 描述符）。
+	body["devices"].(map[string]any)["incusagent"] = map[string]any{
+		"type":   "disk",
+		"source": "agent:config",
 	}
 
 	bodyJSON, _ := json.Marshal(body)

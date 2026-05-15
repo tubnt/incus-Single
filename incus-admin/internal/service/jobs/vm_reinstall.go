@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -56,14 +57,27 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 	rt.finishStep(ctx, job.ID, 0, stepFetchInstance, model.StepStatusSucceeded, "")
 
 	// step 1: stop（best-effort，已 stopped 不报错）
+	// OPS-051 测试发现：原版只发 stop PUT 不等 async op 完成，下一步 delete
+	// 立刻撞 "Instance is running" race。这里同步等 stop op 完成（force=true
+	// + timeout=30，最坏 30s），失败转 skipped 不阻塞重装链。
 	rt.step(ctx, job.ID, 1, stepStop, model.StepStatusRunning, "停止当前实例")
 	stopBody, _ := json.Marshal(map[string]any{"action": "stop", "timeout": 30, "force": true})
-	if _, err := client.APIPut(ctx, fmt.Sprintf("/1.0/instances/%s/state?project=%s", job.TargetName, params.Project), bytes.NewReader(stopBody)); err != nil {
-		// 已 stop / 不存在 → 继续；详细原因写到 step detail
-		rt.finishStep(ctx, job.ID, 1, stepStop, model.StepStatusSkipped, err.Error())
+	stopResp, stopErr := client.APIPut(ctx, fmt.Sprintf("/1.0/instances/%s/state?project=%s", job.TargetName, params.Project), bytes.NewReader(stopBody))
+	if stopErr != nil {
+		rt.finishStep(ctx, job.ID, 1, stepStop, model.StepStatusSkipped, stopErr.Error())
 	} else {
+		if stopResp != nil && stopResp.Type == "async" {
+			var op struct{ ID string }
+			if uerr := json.Unmarshal(stopResp.Metadata, &op); uerr == nil && op.ID != "" {
+				if werr := client.WaitForOperation(ctx, op.ID); werr != nil {
+					rt.finishStep(ctx, job.ID, 1, stepStop, model.StepStatusWarning, "wait stop op: "+werr.Error())
+					goto afterStop
+				}
+			}
+		}
 		rt.finishStep(ctx, job.ID, 1, stepStop, model.StepStatusSucceeded, "")
 	}
+afterStop:
 
 	// step 2: delete + 等删完
 	rt.step(ctx, job.ID, 2, stepDelete, model.StepStatusRunning, "删除原实例")
@@ -122,6 +136,13 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 	// cloud-init key，legacy `user.cloud-init` 不被识别。
 	delete(inst.Config, "user.cloud-init")
 	inst.Config["cloud-init.user-data"] = cloudInit
+	// OPS-051 测试发现：老 VM 的 cloud-init.network-config 用 `to: default`，
+	// Debian 12 cloud-init 不识别报 ValueError → pre-networking 失败。重装
+	// 时把 inst.Config 中 cloud-init.network-config 的 `to: default` 替换为
+	// `to: 0.0.0.0/0`（与新 buildNetworkConfig 对齐）。零依赖、字符串级。
+	if nc, ok := inst.Config["cloud-init.network-config"]; ok {
+		inst.Config["cloud-init.network-config"] = strings.ReplaceAll(nc, "to: default", "to: 0.0.0.0/0")
+	}
 
 	body := map[string]any{
 		"name": job.TargetName,
