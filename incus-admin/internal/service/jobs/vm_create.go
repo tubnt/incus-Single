@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/incuscloud/incus-admin/internal/cluster"
 	"github.com/incuscloud/incus-admin/internal/model"
@@ -559,6 +561,16 @@ config:
 
 // eth0Device 装 nic device。Windows VM 必须传 hwaddr 锁定 MAC（与 network-config
 // 里的 mac_address 对齐）；Linux 留空让 Incus 默认生成。
+// utf16LE 把 UTF-8 字符串转 UTF-16LE 字节（PowerShell -EncodedCommand 要求）。
+func utf16LE(s string) []byte {
+	codepoints := utf16.Encode([]rune(s))
+	out := make([]byte, 0, len(codepoints)*2)
+	for _, c := range codepoints {
+		out = append(out, byte(c), byte(c>>8))
+	}
+	return out
+}
+
 func eth0Device(parent, ip, hwaddr string) map[string]any {
 	dev := map[string]any{
 		"type":                    "nic",
@@ -613,11 +625,30 @@ func applyWindowsCloudInit(ctx context.Context, client *cluster.Client, project,
 	}
 	// PowerShell 单 here-string，依次：清旧 IP → 新静态 IP → DNS →
 	// 启用 RDP service + reg + firewall → 改 Administrator 密码（admin 用户名兜底）。
+	// OPS-051 测试发现：Windows OOBE 收尾后会重置 New-NetIPAddress 设的静态 IP
+	// → APIPA 169.254.x → 外网 RDP 不通。把 watchdog 脚本写到磁盘 +
+	// scheduled task 每分钟 reapply IP 直到目标 IP 稳定（1 小时窗口）。
+	// 用 base64 encoded command 避开 quoting 嵌套问题。
+	// watchdogPS 是 OOBE 后周期性自愈逻辑（不依赖外部参数，全部 inline）。
+	watchdogPS := fmt.Sprintf(`$ok = Get-NetIPAddress -InterfaceAlias 'Ethernet' -IPAddress '%s' -ErrorAction SilentlyContinue
+$route = Get-NetRoute -InterfaceAlias 'Ethernet' -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Where-Object { $_.NextHop -eq '%s' }
+if (-not $ok -or -not $route) {
+  Get-NetIPAddress -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+  Get-NetRoute -InterfaceAlias 'Ethernet' -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+  New-NetIPAddress -InterfaceAlias 'Ethernet' -IPAddress '%s' -PrefixLength '%s' -ErrorAction SilentlyContinue | Out-Null
+  New-NetRoute -InterfaceAlias 'Ethernet' -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -NextHop '%s' -ErrorAction SilentlyContinue | Out-Null
+  Set-DnsClientServerAddress -InterfaceAlias 'Ethernet' -ServerAddresses 1.1.1.1,8.8.8.8 -ErrorAction SilentlyContinue
+}`, ip, gateway, ip, prefix, gateway)
+
+	// UTF-16LE + base64 = PowerShell -EncodedCommand 标准格式
+	watchdogB64 := base64.StdEncoding.EncodeToString(utf16LE(watchdogPS))
+
 	ps := fmt.Sprintf(`$ErrorActionPreference='Continue';
 $nic='Ethernet';
 Get-NetIPAddress -InterfaceAlias $nic -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;
-Remove-NetRoute -InterfaceAlias $nic -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;
-New-NetIPAddress -InterfaceAlias $nic -IPAddress %s -PrefixLength %s -DefaultGateway %s -ErrorAction Continue | Out-Null;
+Get-NetRoute -InterfaceAlias $nic -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue;
+New-NetIPAddress -InterfaceAlias $nic -IPAddress %s -PrefixLength %s -ErrorAction Continue | Out-Null;
+New-NetRoute -InterfaceAlias $nic -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -NextHop %s -ErrorAction Continue | Out-Null;
 Set-DnsClientServerAddress -InterfaceAlias $nic -ServerAddresses 1.1.1.1,8.8.8.8 -ErrorAction Continue;
 Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -ErrorAction Continue;
 Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Continue;
@@ -626,8 +657,12 @@ Start-Service -Name TermService -ErrorAction Continue;
 $pw = ConvertTo-SecureString '%s' -AsPlainText -Force;
 Set-LocalUser -Name Administrator -Password $pw -ErrorAction SilentlyContinue;
 Set-LocalUser -Name admin -Password $pw -ErrorAction SilentlyContinue;
-Write-Output 'incus-admin: windows cloud-init OK'
-`, ip, prefix, gateway, password)
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -EncodedCommand %s';
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(30) -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Hours 1);
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest;
+Register-ScheduledTask -TaskName 'ops051-ip-watchdog' -Action $action -Trigger $trigger -Principal $principal -Force -ErrorAction SilentlyContinue | Out-Null;
+Write-Output 'incus-admin: windows cloud-init OK + ip watchdog scheduled'
+`, ip, prefix, gateway, password, watchdogB64)
 	body := map[string]any{
 		"command":            []string{"powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps},
 		"wait-for-websocket": false,
@@ -635,6 +670,12 @@ Write-Output 'incus-admin: windows cloud-init OK'
 		"width":             80,
 		"height":            25,
 	}
+	// OPS-051 测试发现：PS 多行 here-string 经 incus exec 传入时含 `$false`
+	// 等被某层 shell/JSON 转义破坏 → New-NetIPAddress 静默失败 →
+	// 网络永远是 APIPA。改用 -EncodedCommand base64 UTF-16LE，绕开所有
+	// quoting 问题。
+	psEncoded := base64.StdEncoding.EncodeToString(utf16LE(ps))
+	body["command"] = []string{"powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", psEncoded}
 	bodyJSON, _ := json.Marshal(body)
 	resp, err := client.APIPost(ctx, fmt.Sprintf("/1.0/instances/%s/exec?project=%s", name, project), bytes.NewReader(bodyJSON))
 	if err != nil {

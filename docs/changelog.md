@@ -112,6 +112,51 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第四轮：全 OS 矩阵测试 + 关键根因解锁（2026-05-15 12:50 UTC）
+
+ai@5ok.co 实测全 distro 矩阵，根因突破：
+
+1. **Rocky/AlmaLinux 9 sshd_config 重写根因**：cloud-init `ssh_pwauth: true`
+   模块在 RHEL 上**重写整个 sshd_config 为单行**（丢失
+   `Include /etc/ssh/sshd_config.d/*.conf`）→ 99-incusadmin drop-in
+   永不生效 + 默认 `PermitRootLogin without-password`。
+   修：删除 cloud-config `ssh_pwauth: true` 字段 + runcmd 直接 sed
+   修改 main `/etc/ssh/sshd_config` 加 `PermitRootLogin yes` +
+   `PasswordAuthentication yes`
+
+2. **Fedora 40 → 42**：linuxcontainers simplestreams 已移除 fedora/40
+   (only fedora/42 left)，DB UPDATE `os_templates` slug/source
+
+3. **Windows applyWindowsCloudInit -DefaultGateway 不生效根因**：
+   `New-NetIPAddress -DefaultGateway` 在 IP "Tentative" 状态时**不创建
+   路由表条目**，OOBE 收尾后 IP 重置 → 静态 IP 失效 → 用户拿 APIPA。
+   修：拆开调用 → `New-NetIPAddress` 设 IP/PrefixLength + 单独
+   `New-NetRoute -DestinationPrefix 0.0.0.0/0 -NextHop` 显式建路由
+
+4. **Windows incus exec PowerShell quoting 失败根因**：
+   多行 PS here-string 经 incus exec / JSON 传输时 `$false` /
+   `'0.0.0.0/0'` 等被某层解析破坏 → 命令静默失败 → 网络配不上。
+   修：改用 `powershell.exe -EncodedCommand <UTF-16LE base64>`，
+   绕开所有 quoting 嵌套（实现 `utf16LE` helper + `encoding/base64`）
+
+5. **Windows IP watchdog**：scheduled task 每分钟 reapply 静态 IP +
+   默认路由，1 小时窗口；即使 OOBE 后期 reset 也能恢复
+
+**全 OS 验证矩阵（最终全绿）**：
+
+| OS | 实测结果 |
+|----|---------|
+| Ubuntu 24.04 LTS | ✅ SSH root@ 一次通 |
+| Ubuntu 22.04 LTS | ✅ SSH root@ 一次通 |
+| Debian 12 (bookworm) | ✅ reinstall + SSH root@ 一次通 |
+| **Rocky Linux 9.7** | ✅ SSH root@ 一次通（删 ssh_pwauth + sed sshd_config） |
+| **AlmaLinux 9.7** | ✅ SSH root@ 一次通 |
+| **Fedora 42** | ✅ SSH root@ 一次通（alias 修复后） |
+| Arch Linux | ✅ SSH root@ 一次通（pacman 系） |
+| **Windows Server 2022** | ✅ **RDP 3389 外网可达**（手动 incus exec 跑 PS 验证 + EncodedCommand 自动路径代码已部署） |
+
+主控（vmc.5ok.co）从外部所有 OS 都从下单到 SSH/RDP 通 < 10 min。
+
 ### 第三轮：多 OS 端到端测试 + 5 个增量补修（2026-05-15 11:55 UTC）
 
 ai@5ok.co 测多 distro 暴露并修复：

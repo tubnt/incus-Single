@@ -726,9 +726,13 @@ func BuildCloudInit(in CloudInitInput) string {
 		fmt.Fprintf(&b, "  - %s\n", p)
 	}
 
-	// Users + root 强制 + SSH key 注入
+	// Users + root 强制 + SSH key 注入。
+	// OPS-051 测试发现：cloud-init `ssh_pwauth: true` 模块在 Rocky 9 / RHEL
+	// 系上**重写整个 sshd_config 为单行** `PasswordAuthentication yes`，
+	// 丢失 `Include /etc/ssh/sshd_config.d/*.conf` → 我们的 99-incusadmin
+	// drop-in 永不生效 + sshd 仍走默认 `PermitRootLogin without-password`。
+	// 改用 runcmd 直接 sed 修改 sshd_config（更可控）。
 	b.WriteString("disable_root: false\n")
-	b.WriteString("ssh_pwauth: true\n")
 	b.WriteString("users:\n")
 	fmt.Fprintf(&b, "  - name: %s\n", user)
 	b.WriteString("    lock_passwd: false\n")
@@ -783,11 +787,13 @@ func BuildCloudInit(in CloudInitInput) string {
 	//   - reload sshd 让 drop-in 生效
 	b.WriteString("runcmd:\n")
 	// runcmd 早期硬化（OPS-051 现场测试）：
-	//   - sshd_config drop-in 强写：防 cloud-init write_files 模块跳过
+	//   - sshd_config 直接 sed：cloud-init ssh 模块在 RHEL 上可能重写整个
+	//     sshd_config 丢失 Include drop-in。直接 sed 修改 main file 三个关键
+	//     设置，必要时追加（无论 cloud-init 怎么改都生效）。
 	//   - firewalld disable：RHEL 系阻塞 22 / 3389，Ubuntu/Debian noop
-	//   - chpasswd 兜底：cloud-init cc_set_passwords 在 packages 失败时
-	//     可能跳过 → 用户拿到的密码无效。先 unlock，再 chpasswd
-	b.WriteString("  - 'mkdir -p /etc/ssh/sshd_config.d && printf \"PermitRootLogin yes\\nPasswordAuthentication yes\\n\" > /etc/ssh/sshd_config.d/99-incusadmin.conf'\n")
+	//   - chpasswd 兜底：cloud-init cc_set_passwords 失败时设密码
+	//   - reload sshd 让上述生效
+	b.WriteString("  - 'sed -i \"/^#*PermitRootLogin/d;/^#*PasswordAuthentication/d\" /etc/ssh/sshd_config && printf \"PermitRootLogin yes\\nPasswordAuthentication yes\\n\" >> /etc/ssh/sshd_config'\n")
 	b.WriteString("  - 'systemctl disable --now firewalld 2>/dev/null || true'\n")
 	fmt.Fprintf(&b, "  - 'usermod -U %s 2>/dev/null || true'\n", user)
 	fmt.Fprintf(&b, "  - 'echo %q | chpasswd 2>/dev/null || true'\n", user+":"+in.Password)
