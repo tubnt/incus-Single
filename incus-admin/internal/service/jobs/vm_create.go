@@ -78,15 +78,16 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		ExtraYAML:   extraYAML,
 	})
 
-	// OS-aware：Windows / Linux 走不同 cloud-init 形态。
-	// - Linux：netplan v2 + 接口名 enp5s0（约定俗成）
-	// - Windows：cloudbase-init NetworkConfigPlugin 仅认 v1 + MAC 匹配
-	//   （cloudbase-init 1.x 上游和 XO/XCP-ng 社区一致结论：v2/接口名匹配在
-	//    Windows 上不可靠 —— XCP-ng forum/post/92765；
-	//    cloudbase-init.readthedocs.io NoCloudConfigDriveService 文档）
+	// OS-aware：Windows / Linux / CoreOS 走不同 cloud-init 形态。
+	// - Linux：netplan v2 + 接口名 enp5s0
+	// - Windows：cloudbase-init / PowerShell exec
+	// - CoreOS (Fedora CoreOS / Flatcar)：用 Ignition JSON 通过 fw_cfg 注入，
+	//   不支持 cloud-init datasource。SSH key only (无密码)，default user = core。
 	osKind := "linux"
 	if isWindowsAlias(imageAlias) {
 		osKind = "windows"
+	} else if isCoreOSAlias(imageAlias) {
+		osKind = "coreos"
 	}
 
 	// Windows 路径需要预先固定 MAC 才能写进 v1 network-config 让 cloudbase-init
@@ -142,6 +143,16 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		"cloud-init.network-config": netCfg,
 		"security.secureboot":       "false",
 		"migration.stateful":        "true",
+	}
+	// CoreOS 路径：用 Ignition JSON 通过 qemu fw_cfg 注入。
+	// 需要 customers project 设 `restricted.virtual-machines.lowlevel=allow`
+	// 允许 raw.qemu（incus admin 一次性配置）。
+	// CoreOS 不读 cloud-init，删 user-data + network-config 避免混淆。
+	if osKind == "coreos" {
+		ignition := buildIgnitionJSON(params.SSHKeys, params.IP, params.SubnetCIDR, params.Gateway)
+		configMap["raw.qemu"] = fmt.Sprintf("-fw_cfg name=opt/com.coreos/config,string=%s", ignition)
+		delete(configMap, "cloud-init.user-data")
+		delete(configMap, "cloud-init.network-config")
 	}
 	// 我们用的 antifob/incus-windows 构建的 Win Server 2022 镜像是 UEFI 原生
 	// 且通过 image properties `requirements.cdrom_agent=true` 让 Incus 自动注入
@@ -508,6 +519,40 @@ func applyUserDefaultFirewallGroups(
 func isWindowsAlias(alias string) bool {
 	a := strings.ToLower(alias)
 	return strings.HasPrefix(a, "windows") || strings.Contains(a, "/windows-") || strings.Contains(a, "-windows")
+}
+
+// isCoreOSAlias 判断 image alias 是否 CoreOS（Fedora CoreOS / Flatcar）。
+// CoreOS 用 Ignition 而非 cloud-init，必须走专用配置注入路径。
+func isCoreOSAlias(alias string) bool {
+	a := strings.ToLower(alias)
+	return strings.Contains(a, "coreos") || strings.Contains(a, "flatcar")
+}
+
+// buildIgnitionJSON 生成 CoreOS Ignition 配置（spec 3.3.0）。CoreOS 默认
+// `core` 用户不能用密码登录，必须有 SSH key。如果用户没传 SSH key，VM 仍
+// 创建但无登录方式（建议前端在选 CoreOS 时强制要求 SSH key）。
+//
+// 静态 IP 用 systemd-networkd unit 写入 /etc/systemd/network/00-eth0.network。
+// CoreOS 内置 systemd-networkd，启动时自动加载。
+func buildIgnitionJSON(sshKeys []string, ip, cidr, gateway string) string {
+	prefix := cidr
+	if i := strings.LastIndex(cidr, "/"); i >= 0 {
+		prefix = cidr[i+1:]
+	}
+	keysJSON, _ := json.Marshal(sshKeys)
+	networkUnit := fmt.Sprintf(`[Match]
+Name=eth0 enp*
+
+[Network]
+Address=%s/%s
+Gateway=%s
+DNS=1.1.1.1
+DNS=8.8.8.8
+`, ip, prefix, gateway)
+	// dataURL encode
+	dataURL := "data:," + strings.ReplaceAll(strings.ReplaceAll(networkUnit, "%", "%25"), "\n", "%0A")
+	ignition := fmt.Sprintf(`{"ignition":{"version":"3.3.0"},"passwd":{"users":[{"name":"core","sshAuthorizedKeys":%s}]},"storage":{"files":[{"path":"/etc/systemd/network/00-eth0.network","mode":420,"contents":{"source":"%s"}}]}}`, keysJSON, dataURL)
+	return ignition
 }
 
 // generateMAC 给 Windows VM 预生成 MAC。固定 OUI 10:66:6a（Incus / linuxcontainers

@@ -112,6 +112,41 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第五轮：8 OS 复查 + Fedora CoreOS 接入（2026-05-15 13:20 UTC）
+
+**Linux 6 OS 复查**（commit b8fc57a binary 自动跑）：
+- Ubuntu 24.04 / Debian 12 / Rocky 9 一次 SSH root@ 通 ✓
+- AlmaLinux 9 / Fedora 42 / Arch 之前已验证 ✓
+
+**Fedora CoreOS 接入（部分）**：
+- 下载 Fedora CoreOS 44 stable qcow2（2 GB），
+  `incus image import` 到本地 store + alias `fedora-coreos`，
+  `incus image copy --target-project=customers`
+- DB `os_templates` INSERT slug=fedora-coreos / default_user=core
+- 代码：vm_create.go 加 `isCoreOSAlias` + `buildIgnitionJSON`（生成
+  Ignition spec 3.3.0 + SSH key + systemd-networkd 静态 IP）+
+  `utf16LE` / `encoding/base64` helper（OS 路径分支：linux / windows
+  / coreos）
+- 通过 `raw.qemu -fw_cfg name=opt/com.coreos/config,string=<json>` 注入
+- `incus project set customers restricted.virtual-machines.lowlevel=allow`
+  放开 raw.qemu 限制
+
+**CoreOS Known Issue 推 OPS-053**：QEMU `-fw_cfg name=...,string=<json>`
+解析时把 JSON 中的 `,` `=` `:` 当 fw_cfg 子参数分隔符 →
+`passwd=` 被警告 "short-form boolean option deprecated" + QEMU 实际
+启动失败（forklimits 报错）。
+
+解决路径（PLAN-053 / OPS-053）：
+- 用 fw_cfg `file=<path>` 形式替代 `string=` —— 需要把 Ignition JSON
+  写到磁盘文件，调整 vm_create 流程引入 pre-launch file 阶段
+- 或等 incus 6.x 增加 `user.coreos.config` 原生 Ignition 字段
+- 或用 incus-windows 路径类似的 instance-side exec（不适用 CoreOS
+  immutable 镜像 + 无 ssh 入口的 chicken-and-egg）
+
+CoreOS 镜像 + alias + DB 模板 + buildIgnitionJSON 代码已就位，仅最后一公里
+fw_cfg 注入方式待 OPS-053 完成。Admin 仍可手动 `incus launch
+--project=default fedora-coreos --config user.user-data=...` 创建。
+
 ### 第四轮：全 OS 矩阵测试 + 关键根因解锁（2026-05-15 12:50 UTC）
 
 ai@5ok.co 实测全 distro 矩阵，根因突破：
