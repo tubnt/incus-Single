@@ -274,7 +274,7 @@ func (r *FirewallRepo) ReplaceRules(ctx context.Context, groupID int64, rules []
 
 func (r *FirewallRepo) ListBindingsByVM(ctx context.Context, vmID int64) ([]model.FirewallGroup, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT g.id, g.slug, g.name, g.description, g.created_at, g.updated_at
+		`SELECT g.id, g.slug, g.name, g.description, g.owner_id, g.created_at, g.updated_at
 		 FROM firewall_groups g
 		 JOIN vm_firewall_bindings b ON b.group_id = g.id
 		 WHERE b.vm_id = $1

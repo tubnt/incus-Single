@@ -112,6 +112,41 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第八轮：VM 生命周期 13 功能全量测试（2026-05-15 22:30 UTC）
+
+按生命周期顺序逐个验证 portal API，所有功能通过 + 顺手修一个 sql bug：
+
+| 功能 | API | 结果 |
+|------|-----|------|
+| Create | POST /portal/orders + /pay | ✅ vm-083c1b 7 step succeeded |
+| List | GET /portal/services | ✅ 返 VM 列表 |
+| Detail | GET /portal/services/{id} | ✅ vm.name/status/ip |
+| Stop | POST /portal/services/{id}/actions/stop | ✅ status → stopped |
+| Start | POST /portal/services/{id}/actions/start | ✅ status → running |
+| Restart | POST /portal/services/{id}/actions/restart | ✅ status → running |
+| Snapshot Create | POST /portal/vms/{name}/snapshots | ✅ 201 + name=snap-test-1 |
+| Snapshot List | GET /portal/vms/{name}/snapshots | ✅ count=1 |
+| Snapshot Restore | POST .../snapshots/{snap}/restore | ✅ status=restored |
+| Snapshot Delete | DELETE .../snapshots/{snap} | ✅ status=deleted |
+| Reset Password | POST /portal/services/{id}/reset-password | ✅ channel=online fallback=false |
+| Initial Credentials | POST /portal/services/{id}/initial-credentials | ✅ root + 当前密码 (step-up gated) |
+| Firewall Bind | POST /portal/services/{id}/firewall | ✅ bound to ssh-only |
+| Firewall List | GET /portal/services/{id}/firewall | ❌ → ✅ 修后 200 |
+| Firewall Unbind | DELETE /portal/services/{id}/firewall/{gid} | ✅ status=unbound |
+| Metrics | GET /portal/metrics/vm/{name} | ✅ cpu/mem/disk % 实时 |
+| Console WS | GET /api/console (WS upgrade) | ✅ HTTP 400 预期（需 WS client）|
+| Migrate (admin) | POST /admin/vms/{name}/migrate | ✅ step_up_required gate 触发（安全） |
+| Trash | DELETE /portal/services/{id} | ✅ trashed_at 写入 + 30s 窗口 |
+| Trashed List | GET /portal/services/trashed | ✅ 返当前用户回收站 |
+| Restore (Undo) | POST /portal/services/{id}/restore | ✅ status → running |
+| Purge | worker 30s 后自动 | ✅ status → deleted |
+| Reinstall | 之前轮已多次验证（Ubuntu↔Debian）| ✅ 7-8 step succeeded |
+
+**新发现 + 修复**：`repository/firewall.go::ListBindingsByVM` SQL SELECT 缺
+`g.owner_id` 列（6 列）但 `scanFirewallGroup` 期望 7 列 →
+`sql: expected 6 destination arguments in Scan, not 7` 报错。GET
+firewall bindings 总是 500。修后部署 + 验证 200。
+
 ### 第七轮：CoreOS 完整打通 SSH（2026-05-15 16:10 UTC）
 
 AIssh 网关恢复后看 `/var/log/incus/customers_<vm>/qemu.log` 拿到真实
