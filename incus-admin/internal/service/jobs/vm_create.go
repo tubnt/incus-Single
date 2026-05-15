@@ -144,13 +144,19 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		"security.secureboot":       "false",
 		"migration.stateful":        "true",
 	}
-	// CoreOS 路径：用 Ignition JSON 通过 qemu fw_cfg 注入。
-	// 需要 customers project 设 `restricted.virtual-machines.lowlevel=allow`
-	// 允许 raw.qemu（incus admin 一次性配置）。
+	// CoreOS 路径：Ignition JSON 通过 qemu fw_cfg name=opt/com.coreos/config
+	// 注入。QEMU 的 OPTS 解析把 `,` 视为子参数分隔符 → JSON 内 `,` 必须
+	// 用 `,,` 转义（QEMU 标准 escape）。需要 customers project 设
+	// `restricted.virtual-machines.lowlevel=allow` 允许 raw.qemu。
 	// CoreOS 不读 cloud-init，删 user-data + network-config 避免混淆。
 	if osKind == "coreos" {
 		ignition := buildIgnitionJSON(params.SSHKeys, params.IP, params.SubnetCIDR, params.Gateway)
-		configMap["raw.qemu"] = fmt.Sprintf("-fw_cfg name=opt/com.coreos/config,string=%s", ignition)
+		// 两层转义：
+		//   - `,` → `,,`：QEMU OPTS 解析把 `,` 当 fw_cfg 子参数分隔符
+		//   - `"` → `\"`：incus raw.qemu 走 shlex split，未转义的 `"` 被 strip
+		escapedIgnition := strings.ReplaceAll(ignition, `"`, `\"`)
+		escapedIgnition = strings.ReplaceAll(escapedIgnition, ",", ",,")
+		configMap["raw.qemu"] = fmt.Sprintf(`-fw_cfg name=opt/com.coreos/config,string=%s`, escapedIgnition)
 		delete(configMap, "cloud-init.user-data")
 		delete(configMap, "cloud-init.network-config")
 	}

@@ -112,6 +112,26 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第六轮：CoreOS double-escape + OPS-053 known issue（2026-05-15 14:00 UTC）
+
+CoreOS raw.qemu fw_cfg 转义又深一层：
+- `,` → `,,` (QEMU OPTS escape) — 已加
+- `"` → `\"` (incus shlex split escape) — 已加
+
+但部署后 vm 启动仍 `wait_start failed: forklimits ... exit status 1`，
+detail 中 QEMU args 显示 `\"` 和 `,,` 都正确传到 QEMU，但 QEMU 进程
+立即 exit 1。具体 stderr 在 `/var/log/incus/customers_<vm>/qemu.log`
+内，但 AIssh MCP 网关到主控 SSH 通道在测试中断开（持续 45+ 分钟），
+无法读 qemu.log 进一步调试。
+
+**CoreOS 标 OPS-053 known issue 推后续处理**：
+- 镜像 / DB 模板 / 代码路径全部就位（commit 2caa72e + 第 23 轮 double
+  escape）
+- 真正的修复需要看 QEMU stderr 调整 fw_cfg 参数语法（可能要走 file= 路径，
+  pre-launch 写 Ignition JSON 到 hypervisor 磁盘，再 raw.qemu 引用）
+- Admin 可在 default project 用 `incus launch fedora-coreos` 手动 +
+  传 user.user-data ignition
+
 ### 第五轮：8 OS 复查 + Fedora CoreOS 接入（2026-05-15 13:20 UTC）
 
 **Linux 6 OS 复查**（commit b8fc57a binary 自动跑）：
