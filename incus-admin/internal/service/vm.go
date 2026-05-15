@@ -743,8 +743,11 @@ func BuildCloudInit(in CloudInitInput) string {
 		}
 	}
 
-	// chpasswd 设密码（cloud-init users 子模块单独 password 字段有兼容性问题，
-	// 用 chpasswd.users[] 是更稳的写法）
+	// chpasswd 设密码：cloud-init 24.4+ chpasswd.users[] 兼容性更好，但
+	// Rocky 9 cloud-init Final Stage 在 packages 失败时部分模块跳过。
+	// 同时设顶层 `password:` 字段（cloud-init 所有版本都支持，cc_set_passwords
+	// 早期模块；任一生效即可）+ chpasswd.users[] 双保险。
+	fmt.Fprintf(&b, "password: %q\n", in.Password)
 	b.WriteString("chpasswd:\n")
 	b.WriteString("  expire: false\n")
 	b.WriteString("  users:\n")
@@ -779,7 +782,16 @@ func BuildCloudInit(in CloudInitInput) string {
 	//   - 启用 qemu-guest-agent（迁移 / reset-password online 走 guest-agent）
 	//   - reload sshd 让 drop-in 生效
 	b.WriteString("runcmd:\n")
-	// 先等 DNS 可解析（Rocky 9 / Fedora 等 RHEL 系 NetworkManager-wait-online
+	// runcmd 早期硬化（OPS-051 现场测试）：
+	//   - sshd_config drop-in 强写：防 cloud-init write_files 模块跳过
+	//   - firewalld disable：RHEL 系阻塞 22 / 3389，Ubuntu/Debian noop
+	//   - chpasswd 兜底：cloud-init cc_set_passwords 在 packages 失败时
+	//     可能跳过 → 用户拿到的密码无效。先 unlock，再 chpasswd
+	b.WriteString("  - 'mkdir -p /etc/ssh/sshd_config.d && printf \"PermitRootLogin yes\\nPasswordAuthentication yes\\n\" > /etc/ssh/sshd_config.d/99-incusadmin.conf'\n")
+	b.WriteString("  - 'systemctl disable --now firewalld 2>/dev/null || true'\n")
+	fmt.Fprintf(&b, "  - 'usermod -U %s 2>/dev/null || true'\n", user)
+	fmt.Fprintf(&b, "  - 'echo %q | chpasswd 2>/dev/null || true'\n", user+":"+in.Password)
+	// 再等 DNS 可解析（Rocky 9 / Fedora 等 RHEL 系 NetworkManager-wait-online
 	// 可能超时但 resolv.conf 还没完全 ready；cloud-init runcmd 启动太快导致
 	// dnf install 必失败）。最多 90 秒 + 3 秒间隔 = 30 次。
 	b.WriteString("  - 'for i in $(seq 1 30); do getent hosts deb.debian.org archive.ubuntu.com mirrors.rockylinux.org > /dev/null 2>&1 && break; sleep 3; done'\n")
@@ -804,10 +816,6 @@ func BuildCloudInit(in CloudInitInput) string {
 	}
 	if family == OSFamilyDNF {
 		b.WriteString("  - 'systemctl enable --now dnf-automatic.timer || true'\n")
-		// RHEL 系（Rocky/Alma/Fedora）默认装 firewalld 且阻塞 22 / 3389。
-		// 我们的边界防御由 incus ACL（fwg-*） 在 hypervisor 层做，guest 内
-		// firewalld 重复且阻挡用户 ssh。直接禁用（不存在则 noop）。
-		b.WriteString("  - 'systemctl disable --now firewalld || true'\n")
 	}
 
 	base := b.String()
@@ -886,23 +894,25 @@ func mergeMaps(a, b map[string]any) map[string]any {
 }
 
 func buildNetworkConfig(ip, cidr, gateway string) string {
-	// OPS-051 测试发现：`to: default` 是新版 netplan v2 关键字（Ubuntu 24.04
-	// cloud-init OK），但 Debian 12 等老版本 cloud-init 解析报
-	// "Address default is not a valid ip address" → cloud-init pre-networking
-	// 失败，VM 无 IP。改用更兼容的 `to: 0.0.0.0/0`（CIDR 标记），所有
-	// 已知 cloud-init 版本均识别。
-	return fmt.Sprintf(`version: 2
-ethernets:
-  enp5s0:
-    addresses:
-      - %s/%s
-    routes:
-      - to: 0.0.0.0/0
-        via: %s
-    nameservers:
-      addresses:
-        - 1.1.1.1
-        - 8.8.8.8`, ip, cidr, gateway)
+	// OPS-051 测试发现：cloud-init network-config v2 在 RHEL 系
+	// (Rocky 9 / AlmaLinux 9 / Fedora) NetworkManager renderer 兼容性差，
+	// enp5s0 拿不到 IPv4 → cloud-init runcmd 永不跑。
+	//
+	// 改用 cloud-init network-config v1（老格式），所有 distro + 所有
+	// cloud-init 版本都稳定支持（Ubuntu/Debian/RHEL/Arch/Alpine 通用）。
+	// v1 直接告诉 cloud-init "subnets 是 static、地址/网关/DNS 这些"，
+	// renderer 翻译到 netplan / sysconfig / NM keyfile / interfaces。
+	return fmt.Sprintf(`version: 1
+config:
+  - type: physical
+    name: enp5s0
+    subnets:
+      - type: static
+        address: %s/%s
+        gateway: %s
+        dns_nameservers:
+          - 1.1.1.1
+          - 8.8.8.8`, ip, cidr, gateway)
 }
 
 // Ensure VMService implements status constants from model

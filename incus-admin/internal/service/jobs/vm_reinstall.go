@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -136,12 +137,14 @@ afterStop:
 	// cloud-init key，legacy `user.cloud-init` 不被识别。
 	delete(inst.Config, "user.cloud-init")
 	inst.Config["cloud-init.user-data"] = cloudInit
-	// OPS-051 测试发现：老 VM 的 cloud-init.network-config 用 `to: default`，
-	// Debian 12 cloud-init 不识别报 ValueError → pre-networking 失败。重装
-	// 时把 inst.Config 中 cloud-init.network-config 的 `to: default` 替换为
-	// `to: 0.0.0.0/0`（与新 buildNetworkConfig 对齐）。零依赖、字符串级。
+	// OPS-051 测试发现：老 VM 的 cloud-init.network-config 是 v2 格式，
+	// 在 RHEL 系 NetworkManager 后端兼容性差（enp5s0 拿不到 IPv4）。
+	// 重装时从老 v2 配置正则提取 ip/cidr/gateway，调 BuildNetworkConfig 重生
+	// v1 格式（所有 distro 通用）。解析失败保留原样不阻塞重装链。
 	if nc, ok := inst.Config["cloud-init.network-config"]; ok {
-		inst.Config["cloud-init.network-config"] = strings.ReplaceAll(nc, "to: default", "to: 0.0.0.0/0")
+		if v1cfg := convertV2NetworkConfigToV1(nc); v1cfg != "" {
+			inst.Config["cloud-init.network-config"] = v1cfg
+		}
 	}
 
 	body := map[string]any{
@@ -272,4 +275,34 @@ func (e *vmReinstallExecutor) Rollback(ctx context.Context, rt *Runtime, job *mo
 	if taken := rt.takeParams(job.ID); taken != nil && taken.Credential != nil {
 		taken.Credential.Wipe()
 	}
+}
+
+// convertV2NetworkConfigToV1 把老 VM 存的 cloud-init network-config v2
+// 转成 v1（OPS-051：RHEL 系 NM 后端 v2 兼容性差）。简单正则提取
+// addresses / via，不解析 yaml.Node。提取失败返回 "" 让调用方保留原值。
+func convertV2NetworkConfigToV1(v2 string) string {
+	if !strings.Contains(v2, "version: 2") {
+		return "" // 不是 v2 或已经 v1，原样保留
+	}
+	// 匹配 "- A.B.C.D/N" addresses 第一条 + "via A.B.C.D" gateway
+	ipRe := regexp.MustCompile(`addresses:\s*\n\s*-\s*([0-9.]+/\d+)`)
+	gwRe := regexp.MustCompile(`via:\s*([0-9.]+)`)
+	ipMatch := ipRe.FindStringSubmatch(v2)
+	gwMatch := gwRe.FindStringSubmatch(v2)
+	if len(ipMatch) < 2 || len(gwMatch) < 2 {
+		return ""
+	}
+	addr := ipMatch[1]
+	gw := gwMatch[1]
+	return fmt.Sprintf(`version: 1
+config:
+  - type: physical
+    name: enp5s0
+    subnets:
+      - type: static
+        address: %s
+        gateway: %s
+        dns_nameservers:
+          - 1.1.1.1
+          - 8.8.8.8`, addr, gw)
 }

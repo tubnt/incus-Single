@@ -112,6 +112,48 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第三轮：多 OS 端到端测试 + 5 个增量补修（2026-05-15 11:55 UTC）
+
+ai@5ok.co 测多 distro 暴露并修复：
+
+1. **network-config v2 → v1**（vm.go::buildNetworkConfig）
+   v2 `to: default` 在 Debian 12 / Rocky 9 cloud-init 旧版本不识别，
+   v2 在 RHEL NetworkManager 后端兼容性差。改用 cloud-init v1
+   （type:physical + subnets:static + dns_nameservers），所有 distro
+   通用稳定。reinstall 复用旧 inst.Config 时正则提取 v2 配置转 v1
+   （vm_reinstall.go::convertV2NetworkConfigToV1）
+
+2. **runcmd 早期 sshd_config drop-in 强写**
+   cloud-init write_files 在 packages 失败时跳过 → PermitRootLogin
+   no。runcmd 第一条直接 printf 写 /etc/ssh/sshd_config.d/99-incusadmin.conf
+
+3. **runcmd 提前 disable firewalld**
+   原本在 dnf 分支末尾，装包失败就不跑。提到 runcmd 第二条不依赖包
+
+4. **runcmd chpasswd 兜底**
+   cloud-init cc_set_passwords 在 packages 失败时可能跳过 →
+   `usermod -U root` 解锁 + `echo "root:pwd" | chpasswd`，幂等
+
+5. **cloud-config 顶层 password 字段双保险**
+   chpasswd.users[] 之外加 `password:` 顶层（cloud-init 所有版本
+   支持），任一模块跑就生效
+
+**最终验证矩阵**：
+
+| OS family | 状态 | 备注 |
+|-----------|------|------|
+| Ubuntu 24.04 / 22.04 / 20.04 | ✅ SSH 一次通 | apt + 系统 sshd drop-in 全工作 |
+| Debian 12 / 11 | ✅ SSH 一次通 | network-config v1 兼容 cloud-init 旧版本 |
+| Windows Server 2022 | ⚠️ 走 PowerShell 路径 | step verify_ready 测 VM 内 127.0.0.1:3389（误报），外网 RDP 可达性依赖 OOBE 时序，推 OPS-052 |
+| Rocky 9 / AlmaLinux 9 / Fedora 40 | ⚠️ 推 PLAN-053 | sshd 装上 + IPv4 获取 + firewalld disable + sshd drop-in 全套到位，但 cloud-init Final Stage 失败导致 chpasswd 不可靠，需 RHEL 系深度调研 |
+| Arch / Alpine | 未实测 | pacman/apk 分支代码已就位 |
+
+**Known issues → PLAN-053**：
+- RHEL 系 cloud-init.network-config v2 在 NM 后端表现差异
+- RHEL 系 cloud-init 24.4-7 Final Stage 在 packages 失败时模块跳过
+- Windows applyWindowsCloudInit New-NetIPAddress 时序（OOBE 收尾期间执行可能被 reset）
+- verify_ready step 在 Windows 测 127.0.0.1:3389 是误报，应改 hypervisor 侧 nc
+
 ### 第二轮补修 + 现场验证（2026-05-15 11:00 UTC）
 
 用户授权 ai@5ok.co 测多场景，发现 7 个 follow-up，逐个补修部署：
