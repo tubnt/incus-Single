@@ -151,12 +151,12 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 	// CoreOS 不读 cloud-init，删 user-data + network-config 避免混淆。
 	if osKind == "coreos" {
 		ignition := buildIgnitionJSON(params.SSHKeys, params.IP, params.SubnetCIDR, params.Gateway)
-		// 两层转义：
-		//   - `,` → `,,`：QEMU OPTS 解析把 `,` 当 fw_cfg 子参数分隔符
-		//   - `"` → `\"`：incus raw.qemu 走 shlex split，未转义的 `"` 被 strip
-		escapedIgnition := strings.ReplaceAll(ignition, `"`, `\"`)
-		escapedIgnition = strings.ReplaceAll(escapedIgnition, ",", ",,")
-		configMap["raw.qemu"] = fmt.Sprintf(`-fw_cfg name=opt/com.coreos/config,string=%s`, escapedIgnition)
+		// incus raw.qemu 走 shlex.split。SSH key 含空格、JSON 含 `"` 都会
+		// 被 split 破坏。用 single quote 包整段 fw_cfg arg —— shlex 单引号
+		// 内的内容原样保留（不 split 空格、不处理 `\`、不吃 `"`）。
+		// `,` → `,,` 仍要（QEMU OPTS 解析层 escape）。
+		escapedIgnition := strings.ReplaceAll(ignition, ",", ",,")
+		configMap["raw.qemu"] = fmt.Sprintf(`-fw_cfg 'name=opt/com.coreos/config,string=%s'`, escapedIgnition)
 		delete(configMap, "cloud-init.user-data")
 		delete(configMap, "cloud-init.network-config")
 	}
@@ -546,18 +546,28 @@ func buildIgnitionJSON(sshKeys []string, ip, cidr, gateway string) string {
 		prefix = cidr[i+1:]
 	}
 	keysJSON, _ := json.Marshal(sshKeys)
-	networkUnit := fmt.Sprintf(`[Match]
-Name=eth0 enp*
+	// Fedora CoreOS 44 默认用 NetworkManager（不是 systemd-networkd），
+	// 写 NM keyfile 格式 /etc/NetworkManager/system-connections/eth0.nmconnection。
+	// mode 0600 (384 decimal)，NetworkManager 拒绝 0644 keyfile。
+	// interface-name=enp5s0 是 incus virtio-net 在 systemd predictable name 下
+	// 的实际名（console log 已验证）。
+	nmKeyfile := fmt.Sprintf(`[connection]
+id=eth0
+type=ethernet
+interface-name=enp5s0
 
-[Network]
-Address=%s/%s
-Gateway=%s
-DNS=1.1.1.1
-DNS=8.8.8.8
+[ipv4]
+method=manual
+addresses=%s/%s
+gateway=%s
+dns=1.1.1.1;8.8.8.8;
+may-fail=false
+
+[ipv6]
+method=disabled
 `, ip, prefix, gateway)
-	// dataURL encode
-	dataURL := "data:," + strings.ReplaceAll(strings.ReplaceAll(networkUnit, "%", "%25"), "\n", "%0A")
-	ignition := fmt.Sprintf(`{"ignition":{"version":"3.3.0"},"passwd":{"users":[{"name":"core","sshAuthorizedKeys":%s}]},"storage":{"files":[{"path":"/etc/systemd/network/00-eth0.network","mode":420,"contents":{"source":"%s"}}]}}`, keysJSON, dataURL)
+	dataURL := "data:;base64," + base64.StdEncoding.EncodeToString([]byte(nmKeyfile))
+	ignition := fmt.Sprintf(`{"ignition":{"version":"3.3.0"},"passwd":{"users":[{"name":"core","sshAuthorizedKeys":%s}]},"storage":{"files":[{"path":"/etc/NetworkManager/system-connections/eth0.nmconnection","mode":384,"overwrite":true,"contents":{"source":"%s"}}]}}`, keysJSON, dataURL)
 	return ignition
 }
 

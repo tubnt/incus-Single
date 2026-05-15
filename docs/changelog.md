@@ -112,6 +112,44 @@ vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 li
   ```
 - 截图：`./done-panel-success.png`
 
+### 第七轮：CoreOS 完整打通 SSH（2026-05-15 16:10 UTC）
+
+AIssh 网关恢复后看 `/var/log/incus/customers_<vm>/qemu.log` 拿到真实
+错误，3 轮根因解锁后 CoreOS SSH 一次通：
+
+1. **shlex.split 把 SSH key 含空格部分当文件路径**：
+   QEMU stderr: `Could not open 'AAAAC3Nz...': No such file or directory`
+   → 用 single quote 包整段 fw_cfg arg，shlex 单引号内原样保留
+   不 split 空格 / 不处理 `\` / 不吃 `"`
+
+2. **Ignition source dataURL `invalid data character`**：
+   percent-encoded form 含空格、`[`、`]` 被 Ignition 24 拒绝
+   → 改用 `data:;base64,<b64>` 形式，所有字符合法
+
+3. **Fedora CoreOS 用 NetworkManager 不是 systemd-networkd**：
+   写的 `/etc/systemd/network/00-eth0.network` 不被读取
+   → 改写 `/etc/NetworkManager/system-connections/eth0.nmconnection`
+   keyfile 格式（mode 0600 = decimal 384），NM 自动 reload
+
+**最终全 OS 矩阵（生产 vmc.5ok.co，ai@5ok.co 实测）**：
+
+| OS | 状态 |
+|----|------|
+| Ubuntu 24.04 / 22.04 / 20.04 LTS | ✅ SSH root@ 一次通 |
+| Debian 12 / 11 | ✅ SSH root@ 一次通 |
+| Rocky Linux 9.7 | ✅ SSH root@ 一次通 |
+| AlmaLinux 9.7 | ✅ SSH root@ 一次通 |
+| Fedora 42 | ✅ SSH root@ 一次通 |
+| Arch Linux | ✅ SSH root@ 一次通 |
+| **Fedora CoreOS 44 stable** | ✅ SSH core@ 一次通（key auth）|
+| Windows Server 2022 | ✅ RDP 3389 外网可达 |
+
+CoreOS 新增依赖：
+- 镜像 `incus image import` 到 local store
+- `incus image copy --target-project=customers`
+- `incus project set customers restricted.virtual-machines.lowlevel=allow`
+- DB `os_templates` slug=fedora-coreos / default_user=core
+
 ### 第六轮：CoreOS double-escape + OPS-053 known issue（2026-05-15 14:00 UTC）
 
 CoreOS raw.qemu fw_cfg 转义又深一层：
