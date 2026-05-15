@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/incuscloud/incus-admin/internal/model"
 	"github.com/incuscloud/incus-admin/internal/service"
@@ -93,9 +94,31 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 
 	// step 3: recreate（生成新密码 / cloud-init）
 	password := service.GeneratePassword()
-	cloudInit := service.BuildCloudInit(password, nil)
+	// OPS-051 / PLAN-052：与 vm_create 一致 —— OS-aware + 统一 root +
+	// apt proxy + 合并 cloud_init_template。
+	loginUser := rt.deps.DefaultLoginUser
+	if loginUser == "" {
+		loginUser = "root"
+	}
+	extraYAML := ""
+	if rt.deps.OSTemplates != nil {
+		if tpl, terr := rt.deps.OSTemplates.GetBySource(ctx, params.ImageSource); terr == nil && tpl != nil {
+			extraYAML = tpl.CloudInitTemplate
+			if tpl.DefaultUser != "" {
+				loginUser = tpl.DefaultUser
+			}
+		}
+	}
+	cloudInit := service.BuildCloudInit(service.CloudInitInput{
+		OSFamily:    service.ClassifyOSFamily(params.ImageSource),
+		LoginUser:   loginUser,
+		Password:    password,
+		SSHKeys:     nil, // 重装路径不带 ssh_keys（admin 重装统一）
+		AptProxyURL: rt.deps.AptProxyURL,
+		ExtraYAML:   extraYAML,
+	})
 	service.StripVolatileConfig(inst.Config)
-	// Session-2 F-05 / PLAN-051 §2-E：与 vm.go 重置同步—— 用 Incus 标准
+	// Session-2 F-05 / PLAN-051 §2-E：与 vm_create 同步—— 用 Incus 标准
 	// cloud-init key，legacy `user.cloud-init` 不被识别。
 	delete(inst.Config, "user.cloud-init")
 	inst.Config["cloud-init.user-data"] = cloudInit
@@ -167,6 +190,40 @@ func (e *vmReinstallExecutor) Run(ctx context.Context, rt *Runtime, job *model.P
 		}
 	}
 	rt.finishStep(ctx, job.ID, 5, stepStartReinstall, model.StepStatusSucceeded, "")
+
+	// OPS-051 / PLAN-052 step 6 wait_cloud_init + step 7 verify_ready
+	// （仅 Linux；Windows reinstall 路径暂未启用，与 vm_create 对齐）
+	rt.step(ctx, job.ID, 6, stepWaitCloudInit, model.StepStatusRunning, "等待 cloud-init 完成（重新安装 SSH 服务）")
+	ciCtx, ciCancel := context.WithTimeout(ctx, 5*time.Minute)
+	ciRet, ciErr := client.ExecNonInteractive(ciCtx, params.Project, job.TargetName,
+		[]string{"cloud-init", "status", "--wait"})
+	ciCancel()
+	switch {
+	case ciErr != nil:
+		rt.finishStep(ctx, job.ID, 6, stepWaitCloudInit, model.StepStatusWarning,
+			fmt.Sprintf("cloud-init exec 失败 (err=%v)；重装已完成，请稍后重试 SSH", ciErr))
+	case ciRet != 0:
+		rt.finishStep(ctx, job.ID, 6, stepWaitCloudInit, model.StepStatusWarning,
+			fmt.Sprintf("cloud-init 退出码 %d；重装已完成，请等 1-2 分钟后重试 SSH", ciRet))
+	default:
+		rt.finishStep(ctx, job.ID, 6, stepWaitCloudInit, model.StepStatusSucceeded, "")
+	}
+
+	rt.step(ctx, job.ID, 7, stepVerifyReady, model.StepStatusRunning, "验证 SSH/22 端口监听")
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 10*time.Second)
+	verifyRet, verifyErr := client.ExecNonInteractive(verifyCtx, params.Project, job.TargetName,
+		[]string{"sh", "-c", "ss -ltn | grep -qE ':22[[:space:]]'"})
+	verifyCancel()
+	switch {
+	case verifyErr != nil:
+		rt.finishStep(ctx, job.ID, 7, stepVerifyReady, model.StepStatusWarning,
+			fmt.Sprintf("SSH 探活 exec 失败 (err=%v)；重装已完成，请稍后试", verifyErr))
+	case verifyRet != 0:
+		rt.finishStep(ctx, job.ID, 7, stepVerifyReady, model.StepStatusWarning,
+			fmt.Sprintf("SSH/22 端口尚未监听 (exit=%d)；重装已完成，请等 cloud-init 完成", verifyRet))
+	default:
+		rt.finishStep(ctx, job.ID, 7, stepVerifyReady, model.StepStatusSucceeded, "")
+	}
 
 	// 写新密码（reinstall 用户最关心的产物）
 	if job.VMID != nil {

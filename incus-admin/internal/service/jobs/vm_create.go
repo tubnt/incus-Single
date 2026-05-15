@@ -22,11 +22,13 @@ import (
 type vmCreateExecutor struct{}
 
 const (
-	stepSubmit  = "submit_instance"
-	stepWaitCreate = "wait_create"
-	stepStart   = "start_instance"
-	stepWaitStart = "wait_start"
-	stepFinalize = "finalize"
+	stepSubmit       = "submit_instance"
+	stepWaitCreate   = "wait_create"
+	stepStart        = "start_instance"
+	stepWaitStart    = "wait_start"
+	stepWaitCloudInit = "wait_cloud_init" // OPS-051 / PLAN-052
+	stepVerifyReady  = "verify_ready"     // OPS-051 / PLAN-052
+	stepFinalize     = "finalize"
 )
 
 func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.ProvisioningJob) error {
@@ -42,12 +44,37 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 	}
 
 	password := service.GeneratePassword()
-	cloudInit := service.BuildCloudInit(password, params.SSHKeys)
 
 	imageAlias := params.OSImage
 	if len(imageAlias) > 7 && imageAlias[:7] == "images:" {
 		imageAlias = imageAlias[7:]
 	}
+
+	// OPS-051 / PLAN-052：cloud-init OS-aware + 统一 root + apt proxy + 合并
+	// os_templates.cloud_init_template 高级字段。template lookup 失败 → 空
+	// ExtraYAML（不阻塞 job，admin 模板配置错应在 UI 校验阶段挡住）。
+	loginUser := rt.deps.DefaultLoginUser
+	if loginUser == "" {
+		loginUser = "root"
+	}
+	extraYAML := ""
+	if rt.deps.OSTemplates != nil {
+		// imageAlias 来自 os_templates.source，先找精确匹配的 enabled 模板
+		if tpl, terr := rt.deps.OSTemplates.GetBySource(ctx, imageAlias); terr == nil && tpl != nil {
+			extraYAML = tpl.CloudInitTemplate
+			if tpl.DefaultUser != "" {
+				loginUser = tpl.DefaultUser
+			}
+		}
+	}
+	cloudInit := service.BuildCloudInit(service.CloudInitInput{
+		OSFamily:    service.ClassifyOSFamily(imageAlias),
+		LoginUser:   loginUser,
+		Password:    password,
+		SSHKeys:     params.SSHKeys,
+		AptProxyURL: rt.deps.AptProxyURL,
+		ExtraYAML:   extraYAML,
+	})
 
 	// OS-aware：Windows / Linux 走不同 cloud-init 形态。
 	// - Linux：netplan v2 + 接口名 enp5s0（约定俗成）
@@ -222,8 +249,62 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 		applyWindowsCloudInit(ctx, client, params.Project, job.TargetName, params.IP, params.SubnetCIDR, params.Gateway, password)
 	}
 
-	// Step finalize：拉 instance 元数据取 node 名，写回 vm row + 写密码
-	rt.step(ctx, job.ID, 4, stepFinalize, model.StepStatusRunning, "记录运行节点与凭据")
+	// OPS-051 / PLAN-052 Step 4 wait_cloud_init：等 guest 内 cloud-init 完成
+	// （apt 装 openssh-server + qemu-guest-agent，5min cap）。soft fail-open
+	// （Q4=A）：超时不让 job=failed，避免误退款 + 删 VM。
+	if osKind != "windows" {
+		rt.step(ctx, job.ID, 4, stepWaitCloudInit, model.StepStatusRunning, "等待 cloud-init 完成（安装 SSH 服务）")
+		ciCtx, ciCancel := context.WithTimeout(ctx, 5*time.Minute)
+		ciRet, ciErr := client.ExecNonInteractive(ciCtx, params.Project, job.TargetName,
+			[]string{"cloud-init", "status", "--wait"})
+		ciCancel()
+		switch {
+		case ciErr != nil:
+			rt.finishStep(ctx, job.ID, 4, stepWaitCloudInit, model.StepStatusWarning,
+				fmt.Sprintf("cloud-init exec 失败 (err=%v)；VM 已创建，请稍后重试 SSH 或在详情页查看", ciErr))
+		case ciRet != 0:
+			rt.finishStep(ctx, job.ID, 4, stepWaitCloudInit, model.StepStatusWarning,
+				fmt.Sprintf("cloud-init 退出码 %d（可能仍在装包）；VM 已创建，请等 1-2 分钟后重试 SSH", ciRet))
+		default:
+			rt.finishStep(ctx, job.ID, 4, stepWaitCloudInit, model.StepStatusSucceeded, "")
+		}
+	} else {
+		rt.step(ctx, job.ID, 4, stepWaitCloudInit, model.StepStatusSkipped, "windows uses applyWindowsCloudInit path")
+	}
+
+	// OPS-051 / PLAN-052 Step 5 verify_ready：探活 22 / 3389 端口。同样
+	// soft fail-open（Q4=A）。
+	port, svc := 22, "SSH"
+	if osKind == "windows" {
+		port, svc = 3389, "RDP"
+	}
+	rt.step(ctx, job.ID, 5, stepVerifyReady, model.StepStatusRunning,
+		fmt.Sprintf("验证 %s/%d 端口监听", svc, port))
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 10*time.Second)
+	var verifyCmd []string
+	if osKind == "windows" {
+		// cloudbase-init 已经在 applyWindowsCloudInit 内挂 RDP；这里用
+		// PowerShell Test-NetConnection 自检（不依赖外部）。
+		verifyCmd = []string{"powershell.exe", "-NoProfile", "-Command",
+			"if ((Test-NetConnection -ComputerName 127.0.0.1 -Port 3389 -InformationLevel Quiet)) { exit 0 } else { exit 1 }"}
+	} else {
+		verifyCmd = []string{"sh", "-c", fmt.Sprintf("ss -ltn | grep -qE ':%d[[:space:]]'", port)}
+	}
+	verifyRet, verifyErr := client.ExecNonInteractive(verifyCtx, params.Project, job.TargetName, verifyCmd)
+	verifyCancel()
+	switch {
+	case verifyErr != nil:
+		rt.finishStep(ctx, job.ID, 5, stepVerifyReady, model.StepStatusWarning,
+			fmt.Sprintf("%s 端口探活 exec 失败 (err=%v)；VM 已创建，请稍后试", svc, verifyErr))
+	case verifyRet != 0:
+		rt.finishStep(ctx, job.ID, 5, stepVerifyReady, model.StepStatusWarning,
+			fmt.Sprintf("%s/%d 端口尚未监听 (exit=%d)；VM 已创建，请等 cloud-init 完成或在详情页查看", svc, port, verifyRet))
+	default:
+		rt.finishStep(ctx, job.ID, 5, stepVerifyReady, model.StepStatusSucceeded, "")
+	}
+
+	// Step 6 finalize：拉 instance 元数据取 node 名，写回 vm row + 写密码
+	rt.step(ctx, job.ID, 6, stepFinalize, model.StepStatusRunning, "记录运行节点与凭据")
 	node := ""
 	if instanceData, gerr := client.GetInstance(ctx, params.Project, job.TargetName); gerr == nil {
 		var inst struct{ Location string }
@@ -233,7 +314,7 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 
 	if job.VMID != nil {
 		if err := rt.deps.VMs.UpdateAfterProvision(ctx, *job.VMID, node, password); err != nil {
-			rt.finishStep(ctx, job.ID, 4, stepFinalize, model.StepStatusFailed, err.Error())
+			rt.finishStep(ctx, job.ID, 6, stepFinalize, model.StepStatusFailed, err.Error())
 			return fmt.Errorf("update vm row: %w", err)
 		}
 	}
@@ -243,7 +324,7 @@ func (e *vmCreateExecutor) Run(ctx context.Context, rt *Runtime, job *model.Prov
 			slog.Error("order activate failed", "job_id", job.ID, "order_id", *job.OrderID, "error", err)
 		}
 	}
-	rt.finishStep(ctx, job.ID, 4, stepFinalize, model.StepStatusSucceeded, "")
+	rt.finishStep(ctx, job.ID, 6, stepFinalize, model.StepStatusSucceeded, "")
 
 	// PLAN-036 默认 firewall_groups 软失败应用：读用户 default 列表，
 	// 串行 attach。任一失败仅 log + audit，不阻塞 finalize。VM 已 active，

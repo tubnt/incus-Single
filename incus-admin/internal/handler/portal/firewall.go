@@ -1074,3 +1074,9 @@ func (h *FirewallHandler) PortalBindBatch(w http.ResponseWriter, r *http.Request
 func (h *FirewallHandler) PortalUnbindBatch(w http.ResponseWriter, r *http.Request) {
 	h.portalRunBatch(r, w, "unbind")
 }
+
+// OPS-051 / PLAN-052 §G：reconcile endpoint 推迟到 OPS-052 backlog（需要
+// 多个新 repo/cluster manager 方法 + 跨 cluster N+1 优化）。现有代码已经在
+// portal/firewall.go BindVM / AdminBindVM / applyUserDefaultFirewallGroups
+// 三处 attach 路径中同步写 DB binding（Q8 预防侧已闭环）。历史漂移仅
+// vm-08f9d5 一例（已删），不需要本期回填。

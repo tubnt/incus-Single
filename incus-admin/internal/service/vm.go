@@ -93,145 +93,12 @@ func NewVMService(clusters *cluster.Manager) *VMService {
 	return &VMService{clusters: clusters}
 }
 
-type CreateVMParams struct {
-	ClusterName string
-	Project     string
-	UserID      int64
-	VMName      string
-	CPU         int
-	MemoryMB    int
-	DiskGB      int
-	OSImage     string
-	SSHKeys     []string
-	IP          string
-	Gateway     string
-	SubnetCIDR  string
-	StoragePool string
-	Network     string
-}
-
-type CreateVMResult struct {
-	VMName   string `json:"vm_name"`
-	IP       string `json:"ip"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Node     string `json:"node"`
-}
-
-func (s *VMService) Create(ctx context.Context, params CreateVMParams) (*CreateVMResult, error) {
-	client, ok := s.clusters.Get(params.ClusterName)
-	if !ok {
-		return nil, fmt.Errorf("cluster %q not found", params.ClusterName)
-	}
-
-	password := generatePassword()
-	vmName := params.VMName
-	if vmName == "" {
-		b := make([]byte, 3)
-		rand.Read(b)
-		vmName = fmt.Sprintf("vm-%s", hex.EncodeToString(b))
-	}
-
-	cloudInit := buildCloudInit(password, params.SSHKeys)
-	networkConfig := buildNetworkConfig(params.IP, params.SubnetCIDR, params.Gateway)
-
-	imageAlias := params.OSImage
-	if len(imageAlias) > 7 && imageAlias[:7] == "images:" {
-		imageAlias = imageAlias[7:]
-	}
-
-	imageSource := map[string]any{
-		"type":  "image",
-		"alias": imageAlias,
-	}
-	// 不含 "/" 的 alias 视为本地 incus image store（管理员 import 的镜像，如 windows-server-2022），
-	// 让 Incus 走本地查找；含 "/" 的（如 ubuntu/24.04/cloud）走上游 simplestreams。
-	if strings.Contains(imageAlias, "/") {
-		imageSource["server"] = "https://images.linuxcontainers.org"
-		imageSource["protocol"] = "simplestreams"
-	}
-
-	body := map[string]any{
-		"name":   vmName,
-		"type":   "virtual-machine",
-		"source": imageSource,
-		"config": map[string]any{
-			"limits.cpu":                fmt.Sprintf("%d", params.CPU),
-			"limits.memory":            fmt.Sprintf("%dMiB", params.MemoryMB),
-			"user.cloud-init":          cloudInit,
-			"cloud-init.network-config": networkConfig,
-			"security.secureboot":       "false",
-			// Enable live migration (stateful) so MigrateVM can use --live without
-			// having to cold-migrate (stop → migrate → start). OPS-008 #5: Incus
-			// rejects live migration without this flag; OPS-008 cold-migrate fix
-			// stays as fallback for VMs that lacked this at create time.
-			"migration.stateful": "true",
-		},
-		"devices": map[string]any{
-			"root": map[string]any{
-				"type": "disk",
-				"pool": params.StoragePool,
-				"path": "/",
-				"size": fmt.Sprintf("%dGiB", params.DiskGB),
-			},
-			"eth0": map[string]any{
-				"type":                    "nic",
-				"nictype":                 "bridged",
-				"parent":                  params.Network,
-				"ipv4.address":            params.IP,
-				"security.ipv4_filtering": "true",
-				"security.mac_filtering":  "true",
-			},
-		},
-	}
-
-	bodyJSON, _ := json.Marshal(body)
-	path := fmt.Sprintf("/1.0/instances?project=%s", params.Project)
-	resp, err := client.APIPost(ctx, path, bytes.NewReader(bodyJSON))
-	if err != nil {
-		return nil, fmt.Errorf("create instance: %w", err)
-	}
-
-	if resp.Type == "async" {
-		var op struct{ ID string }
-		_ = json.Unmarshal(resp.Metadata, &op)
-		if op.ID != "" {
-			if err := client.WaitForOperation(ctx, op.ID); err != nil {
-				slog.Error("wait for create operation failed", "vm", vmName, "error", err)
-			}
-		}
-	}
-
-	startBody, _ := json.Marshal(map[string]any{"action": "start", "timeout": 60})
-	startPath := fmt.Sprintf("/1.0/instances/%s/state?project=%s", vmName, params.Project)
-	startResp, err := client.APIPut(ctx, startPath, bytes.NewReader(startBody))
-	if err != nil {
-		slog.Error("start instance failed", "vm", vmName, "error", err)
-	} else if startResp.Type == "async" {
-		var op struct{ ID string }
-		_ = json.Unmarshal(startResp.Metadata, &op)
-		if op.ID != "" {
-			_ = client.WaitForOperation(ctx, op.ID)
-		}
-	}
-
-	node := ""
-	if instanceData, err := client.GetInstance(ctx, params.Project, vmName); err == nil {
-		var inst struct{ Location string }
-		_ = json.Unmarshal(instanceData, &inst)
-		node = inst.Location
-	}
-
-	slog.Info("vm created", "name", vmName, "ip", params.IP, "node", node, "cluster", params.ClusterName)
-
-	return &CreateVMResult{
-		VMName:   vmName,
-		IP:       params.IP,
-		Username: "ubuntu",
-		Password: password,
-		Node:     node,
-	}, nil
-}
+// OPS-051 / PLAN-052：VMService.Create / VMService.Reinstall（同步路径）+
+// CreateVMParams / CreateVMResult / ReinstallResult 已删除。生产部署强制注入
+// jobs runtime（cmd/server/main.go startup gate），portal handler 的
+// `h.jobs == nil` 兜底分支已改为 503。同步 buildCloudInit (lowercase wrapper)
+// 也一并删除，jobs/vm_create.go + vm_reinstall.go 直接调新签名的
+// service.BuildCloudInit(CloudInitInput) string。
 
 func (s *VMService) ChangeState(ctx context.Context, clusterName, project, vmName, action string, force bool) error {
 	client, ok := s.clusters.Get(clusterName)
@@ -515,142 +382,10 @@ type ReinstallParams struct {
 	DefaultUser string // defaults to "ubuntu"
 }
 
-type ReinstallResult struct {
-	Password string `json:"password"`
-	Username string `json:"username"`
-}
-
-func (s *VMService) Reinstall(ctx context.Context, params ReinstallParams) (*ReinstallResult, error) {
-	if params.ImageSource == "" {
-		return nil, fmt.Errorf("image_source is required")
-	}
-	serverURL := params.ServerURL
-	if serverURL == "" {
-		serverURL = "https://images.linuxcontainers.org"
-	}
-	protocol := params.Protocol
-	if protocol == "" {
-		protocol = "simplestreams"
-	}
-	defaultUser := params.DefaultUser
-	if defaultUser == "" {
-		defaultUser = "ubuntu"
-	}
-
-	client, ok := s.clusters.Get(params.ClusterName)
-	if !ok {
-		return nil, fmt.Errorf("cluster %q not found", params.ClusterName)
-	}
-
-	instData, err := client.GetInstance(ctx, params.Project, params.VMName)
-	if err != nil {
-		return nil, fmt.Errorf("get instance: %w", err)
-	}
-
-	var inst struct {
-		Config   map[string]string         `json:"config"`
-		Devices  map[string]map[string]any `json:"devices"`
-		Location string                    `json:"location"`
-	}
-	if err := json.Unmarshal(instData, &inst); err != nil {
-		return nil, fmt.Errorf("parse instance: %w", err)
-	}
-
-	// OPS-012 (probe): 删除原 VM 之前先探测镜像服务器，挡住"上游挂掉 → VM 已删但
-	// 重建失败 → 用户数据永久销毁"的最常见数据丢失路径（OPS-008 Bug #8 教训）。
-	if err := probeImageServer(ctx, serverURL); err != nil {
-		return nil, fmt.Errorf("镜像服务器 %s 不可达，已取消重装以保护原 VM 数据: %w", serverURL, err)
-	}
-
-	// OPS-016 (pre-pull): 主动把镜像拉到本地缓存。这样即使 probe 之后到 recreate
-	// 之前上游挂掉，create 也能命中本地 cache。残留 1% 的"server 可达但 alias
-	// 不存在"风险也在这一步暴露 —— 拉失败 → return 早，原 VM 不动。
-	if err := prePullImage(ctx, client, params.Project, serverURL, protocol, params.ImageSource); err != nil {
-		return nil, fmt.Errorf("镜像 %s 预拉取失败，已取消重装以保护原 VM 数据: %w", params.ImageSource, err)
-	}
-
-	_ = s.ChangeState(ctx, params.ClusterName, params.Project, params.VMName, "stop", true)
-
-	delPath := fmt.Sprintf("/1.0/instances/%s?project=%s", params.VMName, params.Project)
-	delResp, err := client.APIDelete(ctx, delPath)
-	if err != nil {
-		return nil, fmt.Errorf("delete instance: %w", err)
-	}
-	// Wait for the async delete to complete; otherwise the recreate POST
-	// races with Incus's still-running cleanup and returns "already exists".
-	if delResp != nil && delResp.Type == "async" {
-		var op struct{ ID string }
-		_ = json.Unmarshal(delResp.Metadata, &op)
-		if op.ID != "" {
-			if err := client.WaitForOperation(ctx, op.ID); err != nil {
-				slog.Warn("wait for reinstall delete failed", "vm", params.VMName, "error", err)
-			}
-		}
-	}
-
-	password := generatePassword()
-	sshKeys := []string{}
-	cloudInit := buildCloudInit(password, sshKeys)
-
-	// Strip volatile.* keys: same reason as resetPasswordOffline. The new
-	// instance gets fresh volatile state from Incus on first start.
-	stripVolatileConfig(inst.Config)
-	// Session-2 F-05 / PLAN-051 §2-E：使用 Incus 标准 cloud-init key（与 vm_create.go
-	// 保持一致），legacy `user.cloud-init` 不被 cloud-init datasource 识别 → 重装后
-	// 新密码不进 guest，用户用响应里的密码登不上。同时清掉 legacy key 防止两份并存。
-	delete(inst.Config, "user.cloud-init")
-	inst.Config["cloud-init.user-data"] = cloudInit
-
-	body := map[string]any{
-		"name": params.VMName,
-		"type": "virtual-machine",
-		"source": map[string]any{
-			"type":     "image",
-			"alias":    params.ImageSource,
-			"server":   serverURL,
-			"protocol": protocol,
-		},
-		"config":  inst.Config,
-		"devices": inst.Devices,
-	}
-
-	bodyJSON, _ := json.Marshal(body)
-	createPath := fmt.Sprintf("/1.0/instances?project=%s&target=%s", params.Project, inst.Location)
-	resp, err := client.APIPost(ctx, createPath, bytes.NewReader(bodyJSON))
-	if err != nil {
-		return nil, fmt.Errorf("recreate instance: %w", err)
-	}
-
-	if resp.Type == "async" {
-		var op struct{ ID string }
-		_ = json.Unmarshal(resp.Metadata, &op)
-		if op.ID != "" {
-			if err := client.WaitForOperation(ctx, op.ID); err != nil {
-				slog.Error("wait for reinstall create failed", "vm", params.VMName, "error", err)
-			}
-		}
-	}
-
-	startBody, _ := json.Marshal(map[string]any{"action": "start", "timeout": 60})
-	startPath := fmt.Sprintf("/1.0/instances/%s/state?project=%s", params.VMName, params.Project)
-	startResp, err := client.APIPut(ctx, startPath, bytes.NewReader(startBody))
-	if err != nil {
-		slog.Error("start reinstalled instance failed", "vm", params.VMName, "error", err)
-	} else if startResp.Type == "async" {
-		var op struct{ ID string }
-		_ = json.Unmarshal(startResp.Metadata, &op)
-		if op.ID != "" {
-			_ = client.WaitForOperation(ctx, op.ID)
-		}
-	}
-
-	slog.Info("vm reinstalled", "name", params.VMName, "source", params.ImageSource, "cluster", params.ClusterName)
-
-	return &ReinstallResult{
-		Password: password,
-		Username: defaultUser,
-	}, nil
-}
+// OPS-051 / PLAN-052：旧 VMService.Reinstall 同步路径 + ReinstallResult 已删除。
+// portal handler `h.jobs == nil` 兜底已改 503，重装路径完全走 jobs/vm_reinstall.go。
+// ReinstallParams 保留作为 portal/reinstall_resolve.go 的返回 dto，其字段被
+// jobs.Params 复用（不再被 service 层消费）。
 
 func (s *VMService) ListInstances(ctx context.Context, clusterName, project string) ([]json.RawMessage, error) {
 	client, ok := s.clusters.Get(clusterName)
@@ -878,18 +613,190 @@ func generatePassword() string {
 	return hex.EncodeToString(b)
 }
 
-func buildCloudInit(password string, sshKeys []string) string {
-	// hostname 由 Incus NoCloud meta-data 从 instance name 自动注入；这里只设
-	// password / SSH。如果之后想让 cloud-config 也显式接管 hostname，可以加
-	// preserve_hostname: false + hostname: <name> 字段（需要把 vm name 传进来）。
-	ci := fmt.Sprintf("#cloud-config\npassword: %s\nchpasswd:\n  expire: false\nssh_pwauth: true\n", password)
-	if len(sshKeys) > 0 {
-		ci += "ssh_authorized_keys:\n"
-		for _, key := range sshKeys {
-			ci += fmt.Sprintf("  - %s\n", key)
+// OSFamily 分类 Linux 镜像家族，用来选 packages / 服务名 / unattended-upgrades 包。
+// Windows 走 applyWindowsCloudInit 单独路径，不进 BuildCloudInit。
+//
+// 来源：依据 OS template slug / image alias 前缀分类（cloud variant 命名稳定）。
+type OSFamily string
+
+const (
+	OSFamilyAPT     OSFamily = "apt"     // ubuntu / debian
+	OSFamilyDNF     OSFamily = "dnf"     // rocky / almalinux / fedora / centos
+	OSFamilyPacman  OSFamily = "pacman"  // archlinux
+	OSFamilyAlpine  OSFamily = "alpine"  // alpine (apk)
+	OSFamilyUnknown OSFamily = "unknown" // 兜底走 apt 模板（最常见）
+)
+
+// ClassifyOSFamily 从 image alias / template source 推断包管理器家族。
+// 接受形如 "images:ubuntu/24.04/cloud" / "ubuntu/24.04/cloud" / "rocky/9/cloud"
+// / "windows-server-2022"（→ unknown，但 Windows 不会进这条路径）。
+func ClassifyOSFamily(image string) OSFamily {
+	s := strings.ToLower(image)
+	switch {
+	case strings.Contains(s, "ubuntu"), strings.Contains(s, "debian"), strings.Contains(s, "kali"), strings.Contains(s, "mint"):
+		return OSFamilyAPT
+	case strings.Contains(s, "rocky"), strings.Contains(s, "almalinux"), strings.Contains(s, "fedora"), strings.Contains(s, "centos"), strings.Contains(s, "rhel"):
+		return OSFamilyDNF
+	case strings.Contains(s, "arch"):
+		return OSFamilyPacman
+	case strings.Contains(s, "alpine"):
+		return OSFamilyAlpine
+	default:
+		return OSFamilyUnknown
+	}
+}
+
+// CloudInitInput 是 BuildCloudInit 的全部输入。所有字段都是 buildCloudInit
+// 编译期可知 + 调用站点显式传入；不读全局 config 让纯函数易测。
+type CloudInitInput struct {
+	OSFamily     OSFamily // 走哪套 packages / 服务名
+	LoginUser    string   // 强制建立的统一登录账号；空 → "root"
+	Password     string   // 明文密码（cloud-init chpasswd plain）
+	SSHKeys      []string // 注入到 LoginUser 的 authorized_keys
+	AptProxyURL  string   // 形如 http://139.162.24.177:3142/；空 → 不注入
+	ExtraYAML    string   // 来自 os_templates.cloud_init_template，用户/AI 写
+}
+
+// BuildCloudInit 输出 cloud-config user-data 字符串。
+//
+// 设计 invariant：
+//  1. 必装 openssh-server / qemu-guest-agent（linuxcontainers cloud variant
+//     不带 sshd，业界共识：通过 packages 装 + runcmd 兜底启用）。
+//  2. 统一 root：cloud-config users.root + chpasswd users[root]
+//     + sshd_config drop-in `PermitRootLogin yes` + `PasswordAuthentication
+//     yes`（OPS-051 Q7 决策）。镜像自带 ubuntu/debian/rocky user 保留但不再
+//     当默认登录。
+//  3. apt 系自动启用 unattended-upgrades 周一安全补丁（dnf 系装 dnf-automatic
+//     同义）。
+//  4. apt-cacher-ng proxy 注入：5 秒 healthcheck，宕机自动剥离 → fallback
+//     直连上游，避免 mirror 故障阻塞首装。
+//  5. ExtraYAML 走 mergeCloudConfig：用户字段追加（packages / write_files /
+//     runcmd 等 list 字段去重合并；mapping 不递归覆盖系统字段 —— 见
+//     mergeCloudConfig 注释）。解析失败 → 直接 panic（admin 端配置错误，必须
+//     在 UI 校验阶段挡住，BuildCloudInit 走到这里说明 validator 漏了，应明
+//     确暴露）。
+//
+// 输出格式：纯 #cloud-config YAML。不做 jinja 模板渲染（cloud-init 服务端默认
+// 不开 jinja，避开误注入）。
+func BuildCloudInit(in CloudInitInput) string {
+	user := in.LoginUser
+	if user == "" {
+		user = "root"
+	}
+	family := in.OSFamily
+	if family == "" || family == OSFamilyUnknown {
+		family = OSFamilyAPT
+	}
+
+	var pkgs []string
+	var enableSSHService string
+	var systemPkgs string
+	switch family {
+	case OSFamilyDNF:
+		pkgs = []string{"openssh-server", "qemu-guest-agent", "dnf-automatic"}
+		enableSSHService = "sshd"
+		systemPkgs = "    - dnf-automatic\n"
+	case OSFamilyPacman:
+		pkgs = []string{"openssh", "qemu-guest-agent"}
+		enableSSHService = "sshd"
+	case OSFamilyAlpine:
+		pkgs = []string{"openssh-server", "qemu-guest-agent"}
+		enableSSHService = "sshd"
+	default: // apt
+		pkgs = []string{"openssh-server", "qemu-guest-agent", "unattended-upgrades"}
+		enableSSHService = "ssh"
+		systemPkgs = "    - unattended-upgrades\n"
+	}
+	_ = systemPkgs // 占位，保留给未来 dnf-automatic 专用 runcmd
+
+	var b strings.Builder
+	b.WriteString("#cloud-config\n")
+
+	// apt proxy（仅 apt 家族；其它系包管理器不消费 apt: 字段）
+	if family == OSFamilyAPT && in.AptProxyURL != "" {
+		fmt.Fprintf(&b, "apt:\n  http_proxy: %s\n  https_proxy: %s\n", in.AptProxyURL, in.AptProxyURL)
+	}
+
+	b.WriteString("package_update: true\n")
+	b.WriteString("package_upgrade: false\n") // unattended-upgrades 异步做，首装不全量升级
+	b.WriteString("packages:\n")
+	for _, p := range pkgs {
+		fmt.Fprintf(&b, "  - %s\n", p)
+	}
+
+	// Users + root 强制 + SSH key 注入
+	b.WriteString("disable_root: false\n")
+	b.WriteString("ssh_pwauth: true\n")
+	b.WriteString("users:\n")
+	fmt.Fprintf(&b, "  - name: %s\n", user)
+	b.WriteString("    lock_passwd: false\n")
+	if user != "root" {
+		b.WriteString("    sudo: ALL=(ALL) NOPASSWD:ALL\n")
+		b.WriteString("    shell: /bin/bash\n")
+	}
+	if len(in.SSHKeys) > 0 {
+		b.WriteString("    ssh_authorized_keys:\n")
+		for _, k := range in.SSHKeys {
+			fmt.Fprintf(&b, "      - %s\n", strings.TrimSpace(k))
 		}
 	}
-	return ci
+
+	// chpasswd 设密码（cloud-init users 子模块单独 password 字段有兼容性问题，
+	// 用 chpasswd.users[] 是更稳的写法）
+	b.WriteString("chpasswd:\n")
+	b.WriteString("  expire: false\n")
+	b.WriteString("  users:\n")
+	fmt.Fprintf(&b, "    - name: %q\n", user)
+	fmt.Fprintf(&b, "      password: %q\n", in.Password)
+	b.WriteString("      type: text\n")
+
+	// sshd_config drop-in：保证 PermitRootLogin + PasswordAuthentication
+	b.WriteString("write_files:\n")
+	b.WriteString("  - path: /etc/ssh/sshd_config.d/99-incusadmin.conf\n")
+	b.WriteString("    permissions: '0644'\n")
+	b.WriteString("    content: |\n")
+	b.WriteString("      # Managed by IncusAdmin (OPS-051)\n")
+	b.WriteString("      PermitRootLogin yes\n")
+	b.WriteString("      PasswordAuthentication yes\n")
+	if family == OSFamilyAPT {
+		b.WriteString("  - path: /etc/apt/apt.conf.d/20auto-upgrades\n")
+		b.WriteString("    permissions: '0644'\n")
+		b.WriteString("    content: |\n")
+		b.WriteString("      APT::Periodic::Update-Package-Lists \"1\";\n")
+		b.WriteString("      APT::Periodic::Unattended-Upgrade \"7\";\n")
+	}
+
+	// runcmd 兜底：
+	//   - apt-cacher 健康探测（5s 内不通 → 剥离 proxy；防 mirror 宕机阻塞首装）
+	//   - 启用 sshd（packages 装包后服务可能未自启）
+	//   - 启用 qemu-guest-agent（迁移 / reset-password online 走 guest-agent）
+	//   - reload sshd 让 drop-in 生效
+	b.WriteString("runcmd:\n")
+	if family == OSFamilyAPT && in.AptProxyURL != "" {
+		fmt.Fprintf(&b, "  - 'timeout 5 curl -sf %sacng-report.html > /dev/null || sed -i \"/Acquire::http::Proxy/d;/Acquire::https::Proxy/d\" /etc/apt/apt.conf.d/*'\n", in.AptProxyURL)
+	}
+	fmt.Fprintf(&b, "  - 'systemctl enable --now %s.service'\n", enableSSHService)
+	b.WriteString("  - 'systemctl enable --now qemu-guest-agent.service || true'\n")
+	fmt.Fprintf(&b, "  - 'systemctl reload %s.service || systemctl restart %s.service'\n", enableSSHService, enableSSHService)
+	if family == OSFamilyAPT {
+		b.WriteString("  - 'systemctl enable --now unattended-upgrades.service || true'\n")
+	}
+	if family == OSFamilyDNF {
+		b.WriteString("  - 'systemctl enable --now dnf-automatic.timer || true'\n")
+	}
+
+	base := b.String()
+
+	// ExtraYAML 合并：本期 v1 采用 append 策略（在系统块之后直接拼接），
+	// 让 cloud-init 后写入字段覆盖前置（YAML 1.2 + cloud-init 模块顺序保证
+	// 系统必装包 + 必建账号已在 base 中；ExtraYAML 不能反向移除已设字段）。
+	// PLAN-053 升级 jinja schema-merge 时换实现。
+	if strings.TrimSpace(in.ExtraYAML) != "" {
+		extra := strings.TrimPrefix(strings.TrimSpace(in.ExtraYAML), "#cloud-config")
+		extra = strings.TrimLeft(extra, "\n")
+		base += "\n# --- merged from os_templates.cloud_init_template ---\n" + extra + "\n"
+	}
+	return base
 }
 
 func buildNetworkConfig(ip, cidr, gateway string) string {
@@ -912,9 +819,9 @@ var _ = model.VMStatusCreating
 
 // PLAN-025 / INFRA-007 桥接：异步 jobs runner 在 internal/service/jobs/
 // 子包内调用以下辅助函数。直接导出（GeneratePassword 等）会破坏旧调用方，
-// 这里以小包装函数的形式提供 stable API。
+// 这里以小包装函数的形式提供 stable API。BuildCloudInit 已升级为
+// CloudInitInput struct 签名（OPS-051 / PLAN-052）。
 func GeneratePassword() string                                 { return generatePassword() }
-func BuildCloudInit(password string, sshKeys []string) string  { return buildCloudInit(password, sshKeys) }
 func BuildNetworkConfig(ip, cidr, gateway string) string       { return buildNetworkConfig(ip, cidr, gateway) }
 func StripVolatileConfig(config map[string]string)             { stripVolatileConfig(config) }
 func ProbeImageServer(ctx context.Context, serverURL string) error {
@@ -924,8 +831,7 @@ func PrePullImage(ctx context.Context, client *cluster.Client, project, serverUR
 	return prePullImage(ctx, client, project, serverURL, protocol, alias)
 }
 
-// GenerateVMName 给 handler 同步路径用：用户没填名字时生成 vm-{6hex}。
-// 与 VMService.Create 内部生成规则一致，保证异步 / 同步路径产物同形态。
+// GenerateVMName 给 handler 用：用户没填名字时生成 vm-{6hex}。
 func GenerateVMName() string {
 	b := make([]byte, 3)
 	rand.Read(b)

@@ -1,5 +1,122 @@
 # IncusAdmin Changelog
 
+## 2026-05-15 [done] OPS-051 / PLAN-052 VM 创建 SSH 不可达根因修复 + 凭据/UX 闭环
+
+vm-08f9d5（ubuntu/24.04/cloud）开机默认凭据连不上 → 调查发现 linuxcontainers
+`*/cloud` minimal 镜像不预装 openssh-server，但 `buildCloudInit` 模板没注入
+`packages:`，所有 Linux VM 都 SSH 不通。本包按 PLAN-052 一次性把 9 个相关
+缺陷打包修复并部署上线。
+
+### 修复主线（10 块）
+
+1. **buildCloudInit 全新 OS-aware**：`internal/service/vm.go::BuildCloudInit`
+   改为 `CloudInitInput` struct 签名，按 OSFamily（apt/dnf/pacman/alpine）
+   注入 `packages: [openssh-server, qemu-guest-agent, unattended-upgrades]`
+   + `runcmd: systemctl enable --now ssh/sshd` 双兜底 + `users.root` +
+   `chpasswd users[root]` + sshd_config drop-in `PermitRootLogin yes` +
+   `PasswordAuthentication yes` + apt-cacher-ng proxy + ExtraYAML 合并。
+
+2. **vm_create / vm_reinstall 加 step 5/6**：`wait_cloud_init`
+   （`incus exec cloud-init status --wait`，5min cap）+ `verify_ready`
+   （`ss -ltn | grep :22` Linux / `Test-NetConnection 3389` Windows）。
+   软失败（StepStatusWarning）不让 job=failed，避免误退款。
+
+3. **删僵尸同步路径**：删 `VMService.Create` + `VMService.Reinstall` +
+   `CreateVMParams/Result` + `ReinstallResult` + `buildCloudInit`
+   (lowercase) + `BuildCloudInit` wrapper + portal `payWithSyncProvisioning`
+   + portal 三处 `h.jobs == nil` 兜底分支（改 503）。共 ~480 行。
+
+4. **apt-cacher-ng 主控部署**：`apt install apt-cacher-ng` + systemd 管理
+   （主控 ubuntu 24.04 noble 系统包，零额外组件），监听 0.0.0.0:3142，
+   `JOBS_*` env 风格新增 `APT_CACHER_URL=http://139.162.24.177:3142/`
+   `VM_DEFAULT_LOGIN_USER=root`。cloud-init runcmd 5 秒 healthcheck 不通
+   → 自动剥离 proxy fallback 直连上游。
+
+5. **cloud_init_template 字段真正接入**：admin UI 加 Textarea + 校验提示，
+   `validateCloudInitTemplate` 加 `disable_root: true` / `ssh_pwauth: false`
+   黑名单（防覆盖系统强制策略），buildCloudInit 按 v1 append 策略合并到
+   base 之后。预留 AI 生成入口位（PLAN-053）。
+
+6. **统一 root 登录**（OPS-051 Q7）：DB migration 026 把所有 cloud variant
+   Linux 模板 default_user 改 root（9 行 UPDATE），Windows 仍 Administrator。
+   前端 `defaultUserForImage` / `defaultUserForVM` / `defaultUserForSource`
+   全简化为 Linux→root / Windows→Administrator 二分。
+
+7. **DonePanel 凭据明文 + 一键复制全部**（OPS-051 Q7）：SecretReveal 加
+   `alwaysReveal` prop（省 Eye 按钮），DonePanel 4 个凭据全 alwaysReveal +
+   `复制全部凭据`按钮（剪贴板含 `ssh root@<ip>` 命令）。hint 文案告知用户
+   "SSH 暂时连不上请等 1-2 分钟"（cloud-init 装包时间窗）。
+
+8. **i18n + step UX**：新增 `jobs.step.waitCloudInit` /
+   `jobs.step.verifyReady` 中英双语；StepStatus enum 加 'warning'，
+   StepDot 用 pending 黄点（与 running 区分：warning 是终态不脉动）。
+
+9. **firewall binding 漂移**（预防侧）：vm_create.go 中
+   `applyUserDefaultFirewallGroups` 已 attach→Bind 同步写库（PLAN-036
+   已实现，本期 verify）；reconcile endpoint 推到 OPS-052 backlog（需要
+   多个新 repo 方法 + 跨 cluster N+1 优化）。
+
+10. **辅助清理**：
+    - `cluster/configs/cloud-init/vm-user-data.yaml.template` 同步加
+      openssh-server（单机部署模式模板对齐）
+    - vm-08f9d5 已删除（用户授权，Q6=B）
+    - portal/order.go: 删 `payWithSyncProvisioning` 函数 + 兜底分支
+
+### 单测覆盖（全绿）
+
+`internal/service/vm_test.go` 新增：
+- `TestClassifyOSFamily`：image alias → OS family 映射（10 case）
+- `TestBuildCloudInit_AllFamilies`：4 family × 必装包 / 必启服务 / chpasswd
+  root / sshd drop-in / users.root / apt proxy 仅 apt 等 invariant
+- `TestBuildCloudInit_SSHKeys` / `_NoAptProxy` / `_ExtraYAML` /
+  `_NonRootLoginUser`
+
+更新：`reinstall_resolve_test.go` defaultUserForSource 统一 root，删 14 个
+旧 distro-specific 期望值。
+
+前端：`default-user.test.ts` 42 pass / 0 fail。
+
+### 部署
+
+- `/usr/local/bin/incus-admin` 替换 27 MB binary（备份到 `.bak`）
+- `/etc/incus-admin/incus-admin.env` 加 APT_CACHER_URL + VM_DEFAULT_LOGIN_USER
+- DB `UPDATE os_templates SET default_user='root' WHERE source LIKE '%/cloud'`
+  生效 9 行
+- `systemctl restart incus-admin` 后 log 显示
+  `provisioning jobs runtime started pool_size=4 apt_proxy=http://139.162.24.177:3142/ default_login_user=root`
+- apt-cacher-ng systemd active，curl localhost:3142/acng-report.html → 200
+
+### 明确不做（推到下游）
+
+- CoreOS / Flatcar 镜像（Ignition 路径）→ PLAN-053
+- AI LLM 直接调 API 生成 cloud-init → PLAN-053
+- firewall binding reconcile endpoint → OPS-052 backlog
+- 舰队级补丁集中调度（Ansible/Salt）→ OPS-052 backlog
+- apt-cacher-ng HA 高可用 → 单实例够，runcmd 健康探测兜底
+
+### 现场端到端验证（2026-05-15 09:46 UTC）
+
+用户 ai@5ok.co 实测：
+- portal /launch 选 Basic VPS + Ubuntu 24.04 LTS → Launch
+- DB `provisioning_job_steps` for `vm-f412ee` 7 步全 succeeded：
+  submit_instance → wait_create → start_instance → wait_start
+  → **wait_cloud_init** → **verify_ready** → finalize
+- DonePanel 实测显示：Username=**root**、Password=明文 32 hex、IP=
+  202.151.179.39、「复制全部凭据」+「Download credentials」均可见
+- 主控 `ssh root@202.151.179.39 < 密码 >` **一次通**：
+  ```
+  whoami → root
+  hostname → vm-f412ee
+  ss -ltn → 0.0.0.0:22 LISTEN
+  systemctl is-active ssh → active
+  ```
+- 截图：`./done-panel-success.png`
+
+### 关联
+
+- 上游：PLAN-051 §2-E F-05（同 key 修补 + reinstall round-trip 测试遗留）
+- 下游：PLAN-053 / OPS-052
+
 ## 2026-05-11 [done] OPS-050 jobs runtime 容量可配 + 队列深度可观测
 
 异步 provisioning runtime 的 `PoolSize=4` / `QueueSize=64` 此前在

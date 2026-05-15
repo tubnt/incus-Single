@@ -258,8 +258,11 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.jobs == nil || h.jobRepo == nil {
-		// 兜底：未注入 jobs runtime 时回退到旧同步路径，保证未启用异步的部署仍可用
-		h.payWithSyncProvisioning(w, r, order, orderID, userID, client, product, vmName, osImage, sshKeys, defProject, ip, gateway, cidr, pool, network)
+		// OPS-051 / PLAN-052 Q3=A：删除同步兜底（payWithSyncProvisioning），
+		// 生产部署强制注入 jobs runtime（cmd/server/main.go startup gate）。
+		// 走到这里说明配置错误（clusterMgr == nil），直接退款 + 503 让运维定位。
+		h.rollbackPayment(r.Context(), order, ip, "jobs runtime not configured")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "provisioning runtime unavailable; payment refunded"})
 		return
 	}
 
@@ -341,74 +344,9 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// payWithSyncProvisioning 是 jobs runtime 未注入时的回退路径：维持原 sync 行为
-// 不变，避免没启用异步运行时的部署在升级期间断流。新部署应配置 jobs runtime。
-func (h *OrderHandler) payWithSyncProvisioning(w http.ResponseWriter, r *http.Request, order *model.Order, orderID, userID int64, client *cluster.Client, product *model.Product, vmName, osImage string, sshKeys []string, defProject, ip, gateway, cidr, pool, network string) {
-	result, err := h.vmSvc.Create(r.Context(), service.CreateVMParams{
-		ClusterName: client.Name,
-		Project:     defProject,
-		UserID:      userID,
-		VMName:      vmName,
-		CPU:         product.CPU,
-		MemoryMB:    product.MemoryMB,
-		DiskGB:      product.DiskGB,
-		OSImage:     osImage,
-		SSHKeys:     sshKeys,
-		IP:          ip,
-		Gateway:     gateway,
-		SubnetCIDR:  cidr,
-		StoragePool: pool,
-		Network:     network,
-	})
-	if err != nil {
-		slog.Error("auto-provision VM failed after payment", "order", orderID, "error", err)
-		h.rollbackPayment(r.Context(), order, ip, "vm provisioning failed: "+err.Error())
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "VM provisioning failed, payment refunded"})
-		return
-	}
-
-	_ = h.orders.UpdateStatus(r.Context(), orderID, model.OrderActive)
-
-	vm := &model.VM{
-		Name:      result.VMName,
-		ClusterID: h.clusters.IDByName(client.Name),
-		UserID:    userID,
-		OrderID:   &orderID,
-		Status:    model.VMStatusRunning,
-		CPU:       product.CPU,
-		MemoryMB:  product.MemoryMB,
-		DiskGB:    product.DiskGB,
-		OSImage:   osImage,
-		Node:      result.Node,
-		Password:  &result.Password,
-	}
-	if result.IP != "" {
-		vm.IP = &result.IP
-	}
-	if err := h.vmRepo.Create(r.Context(), vm); err != nil {
-		slog.Error("vm row insert failed", "order", orderID, "name", result.VMName, "error", err)
-	} else {
-		attachIPToVM(r.Context(), result.IP, vm.ID)
-	}
-
-	slog.Info("VM auto-provisioned after payment", "order", orderID, "vm", result.VMName)
-	audit(r.Context(), r, "order.pay", "order", orderID, map[string]any{
-		"vm_name": result.VMName,
-		"ip":      result.IP,
-		"amount":  order.Amount,
-	})
-	// Session-1 O1 / PLAN-051 §2-B 决策 D-09 = B：密码直返但加 Cache-Control:
-	// no-store + Pragma: no-cache，防止响应被浏览器/CDN 边缘缓存意外保留。
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-	w.Header().Set("Pragma", "no-cache")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":   "provisioned",
-		"vm_name":  result.VMName,
-		"ip":       result.IP,
-		"password": result.Password,
-		"username": result.Username,
-	})
-}
+// OPS-051 / PLAN-052 Q3=A：payWithSyncProvisioning 已删除。生产部署强制注入
+// jobs runtime（cmd/server/main.go 在 clusterMgr == nil 时仍可启动 DB-only 模式，
+// 但 portal pay handler 走到 jobs == nil 分支会直接 503 + 退款，保护用户）。
 
 func (h *OrderHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	orderID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)

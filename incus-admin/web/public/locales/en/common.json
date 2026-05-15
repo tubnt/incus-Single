@@ -1425,6 +1425,8 @@
       "waitCreate": "Pull image and create instance",
       "startInstance": "Start instance",
       "waitStart": "Wait for boot",
+      "waitCloudInit": "Installing SSH service and system components",
+      "verifyReady": "Verify connectivity",
       "finalize": "Record node + credentials",
       "fetchInstance": "Read original config",
       "stop": "Stop current instance",

@@ -1427,6 +1427,8 @@
       "waitCreate": "拉取镜像并创建实例",
       "startInstance": "启动实例",
       "waitStart": "等待启动完成",
+      "waitCloudInit": "正在安装 SSH 服务和系统组件",
+      "verifyReady": "验证连通性",
       "finalize": "记录运行节点与凭据",
       "fetchInstance": "读取原实例配置",
       "stop": "停止当前实例",

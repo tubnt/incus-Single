@@ -432,11 +432,16 @@ func runServer() {
 			Migrator:    vmMigratorAdapter{svc: vmSvc}, // PLAN-037: cluster.vm.migrate-batch
 			PoolSize:    cfg.Jobs.PoolSize,             // OPS-050: env JOBS_POOL_SIZE，默认 4
 			QueueSize:   cfg.Jobs.QueueSize,            // OPS-050: env JOBS_QUEUE_SIZE，默认 64
+			// OPS-051 / PLAN-052
+			AptProxyURL:      cfg.Provisioning.AptProxyURL,
+			DefaultLoginUser: cfg.Provisioning.DefaultLoginUser,
 		})
 		jobsRuntime.Start(workerCtx)
 		slog.Info("provisioning jobs runtime started",
 			"pool_size", cfg.Jobs.PoolSize,
-			"queue_size", cfg.Jobs.QueueSize)
+			"queue_size", cfg.Jobs.QueueSize,
+			"apt_proxy", cfg.Provisioning.AptProxyURL,
+			"default_login_user", cfg.Provisioning.DefaultLoginUser)
 	}
 
 	adminVMHandler := portal.NewAdminVMHandler(vmSvc, vmRepo, sshKeyRepo, clusterMgr, scheduler)

@@ -34,6 +34,12 @@ type Deps struct {
 	// 满后 Enqueue 阻塞 HTTP（PayWithBalance 已 commit、余额已扣的状态下挂死），
 	// 调大 buffer 是最直接的缓解手段，配合 PoolSize 拉宽 worker 池。
 	QueueSize int
+	// OPS-051 / PLAN-052：vm-create cloud-init 注入的 apt-cacher-ng proxy 全
+	// 地址（形如 http://139.162.24.177:3142/）。空 → 不注入。
+	AptProxyURL string
+	// OPS-051 / PLAN-052：vm-create / reinstall 强制建立的统一登录账号；
+	// 空 → "root"（Q7 决策：所有 Linux 默认 root 登录）。
+	DefaultLoginUser string
 }
 
 // VMMigrator 由 service.VMService 实现。jobs 包通过此接口避免反向 import service

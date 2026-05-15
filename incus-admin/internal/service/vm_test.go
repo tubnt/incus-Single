@@ -174,6 +174,167 @@ func TestProbeImageServer(t *testing.T) {
 	}
 }
 
+// TestClassifyOSFamily 验证 image alias / template source 到 OS family 的映射。
+// 任何被分类到 unknown 的 alias 会回退 apt 模板（与 BuildCloudInit fallback 一致），
+// 但单测覆盖明示意图比"无声 fallback"更稳。OPS-051 / PLAN-052。
+func TestClassifyOSFamily(t *testing.T) {
+	cases := []struct {
+		in   string
+		want OSFamily
+	}{
+		{"ubuntu/24.04/cloud", OSFamilyAPT},
+		{"images:ubuntu/22.04/cloud", OSFamilyAPT},
+		{"debian/12/cloud", OSFamilyAPT},
+		{"rockylinux/9/cloud", OSFamilyDNF},
+		{"almalinux/9/cloud", OSFamilyDNF},
+		{"fedora/40/cloud", OSFamilyDNF},
+		{"archlinux/current/cloud", OSFamilyPacman},
+		{"alpine/3.20/cloud", OSFamilyAlpine},
+		{"windows-server-2022", OSFamilyUnknown}, // Windows 不走 BuildCloudInit；这里 unknown 是正确的
+		{"", OSFamilyUnknown},
+	}
+	for _, c := range cases {
+		if got := ClassifyOSFamily(c.in); got != c.want {
+			t.Errorf("ClassifyOSFamily(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestBuildCloudInit_AllFamilies 锁定 BuildCloudInit 在 4 个 OS family
+// 上的关键 invariant：必有 openssh-server / qemu-guest-agent / runcmd 启用 sshd /
+// chpasswd users[] / sshd_config drop-in PermitRootLogin yes。OPS-051 / PLAN-052。
+func TestBuildCloudInit_AllFamilies(t *testing.T) {
+	families := []struct {
+		family   OSFamily
+		sshPkg   string // 期望的 openssh 包名
+		sshd     string // 期望的 systemd 服务名
+		extraPkg string // 自动补丁包（如 unattended-upgrades / dnf-automatic）
+	}{
+		{OSFamilyAPT, "openssh-server", "ssh", "unattended-upgrades"},
+		{OSFamilyDNF, "openssh-server", "sshd", "dnf-automatic"},
+		{OSFamilyPacman, "openssh", "sshd", ""},
+		{OSFamilyAlpine, "openssh-server", "sshd", ""},
+	}
+	for _, f := range families {
+		ci := BuildCloudInit(CloudInitInput{
+			OSFamily:    f.family,
+			LoginUser:   "root",
+			Password:    "deadbeef",
+			AptProxyURL: "http://10.0.0.1:3142/",
+		})
+		// 必装包
+		if !strings.Contains(ci, "- "+f.sshPkg+"\n") {
+			t.Errorf("%s: missing package %q in output:\n%s", f.family, f.sshPkg, ci)
+		}
+		if !strings.Contains(ci, "- qemu-guest-agent\n") {
+			t.Errorf("%s: missing qemu-guest-agent", f.family)
+		}
+		if f.extraPkg != "" && !strings.Contains(ci, "- "+f.extraPkg+"\n") {
+			t.Errorf("%s: missing %q", f.family, f.extraPkg)
+		}
+		// 必启 sshd
+		if !strings.Contains(ci, "systemctl enable --now "+f.sshd+".service") {
+			t.Errorf("%s: missing systemctl enable %s", f.family, f.sshd)
+		}
+		// chpasswd users[root]
+		if !strings.Contains(ci, `name: "root"`) || !strings.Contains(ci, `password: "deadbeef"`) {
+			t.Errorf("%s: missing chpasswd root entry:\n%s", f.family, ci)
+		}
+		// sshd drop-in
+		if !strings.Contains(ci, "PermitRootLogin yes") {
+			t.Errorf("%s: missing PermitRootLogin drop-in", f.family)
+		}
+		// users.root
+		if !strings.Contains(ci, "  - name: root\n") {
+			t.Errorf("%s: missing users.root:\n%s", f.family, ci)
+		}
+		// apt proxy 仅 apt 家族
+		if f.family == OSFamilyAPT {
+			if !strings.Contains(ci, "http_proxy: http://10.0.0.1:3142/") {
+				t.Errorf("apt: missing proxy injection")
+			}
+		} else {
+			if strings.Contains(ci, "http_proxy:") {
+				t.Errorf("%s: non-apt family must not get apt proxy", f.family)
+			}
+		}
+		// 头一行必为 #cloud-config
+		if !strings.HasPrefix(ci, "#cloud-config\n") {
+			t.Errorf("%s: output must start with #cloud-config, got %.40q", f.family, ci)
+		}
+	}
+}
+
+// TestBuildCloudInit_SSHKeys 验证 SSHKeys 注入到 users.root.ssh_authorized_keys。
+func TestBuildCloudInit_SSHKeys(t *testing.T) {
+	ci := BuildCloudInit(CloudInitInput{
+		OSFamily: OSFamilyAPT,
+		Password: "x",
+		SSHKeys:  []string{"ssh-ed25519 AAAA test1@host", "ssh-rsa BBBB test2@host"},
+	})
+	for _, want := range []string{
+		"ssh_authorized_keys:",
+		"      - ssh-ed25519 AAAA test1@host",
+		"      - ssh-rsa BBBB test2@host",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("missing %q in:\n%s", want, ci)
+		}
+	}
+}
+
+// TestBuildCloudInit_NoAptProxy 当 AptProxyURL 为空时不应注入 apt: 字段，且
+// runcmd 中不应有 acng healthcheck（避免 5s 无谓延迟）。
+func TestBuildCloudInit_NoAptProxy(t *testing.T) {
+	ci := BuildCloudInit(CloudInitInput{
+		OSFamily: OSFamilyAPT,
+		Password: "x",
+	})
+	if strings.Contains(ci, "http_proxy:") {
+		t.Errorf("AptProxyURL='' but proxy still injected:\n%s", ci)
+	}
+	if strings.Contains(ci, "acng-report.html") {
+		t.Errorf("AptProxyURL='' but acng healthcheck still in runcmd")
+	}
+}
+
+// TestBuildCloudInit_ExtraYAML 验证 os_templates.cloud_init_template 中追加
+// 字段拼接到 base 之后（不覆盖系统强制字段）。
+func TestBuildCloudInit_ExtraYAML(t *testing.T) {
+	extra := "write_files:\n  - path: /etc/motd\n    content: hello\n"
+	ci := BuildCloudInit(CloudInitInput{
+		OSFamily:  OSFamilyAPT,
+		Password:  "x",
+		ExtraYAML: extra,
+	})
+	if !strings.Contains(ci, "# --- merged from os_templates.cloud_init_template ---") {
+		t.Errorf("missing merge marker:\n%s", ci)
+	}
+	if !strings.Contains(ci, "/etc/motd") {
+		t.Errorf("extra write_files entry missing")
+	}
+	// 系统字段必须仍在
+	if !strings.Contains(ci, "openssh-server") {
+		t.Errorf("system openssh-server stripped by extra merge")
+	}
+}
+
+// TestBuildCloudInit_NonRootLoginUser 当 LoginUser != root 时应注入 sudo
+// NOPASSWD（与 cloud-init 镜像默认行为对齐）。
+func TestBuildCloudInit_NonRootLoginUser(t *testing.T) {
+	ci := BuildCloudInit(CloudInitInput{
+		OSFamily:  OSFamilyAPT,
+		LoginUser: "ubuntu",
+		Password:  "x",
+	})
+	if !strings.Contains(ci, "sudo: ALL=(ALL) NOPASSWD:ALL") {
+		t.Errorf("missing sudo NOPASSWD for non-root user:\n%s", ci)
+	}
+	if !strings.Contains(ci, `name: "ubuntu"`) {
+		t.Errorf("missing chpasswd users.ubuntu")
+	}
+}
+
 func TestResetPasswordModeConstants(t *testing.T) {
 	cases := []struct {
 		mode ResetPasswordMode

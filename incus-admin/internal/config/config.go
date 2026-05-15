@@ -19,6 +19,21 @@ type Config struct {
 	Monitor  MonitorConfig   `json:"monitor"`
 	AI       AIConfig        `json:"ai"`
 	Jobs     JobsConfig      `json:"jobs"`
+	// OPS-051 / PLAN-052：cloud-init 注入的 apt-cacher-ng proxy + 模板默认登录用户
+	// （root），便于 dev 环境留空跳过 proxy。
+	Provisioning ProvisioningConfig `json:"provisioning"`
+}
+
+// ProvisioningConfig 控制 vm-create 生成 cloud-init user-data 的横向参数。
+//
+//   - AptProxyURL：apt-cacher-ng / squid 等 HTTP cache 的全地址，例如
+//     http://139.162.24.177:3142/。留空 → 不注入 proxy（VM 直连上游）。
+//     cloud-init runcmd 有 fallback：proxy 不可达 5 秒内自动剥离。
+//   - DefaultLoginUser：Linux VM 强制建立的统一登录账号；默认 root（OPS-051
+//     Q7 决策）。镜像自带的 ubuntu/debian/rocky 用户保留但不再当默认。
+type ProvisioningConfig struct {
+	AptProxyURL      string `json:"apt_proxy_url"`     // env APT_CACHER_URL
+	DefaultLoginUser string `json:"default_login_user"` // env VM_DEFAULT_LOGIN_USER，默认 root
 }
 
 // JobsConfig 控制 PLAN-025 异步 provisioning runtime 的容量。
@@ -190,6 +205,10 @@ func Load() (*Config, error) {
 		Jobs: JobsConfig{
 			PoolSize:  parseIntOr("JOBS_POOL_SIZE", 4),
 			QueueSize: parseIntOr("JOBS_QUEUE_SIZE", 64),
+		},
+		Provisioning: ProvisioningConfig{
+			AptProxyURL:      envOr("APT_CACHER_URL", ""),
+			DefaultLoginUser: envOr("VM_DEFAULT_LOGIN_USER", "root"),
 		},
 	}
 

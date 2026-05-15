@@ -337,4 +337,8 @@ const (
 	StepStatusSucceeded = "succeeded"
 	StepStatusFailed    = "failed"
 	StepStatusSkipped   = "skipped"
+	// OPS-051 / PLAN-052：smoke test 软失败（cloud-init / verify_ready 超时）
+	// 不让 job=failed（避免误退款 + 删 VM），但用户在 UI 上能看到 warning step
+	// + 详情 detail，可手动重试或删 VM 重开。
+	StepStatusWarning = "warning"
 )

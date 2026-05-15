@@ -112,3 +112,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**UX-007 初始凭据可重看入口（Step-up gated）**](UX-007.md) `P1`
 - [x] [**OPS-049 速率限流换 token bucket + IETF RateLimit headers**](OPS-049.md) `P1`
 - [x] [**OPS-050 jobs runtime 容量可配 + 队列深度可观测**](OPS-050.md) `P2`
+- [x] [**OPS-051 VM 创建 SSH 不可达根因修复 + 凭据/UX 闭环**](OPS-051.md) `P1`
